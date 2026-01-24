@@ -1,13 +1,9 @@
-use std::{
-    io,
-    process::ExitStatus,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use tokio::{
     process::{Child, Command},
-    time::{self, sleep},
+    time::sleep,
 };
 
 #[cfg(unix)]
@@ -130,8 +126,8 @@ impl TestServerProcess {
     }
 
     #[cfg(unix)]
-    async fn wait_for_termination(&mut self, timeout: Duration) -> io::Result<ExitStatus> {
-        time::timeout(timeout, self.child.wait()).await?
+    async fn wait_for_termination(&mut self, timeout: Duration) -> std::io::Result<std::process::ExitStatus> {
+        tokio::time::timeout(timeout, self.child.wait()).await?
     }
 }
 
