@@ -16,13 +16,19 @@ use nix::{
     unistd::Pid,
 };
 
+// On Windows, signal handling is different and SIGTERM is not supported in the same way. We can use
+// Ctrl-C to initiate a graceful shutdown in Windows, however this is tricky from a test suite.
+// Amongst other things, Ctrl-C is send to the entire process group and would also interrupt the
+// test runner itself. Therefore, we skip tests using SIGTERM on Windows. We could run them on
+// windows if we provide an alternative way to trigger graceful shutdown in the server.
+#[cfg(not(windows))]
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
     let mut child = TestServerProcess::new(3001);
     child.wait_for_health_check().await;
 
-    // // When sending SIGTERM to the server process
+    // When sending SIGTERM to the server process
     child.send_sigterm();
     // And measuring the time it takes to shut down
     let start = Instant::now();
@@ -37,6 +43,12 @@ async fn server_shuts_down_within_1_sec() {
     assert!(end - start <= max_duration)
 }
 
+// On Windows, signal handling is different and SIGTERM is not supported in the same way. We can use
+// Ctrl-C to initiate a graceful shutdown in Windows, however this is tricky from a test suite.
+// Amongst other things, Ctrl-C is send to the entire process group and would also interrupt the
+// test runner itself. Therefore, we skip tests using SIGTERM on Windows. We could run them on
+// windows if we provide an alternative way to trigger graceful shutdown in the server.
+#[cfg(not(windows))]
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
@@ -55,6 +67,19 @@ async fn server_finished_with_success_status_code_after_terminate() {
     assert!(output.success())
 }
 
+#[tokio::test]
+async fn server_boots_within_one_sec() {
+    // Given a start time
+    let start = Instant::now();
+    // When measuring the time it takes to boot
+    let mut child = TestServerProcess::new(3003);
+    child.wait_for_health_check().await;
+    let end = Instant::now();
+    // Then it should have taken less than 1 second to boot up
+    let max_duration = Duration::from_secs(1);
+    assert!(end - start <= max_duration)
+}
+
 /// Runs the server process as a command from the binary. Useful for testing stuff affecting the
 /// entire process. E.g. signal handling, shutdown, etc.
 struct TestServerProcess {
@@ -66,8 +91,17 @@ struct TestServerProcess {
 impl TestServerProcess {
     fn new(port: u16) -> Self {
         let binary_path = env!("CARGO_BIN_EXE_tattle");
+        #[cfg(not(windows))]
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
+            .spawn()
+            .unwrap();
+        #[cfg(windows)]
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        #[cfg(windows)]
+        let child = Command::new(binary_path)
+            .env("PORT", port.to_string())
+            .creation_flags(CREATE_NEW_PROCESS_GROUP)
             .spawn()
             .unwrap();
         let client = Client::new();
@@ -95,13 +129,7 @@ impl TestServerProcess {
         signal::kill(pid, Signal::SIGTERM).unwrap();
     }
 
-    #[cfg(windows)]
-    fn send_sigterm(&mut self) {
-        use windows::Win32::System::Console::{CTRL_C_EVENT, GenerateConsoleCtrlEvent};
-        let id = self.child.id().expect("Test process must be running");
-        unsafe { GenerateConsoleCtrlEvent(CTRL_C_EVENT, id).unwrap() }
-    }
-
+    #[cfg(unix)]
     async fn wait_for_termination(&mut self, timeout: Duration) -> io::Result<ExitStatus> {
         time::timeout(timeout, self.child.wait()).await?
     }
