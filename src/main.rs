@@ -1,13 +1,11 @@
 mod configuration;
+mod server;
 mod shutdown;
 
-use axum::{Router, routing::get};
 use dotenv::dotenv;
-use tokio::net::TcpListener;
-
 use shutdown::shutdown_signal;
 
-use crate::configuration::Configuration;
+use crate::{configuration::Configuration, server::Server};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,14 +17,7 @@ async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     let cfg = Configuration::from_env()?;
 
-    let app = Router::new()
-        .route("/health", get(|| async { "OK" }))
-        .route("/", get(|| async { "Hello, World!" }));
-    let listener = TcpListener::bind(cfg.socket_addr()).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
-        .expect("axum::serve never fails");
+    Server::new(cfg.socket_addr(), shutdown).await?;
 
     Ok(())
 }
