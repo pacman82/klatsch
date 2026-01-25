@@ -17,7 +17,14 @@ async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     let cfg = Configuration::from_env()?;
 
-    Server::new(cfg.socket_addr(), shutdown).await?;
+    // Answer incoming HTTP requests
+    let server = Server::new(cfg.socket_addr()).await?;
+
+    // Run our application until a shutdown signal is received
+    shutdown.await;
+
+    // Gracefully shutdown the http server
+    server.shutdown().await;
 
     Ok(())
 }

@@ -1,21 +1,45 @@
 use axum::{Router, routing::get};
-use tokio::net::{TcpListener, ToSocketAddrs};
+use tokio::{
+    net::{TcpListener, ToSocketAddrs},
+    sync::oneshot,
+    task::JoinHandle,
+};
 
-pub struct Server {}
+pub struct Server {
+    trigger_shutdown: oneshot::Sender<()>,
+    join_handle: JoinHandle<()>,
+}
 
 impl Server {
-    pub async fn new(
-        socket_address: impl ToSocketAddrs,
-        shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<()> {
-        let app = Router::new()
-            .route("/health", get(|| async { "OK" }))
-            .route("/", get(|| async { "Hello, World!" }));
+    pub async fn new(socket_address: impl ToSocketAddrs) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown)
-            .await
-            .expect("axum::serve never fails");
-        Ok(())
+        let router = router();
+        let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
+        let join_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    shutdown_triggered
+                        .await
+                        .expect("Sendor for shutdown trigger must not be dropped before used.")
+                })
+                .await
+                .expect("axum::serve must not return an error");
+        });
+        let server = Server {
+            trigger_shutdown,
+            join_handle,
+        };
+        Ok(server)
     }
+
+    pub async fn shutdown(self) {
+        self.trigger_shutdown.send(()).expect("Receiver must exist");
+        self.join_handle.await.unwrap();
+    }
+}
+
+fn router() -> Router {
+    Router::new()
+        .route("/health", get(|| async { "OK" }))
+        .route("/", get(|| async { "Hello, World!" }))
 }
