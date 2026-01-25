@@ -87,17 +87,8 @@ struct TestServerProcess {
 impl TestServerProcess {
     fn new(port: u16) -> Self {
         let binary_path = env!("CARGO_BIN_EXE_tattle");
-        #[cfg(not(windows))]
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
-            .spawn()
-            .unwrap();
-        #[cfg(windows)]
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        #[cfg(windows)]
-        let child = Command::new(binary_path)
-            .env("PORT", port.to_string())
-            .creation_flags(CREATE_NEW_PROCESS_GROUP)
             .spawn()
             .unwrap();
         let client = Client::new();
@@ -126,7 +117,10 @@ impl TestServerProcess {
     }
 
     #[cfg(unix)]
-    async fn wait_for_termination(&mut self, timeout: Duration) -> std::io::Result<std::process::ExitStatus> {
+    async fn wait_for_termination(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<std::process::ExitStatus> {
         tokio::time::timeout(timeout, self.child.wait()).await?
     }
 }
