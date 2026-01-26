@@ -6,7 +6,8 @@ A self hosted chat server which is painless to operate
 
 ## Milestones
 
-- [ ] Basic UI statically linked into server
+- [x] UI statically linked into server
+- [ ] Display messages
 
 ## Attribution
 
