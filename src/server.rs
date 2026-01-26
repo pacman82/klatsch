@@ -1,4 +1,5 @@
 use axum::{Router, routing::get};
+use memory_serve::{MemoryServe, load_assets};
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
     sync::oneshot,
@@ -39,7 +40,11 @@ impl Server {
 }
 
 fn router() -> Router {
+    let client_ui_router = MemoryServe::new(load_assets!("./ui/build"))
+        .index_file(Some("/index.html"))
+        .into_router();
+
     Router::new()
+        .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
-        .route("/", get(|| async { "Hello, World!" }))
 }
