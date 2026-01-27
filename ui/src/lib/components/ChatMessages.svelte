@@ -5,8 +5,9 @@
 		sender: string;
 		content: string;
 		timestamp: string;
-		isMe: boolean; // true if the message is from the current user
 	};
+
+	const me = 'Bob';
 
 	// In a real app, you'd get these from props or a store
 	const messages: ChatMessage[] = [
@@ -14,39 +15,35 @@
 			id: 1,
 			sender: 'Alice',
 			content: 'Hey there! 👋',
-			timestamp: '2024-06-01 10:00',
-			isMe: false
+			timestamp: '2024-06-01 10:00'
 		},
 		{
 			id: 2,
-			sender: 'Me',
+			sender: 'Bob',
 			content: 'Hi Alice! How are you?',
-			timestamp: '2024-06-01 10:01',
-			isMe: true
+			timestamp: '2024-06-01 10:01'
 		},
 		{
 			id: 3,
 			sender: 'Alice',
 			content: "I'm good, thanks! Working on the chat server project.",
-			timestamp: '2024-06-01 10:02',
-			isMe: false
+			timestamp: '2024-06-01 10:02'
 		},
 		{
 			id: 4,
-			sender: 'Me',
+			sender: 'Bob',
 			content: "That's awesome! Let me know if you need any help.",
-			timestamp: '2024-06-01 10:03',
-			isMe: true
+			timestamp: '2024-06-01 10:03'
 		}
 	];
 </script>
 
 <div class="chat-container">
 	{#each messages as msg (msg.id)}
-		<div class="message-row {msg.isMe ? 'me' : 'them'}">
+		<div class="message-row {msg.sender == me ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !msg.isMe}
+					{#if !(msg.sender == me)}
 						<span class="sender">{msg.sender}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
