@@ -15,6 +15,7 @@ tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "rt", "si
 tokio-stream = "0.1.18"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
+uuid = { version = "1.20.0", features = ["serde"] }
 
 [dev-dependencies]
 reqwest = "0.13.1"
