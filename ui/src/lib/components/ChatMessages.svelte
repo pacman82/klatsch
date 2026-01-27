@@ -1,7 +1,9 @@
 <script lang="ts">
-	// Example hardcoded chat messages
+	import { onMount } from 'svelte';
+	import { writable } from 'svelte/store';
+
 	type ChatMessage = {
-		id: number;
+		id: string;
 		sender: string;
 		content: string;
 		// Unix timestamp, milliseconds since epoch UTC
@@ -10,37 +12,33 @@
 
 	const me = 'Bob';
 
-	// In a real app, you'd get these from props or a store
-	const messages: ChatMessage[] = [
-		{
-			id: 1,
-			sender: 'Alice',
-			content: 'Hey there! 👋',
-			timestamp: 1704531600
-		},
-		{
-			id: 2,
-			sender: 'Bob',
-			content: 'Hi Alice! How are you?',
-			timestamp: 1704532600
-		},
-		{
-			id: 3,
-			sender: 'Alice',
-			content: "I'm good, thanks! Working on the chat server project.",
-			timestamp: 1704533600
-		},
-		{
-			id: 4,
-			sender: 'Bob',
-			content: "That's awesome! Let me know if you need any help.",
-			timestamp: 1704534600
-		}
-	];
+	const messages = writable<ChatMessage[]>([]);
+
+	onMount(() => {
+		const eventSource = new EventSource('/messages');
+		eventSource.onmessage = (event) => {
+			try {
+				const msg: ChatMessage = JSON.parse(event.data);
+				messages.update((current) => {
+					// Avoid duplicates by id
+					if (current.some((m) => m.id === msg.id)) return current;
+					return [...current, msg];
+				});
+			} catch (e) {
+				console.error('Failed to parse message event', e, event.data);
+			}
+		};
+		eventSource.onerror = (err) => {
+			console.error('EventSource failed:', err);
+		};
+		return () => {
+			eventSource.close();
+		};
+	});
 </script>
 
 <div class="chat-container">
-	{#each messages as msg (msg.id)}
+	{#each $messages as msg (msg.id)}
 		<div class="message-row {msg.sender == me ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
