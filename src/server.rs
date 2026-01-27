@@ -7,6 +7,7 @@ use axum::{
 };
 use futures_util::Stream;
 use memory_serve::{MemoryServe, load_assets};
+use serde::Serialize;
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
     sync::oneshot,
@@ -58,7 +59,46 @@ fn router() -> Router {
 }
 
 async fn messages() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    Sse::new(futures_util::stream::empty())
+    let messages = vec![
+        Message {
+            sender: "Alice".to_string(),
+            content: "Hey there! 👋".to_string(),
+            timestamp: 1704531600,
+        },
+        Message {
+            sender: "Bob".to_string(),
+            content: "Hi Alice! How are you?".to_string(),
+            timestamp: 1704532600,
+        },
+        Message {
+            sender: "Alice".to_string(),
+            content: "I'm good, thanks! Working on the chat server project.".to_string(),
+            timestamp: 1704533600,
+        },
+        Message {
+            sender: "Bob".to_string(),
+            content: "That's awesome! Let me know if you need any help.".to_string(),
+            timestamp: 1704534600,
+        },
+    ];
+    let messages = messages.into_iter().enumerate().map(|(id, msg)| {
+        let event = Event::default()
+            .id(id.to_string())
+            .json_data(msg)
+            .expect("Deserializing message must not fail");
+        Ok(event)
+    });
+    Sse::new(tokio_stream::iter(messages))
+}
+
+#[derive(Serialize)]
+struct Message {
+    /// Author of the message
+    sender: String,
+    /// Text content of the message. I.e. the actual message
+    content: String,
+    /// Unix timestamp. Milliseconds since epoch
+    timestamp: u64,
 }
 
 #[cfg(test)]
@@ -90,11 +130,19 @@ mod tests {
 
         // Check that the body is empty (no SSE events)
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(
-            "", bytes,
-            "Expected empty SSE stream body, got: {:?}",
-            bytes
-        );
+        let expected_body = "id: 0\n\
+            data: {\"sender\":\"Alice\",\"content\":\"Hey there! 👋\",\"timestamp\":1704531600}\n\
+            \n\
+            id: 1\n\
+            data: {\"sender\":\"Bob\",\"content\":\"Hi Alice! How are you?\",\"timestamp\":1704532600}\n\
+            \n\
+            id: 2\ndata: {\"sender\":\"Alice\",\"content\":\"I'm good, thanks! Working on the chat \
+            server project.\",\"timestamp\":1704533600}\n\
+            \n\
+            id: 3\ndata: {\"sender\":\"Bob\",\"content\":\"That's awesome! Let me know if you need \
+            any help.\",\"timestamp\":1704534600}\n\
+            \n";
+        assert_eq!(expected_body, bytes);
     }
 
     #[tokio::test]
