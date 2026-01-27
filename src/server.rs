@@ -72,7 +72,7 @@ mod tests {
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
-    async fn test_messages_route_returns_empty_sse_stream() {
+    async fn messages_route_returns_empty_sse_stream() {
         let app = router();
 
         let response = app
@@ -88,7 +88,32 @@ mod tests {
         // Check status code
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Check content-type header
+        // Check that the body is empty (no SSE events)
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            "", bytes,
+            "Expected empty SSE stream body, got: {:?}",
+            bytes
+        );
+    }
+
+    #[tokio::test]
+    async fn messages_should_return_content_type_event_stream() {
+        // Given
+        let app = router();
+
+        // When
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/messages")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
         let content_type = response
             .headers()
             .get("content-type")
@@ -98,14 +123,6 @@ mod tests {
             content_type.starts_with("text/event-stream"),
             "Expected SSE content-type, got: {}",
             content_type
-        );
-
-        // Check that the body is empty (no SSE events)
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(
-            "", bytes,
-            "Expected empty SSE stream body, got: {:?}",
-            bytes
         );
     }
 }
