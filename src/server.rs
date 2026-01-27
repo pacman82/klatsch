@@ -112,9 +112,11 @@ mod tests {
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
-    async fn messages_route_returns_empty_sse_stream() {
+    async fn messages_route_returns_hardcoded_messages_stream() {
+        // Given
         let app = router();
 
+        // When
         let response = app
             .oneshot(
                 Request::builder()
@@ -125,10 +127,9 @@ mod tests {
             .await
             .unwrap();
 
-        // Check status code
+        // Then
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Check that the body is empty (no SSE events)
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let expected_body = "id: 0\n\
             data: {\"sender\":\"Alice\",\"content\":\"Hey there! 👋\",\"timestamp\":1704531600}\n\
