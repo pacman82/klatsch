@@ -4,7 +4,8 @@
 		id: number;
 		sender: string;
 		content: string;
-		timestamp: string;
+		// Unix timestamp, milliseconds since epoch UTC
+		timestamp: number;
 	};
 
 	const me = 'Bob';
@@ -15,25 +16,25 @@
 			id: 1,
 			sender: 'Alice',
 			content: 'Hey there! 👋',
-			timestamp: '2024-06-01 10:00'
+			timestamp: 1704531600
 		},
 		{
 			id: 2,
 			sender: 'Bob',
 			content: 'Hi Alice! How are you?',
-			timestamp: '2024-06-01 10:01'
+			timestamp: 1704532600
 		},
 		{
 			id: 3,
 			sender: 'Alice',
 			content: "I'm good, thanks! Working on the chat server project.",
-			timestamp: '2024-06-01 10:02'
+			timestamp: 1704533600
 		},
 		{
 			id: 4,
 			sender: 'Bob',
 			content: "That's awesome! Let me know if you need any help.",
-			timestamp: '2024-06-01 10:03'
+			timestamp: 1704534600
 		}
 	];
 </script>
@@ -48,7 +49,7 @@
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
 				</div>
-				<div class="meta">{msg.timestamp}</div>
+				<div class="meta">{new Date(msg.timestamp).toString()}</div>
 			</div>
 		</div>
 	{/each}
