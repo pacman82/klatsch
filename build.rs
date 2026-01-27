@@ -3,22 +3,46 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=ui/");
     // Install ui dependencies
-    let output = Command::new("npm")
-        .args(&["install"])
-        .current_dir("./ui")
-        .output()
-        .expect("Failed to run npm");
-    if !output.status.success() {
-        panic!("'npm install' failed")
-    }
+    execute_npm_command(&["install"]);
+    // Build the ui
+    execute_npm_command(&["run", "build"]);
+}
 
-    // Build ui
+#[cfg(not(windows))]
+fn execute_npm_command(args: &[&str]) {
     let output = Command::new("npm")
-        .args(&["run", "build"])
+        .args(args)
         .current_dir("./ui")
         .output()
         .expect("Failed to run npm");
     if !output.status.success() {
-        panic!("'npm run build' failed")
+        println!(
+            "stderr: stdout: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        println!(
+            "stderr: stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[cfg(windows)]
+fn execute_npm_command(args: &[&str]) {
+    let command = String::from("npm ") + &args.join(" ");
+    let output = Command::new("powershell")
+        .args(&["-Command", &command])
+        .current_dir("./ui")
+        .output()
+        .expect("Failed to run npm");
+    if !output.status.success() {
+        println!(
+            "stderr: stdout: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        println!(
+            "stderr: stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
