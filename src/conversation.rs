@@ -2,6 +2,10 @@ use futures_util::Stream;
 use serde::Serialize;
 use uuid::Uuid;
 
+pub trait ConversationApi {
+    fn messages(self) -> impl Stream<Item = Message> + Send + 'static;
+}
+
 #[derive(Clone)]
 pub struct Conversation {}
 
@@ -9,8 +13,10 @@ impl Conversation {
     pub fn new() -> Self {
         Conversation {}
     }
+}
 
-    pub fn messages(&self) -> impl Stream<Item = Message> + use<> {
+impl ConversationApi for Conversation {
+    fn messages(self) -> impl Stream<Item = Message> + Send + 'static {
         let messages = vec![
             Message {
                 id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),

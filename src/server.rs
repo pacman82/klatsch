@@ -14,7 +14,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::conversation::Conversation;
+use crate::conversation::{Conversation, ConversationApi};
 
 pub struct Server {
     trigger_shutdown: oneshot::Sender<()>,
@@ -58,13 +58,16 @@ fn router(conversation: Conversation) -> Router {
     Router::new()
         .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
-        .route("/messages", get(messages))
+        .route("/messages", get(messages::<Conversation>))
         .with_state(conversation)
 }
 
-async fn messages(
-    State(conversation): State<Conversation>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+async fn messages<C>(
+    State(conversation): State<C>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
+where
+    C: ConversationApi + Send,
+{
     let messages = conversation.messages().enumerate().map(|(id, msg)| {
         let event = Event::default()
             .id(id.to_string())
@@ -105,24 +108,30 @@ mod tests {
         // Then
         assert_eq!(response.status(), StatusCode::OK);
 
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec();
         let expected_body = "id: 0\n\
             data: {\"id\":\"019c0050-e4d7-7447-9d8f-81cde690f4a1\",\"sender\":\"Alice\",\
-            \"content\":\"Hey there! 👋\",\"timestamp\":1704531600}\n\
+            \"content\":\"Hey there! 👋\",\"timestamp_ms\":1704531600000}\n\
             \n\
             id: 1\n\
             data: {\"id\":\"019c0051-c29d-7968-b953-4adc898b1360\",\"sender\":\"Bob\",\"content\":\
-            \"Hi Alice! How are you?\",\"timestamp\":1704532600}\n\
+            \"Hi Alice! How are you?\",\"timestamp_ms\":1704531601000}\n\
             \n\
             id: 2\ndata: {\"id\":\"019c0051-e50d-7ea7-8a0e-f7df4176dd93\",\"sender\":\"Alice\",\
-            \"content\":\"I'm good, thanks! Working on the chat server project.\",\"timestamp\":\
-            1704533600}\n\
+            \"content\":\"I'm good, thanks! Working on the chat server project.\",\"timestamp_ms\":\
+            1704531602000}\n\
             \n\
             id: 3\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
-            \"content\":\"That's awesome! Let me know if you need any help.\",\"timestamp\":\
-            1704534600}\n\
+            \"content\":\"That's awesome! Let me know if you need any help.\",\"timestamp_ms\":\
+            1704531603000}\n\
             \n";
-        assert_eq!(expected_body, bytes);
+        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
     }
 
     #[tokio::test]
