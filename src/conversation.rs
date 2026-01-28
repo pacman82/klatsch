@@ -1,6 +1,7 @@
 use serde::Serialize;
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct Conversation {}
 
 impl Conversation {

@@ -2,6 +2,7 @@ use std::convert::Infallible;
 
 use axum::{
     Router,
+    extract::State,
     response::{Sse, sse::Event},
     routing::get,
 };
@@ -49,6 +50,8 @@ impl Server {
 }
 
 fn router() -> Router {
+    let conversation = Conversation::new();
+
     let client_ui_router = MemoryServe::new(load_assets!("./ui/build"))
         .index_file(Some("/index.html"))
         .into_router();
@@ -57,12 +60,13 @@ fn router() -> Router {
         .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
         .route("/messages", get(messages))
+        .with_state(conversation)
 }
 
-async fn messages() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let converastion = Conversation::new();
-
-    let messages = converastion
+async fn messages(
+    State(conversation): State<Conversation>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let messages = conversation
         .messages()
         .into_iter()
         .enumerate()
