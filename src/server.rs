@@ -14,7 +14,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::conversation::{Conversation, ConversationApi};
+use crate::conversation::ConversationApi;
 
 pub struct Server {
     trigger_shutdown: oneshot::Sender<()>,
@@ -22,10 +22,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(
+    pub async fn new<C>(
         socket_address: impl ToSocketAddrs,
-        conversation: Conversation,
-    ) -> anyhow::Result<Server> {
+        conversation: C,
+    ) -> anyhow::Result<Server>
+    where
+        C: ConversationApi + Send + Sync + Clone + 'static,
+    {
         let listener = TcpListener::bind(socket_address).await?;
         let router = router(conversation);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
