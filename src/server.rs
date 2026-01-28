@@ -24,7 +24,8 @@ pub struct Server {
 impl Server {
     pub async fn new(socket_address: impl ToSocketAddrs) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
-        let router = router();
+        let conversation = Conversation::new();
+        let router = router(conversation);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
         let join_handle = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -49,9 +50,7 @@ impl Server {
     }
 }
 
-fn router() -> Router {
-    let conversation = Conversation::new();
-
+fn router(conversation: Conversation) -> Router {
     let client_ui_router = MemoryServe::new(load_assets!("./ui/build"))
         .index_file(Some("/index.html"))
         .into_router();
@@ -93,7 +92,8 @@ mod tests {
     #[tokio::test]
     async fn messages_route_returns_hardcoded_messages_stream() {
         // Given
-        let app = router();
+        let conversation = Conversation::new();
+        let app = router(conversation);
 
         // When
         let response = app
@@ -132,7 +132,8 @@ mod tests {
     #[tokio::test]
     async fn messages_should_return_content_type_event_stream() {
         // Given
-        let app = router();
+        let conversation = Conversation::new();
+        let app = router(conversation);
 
         // When
         let response = app
