@@ -22,9 +22,11 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(socket_address: impl ToSocketAddrs) -> anyhow::Result<Server> {
+    pub async fn new(
+        socket_address: impl ToSocketAddrs,
+        conversation: Conversation,
+    ) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
-        let conversation = Conversation::new();
         let router = router(conversation);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
         let join_handle = tokio::spawn(async move {

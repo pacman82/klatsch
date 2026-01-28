@@ -7,7 +7,10 @@ use dotenv::dotenv;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-use crate::{configuration::Configuration, server::Server, shutdown::shutdown_signal};
+use crate::{
+    configuration::Configuration, conversation::Conversation, server::Server,
+    shutdown::shutdown_signal,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,8 +28,11 @@ async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     let cfg = Configuration::from_env()?;
 
+    // Forward messages between peers in the conversation
+    let conversation = Conversation::new();
+
     // Answer incoming HTTP requests
-    let server = Server::new(cfg.socket_addr()).await?;
+    let server = Server::new(cfg.socket_addr(), conversation).await?;
 
     // Run our application until a shutdown signal is received
     shutdown.await;
