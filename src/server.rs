@@ -50,7 +50,10 @@ impl Server {
     }
 }
 
-fn router(conversation: Conversation) -> Router {
+fn router<C>(conversation: C) -> Router
+where
+    C: ConversationApi + Send + Sync + Clone + 'static,
+{
     let client_ui_router = MemoryServe::new(load_assets!("./ui/build"))
         .index_file(Some("/index.html"))
         .into_router();
@@ -58,7 +61,7 @@ fn router(conversation: Conversation) -> Router {
     Router::new()
         .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
-        .route("/messages", get(messages::<Conversation>))
+        .route("/messages", get(messages::<C>))
         .with_state(conversation)
 }
 
@@ -80,19 +83,55 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::conversation::Message;
+
     use super::*;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
+    use double_trait::Dummy;
     use http_body_util::BodyExt as _;
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
     async fn messages_route_returns_hardcoded_messages_stream() {
         // Given
-        let conversation = Conversation::new();
-        let app = router(conversation);
+        #[derive(Clone)]
+        struct ConversationStub;
+
+        impl ConversationApi for ConversationStub {
+            fn messages(self) -> impl Stream<Item = Message> + Send {
+                let messages = vec![
+                    Message {
+                        id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
+                        sender: "Alice".to_owned(),
+                        content: "One".to_owned(),
+                        timestamp_ms: 1704531600000,
+                    },
+                    Message {
+                        id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
+                        sender: "Bob".to_owned(),
+                        content: "Two".to_owned(),
+                        timestamp_ms: 1704531601000,
+                    },
+                    Message {
+                        id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
+                        sender: "Alice".to_string(),
+                        content: "Three".to_owned(),
+                        timestamp_ms: 1704531602000,
+                    },
+                    Message {
+                        id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
+                        sender: "Bob".to_owned(),
+                        content: "Four".to_owned(),
+                        timestamp_ms: 1704531603000,
+                    },
+                ];
+                tokio_stream::iter(messages)
+            }
+        }
+        let app = router(ConversationStub);
 
         // When
         let response = app
@@ -117,19 +156,17 @@ mod tests {
             .to_vec();
         let expected_body = "id: 0\n\
             data: {\"id\":\"019c0050-e4d7-7447-9d8f-81cde690f4a1\",\"sender\":\"Alice\",\
-            \"content\":\"Hey there! 👋\",\"timestamp_ms\":1704531600000}\n\
+            \"content\":\"One\",\"timestamp_ms\":1704531600000}\n\
             \n\
             id: 1\n\
             data: {\"id\":\"019c0051-c29d-7968-b953-4adc898b1360\",\"sender\":\"Bob\",\"content\":\
-            \"Hi Alice! How are you?\",\"timestamp_ms\":1704531601000}\n\
+            \"Two\",\"timestamp_ms\":1704531601000}\n\
             \n\
             id: 2\ndata: {\"id\":\"019c0051-e50d-7ea7-8a0e-f7df4176dd93\",\"sender\":\"Alice\",\
-            \"content\":\"I'm good, thanks! Working on the chat server project.\",\"timestamp_ms\":\
-            1704531602000}\n\
+            \"content\":\"Three\",\"timestamp_ms\":1704531602000}\n\
             \n\
             id: 3\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
-            \"content\":\"That's awesome! Let me know if you need any help.\",\"timestamp_ms\":\
-            1704531603000}\n\
+            \"content\":\"Four\",\"timestamp_ms\":1704531603000}\n\
             \n";
         assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
     }
@@ -137,8 +174,7 @@ mod tests {
     #[tokio::test]
     async fn messages_should_return_content_type_event_stream() {
         // Given
-        let conversation = Conversation::new();
-        let app = router(conversation);
+        let app = router(Dummy);
 
         // When
         let response = app

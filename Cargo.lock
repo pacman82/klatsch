@@ -305,6 +305,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
+name = "double-derive"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1110363a567ce1c1fc6cdaf5d2ad06fec860b9261ca5c0eff260b5541921ad52"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "double-trait"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c2bf352406ab2993dd6e5a68ac44241200b6fe4d3871c64d35e430530eeda26"
+dependencies = [
+ "double-derive",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1472,6 +1492,7 @@ dependencies = [
  "anyhow",
  "axum",
  "dotenv",
+ "double-trait",
  "futures-util",
  "http-body-util",
  "memory-serve",
