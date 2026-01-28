@@ -7,7 +7,8 @@ A self hosted chat server which is painless to operate
 ## Milestones
 
 - [x] UI statically linked into server
-- [ ] Display messages
+- [x] Display messages
+- [ ] Send messages as 'Bob'
 
 ## Attribution
 

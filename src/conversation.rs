@@ -3,18 +3,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait ConversationApi {
-    #[cfg(not(test))]
+pub trait ConversationApi: Sized {
     fn messages(self) -> impl Stream<Item = Message> + Send + 'static;
-
-    /// Provide an empty dummy implementation for test helpers
-    #[cfg(test)]
-    fn messages(self) -> impl Stream<Item = Message> + Send + 'static
-    where
-        Self: Sized,
-    {
-        tokio_stream::empty()
-    }
 }
 
 #[derive(Clone)]

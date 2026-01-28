@@ -18,7 +18,7 @@ tracing-subscriber = "0.3.22"
 uuid = { version = "1.20.0", features = ["serde"] }
 
 [dev-dependencies]
-double-trait = "0.2.8"
+double-trait = { version = "0.2.9", features = ["stream"] }
 reqwest = "0.13.1"
 tokio = { version = "1.49.0", features = ["process", "time"] }
 tower = { version = "0.5.3", features = ["util"] }
