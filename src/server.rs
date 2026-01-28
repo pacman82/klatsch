@@ -6,7 +6,7 @@ use axum::{
     response::{Sse, sse::Event},
     routing::get,
 };
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt as _};
 use memory_serve::{MemoryServe, load_assets};
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
@@ -65,18 +65,14 @@ fn router(conversation: Conversation) -> Router {
 async fn messages(
     State(conversation): State<Conversation>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let messages = conversation
-        .messages()
-        .into_iter()
-        .enumerate()
-        .map(|(id, msg)| {
-            let event = Event::default()
-                .id(id.to_string())
-                .json_data(msg)
-                .expect("Deserializing message must not fail");
-            Ok(event)
-        });
-    Sse::new(tokio_stream::iter(messages))
+    let messages = conversation.messages().enumerate().map(|(id, msg)| {
+        let event = Event::default()
+            .id(id.to_string())
+            .json_data(msg)
+            .expect("Deserializing message must not fail");
+        Ok(event)
+    });
+    Sse::new(messages)
 }
 
 #[cfg(test)]

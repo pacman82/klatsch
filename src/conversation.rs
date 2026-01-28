@@ -1,3 +1,4 @@
+use futures_util::Stream;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -9,8 +10,8 @@ impl Conversation {
         Conversation {}
     }
 
-    pub fn messages(&self) -> Vec<Message> {
-        vec![
+    pub fn messages(&self) -> impl Stream<Item = Message> + use<> {
+        let messages = vec![
             Message {
                 id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                 sender: "Alice".to_string(),
@@ -35,7 +36,8 @@ impl Conversation {
                 content: "That's awesome! Let me know if you need any help.".to_string(),
                 timestamp_ms: 1704531603000,
             },
-        ]
+        ];
+        tokio_stream::iter(messages)
     }
 }
 
