@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let shutdown = shutdown_signal().await;
 
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::TRACE)
+        .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("Setting global default provider must not fail.");
