@@ -65,25 +65,25 @@ async fn messages() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
             sender: "Alice".to_string(),
             content: "Hey there! 👋".to_string(),
-            timestamp: 1704531600,
+            timestamp_ms: 1704531600000,
         },
         Message {
             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
             sender: "Bob".to_string(),
             content: "Hi Alice! How are you?".to_string(),
-            timestamp: 1704532600,
+            timestamp_ms: 1704531601000,
         },
         Message {
             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
             sender: "Alice".to_string(),
             content: "I'm good, thanks! Working on the chat server project.".to_string(),
-            timestamp: 1704533600,
+            timestamp_ms: 1704531602000,
         },
         Message {
             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
             sender: "Bob".to_string(),
             content: "That's awesome! Let me know if you need any help.".to_string(),
-            timestamp: 1704534600,
+            timestamp_ms: 1704531603000,
         },
     ];
     let messages = messages.into_iter().enumerate().map(|(id, msg)| {
@@ -107,7 +107,7 @@ struct Message {
     /// Text content of the message. I.e. the actual message
     content: String,
     /// Unix timestamp. Milliseconds since epoch
-    timestamp: u64,
+    timestamp_ms: u64,
 }
 
 #[cfg(test)]

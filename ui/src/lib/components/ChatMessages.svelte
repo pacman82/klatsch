@@ -7,7 +7,7 @@
 		sender: string;
 		content: string;
 		// Unix timestamp, milliseconds since epoch UTC
-		timestamp: number;
+		timestamp_ms: number;
 	};
 
 	const me = 'Bob';
@@ -47,7 +47,7 @@
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
 				</div>
-				<div class="meta">{new Date(msg.timestamp).toString()}</div>
+				<div class="meta">{new Date(msg.timestamp_ms).toString()}</div>
 			</div>
 		</div>
 	{/each}
