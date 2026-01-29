@@ -4,7 +4,7 @@ use axum::{
     Router,
     extract::State,
     response::{Sse, sse::Event},
-    routing::get,
+    routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
 
@@ -16,6 +16,7 @@ where
 {
     Router::new()
         .route("/api/v0/messages", get(messages::<C>))
+        .route("/api/v0/add_message", post(add_message::<C>))
         .with_state(conversation)
 }
 
@@ -33,6 +34,12 @@ where
         Ok(event)
     });
     Sse::new(messages)
+}
+
+async fn add_message<C>(State(conversation): State<C>)
+where
+    C: ConversationApi,
+{
 }
 
 #[cfg(test)]

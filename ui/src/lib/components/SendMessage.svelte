@@ -1,10 +1,27 @@
 <script lang="ts">
 	let message = '';
 
-	function handleSubmit(_event: Event) {
-		// Dummy implementation: just log the message
-		console.log('Sending message:', message);
-		message = '';
+	async function handleSubmit(_event: Event) {
+		if (!message.trim()) return;
+
+		try {
+			const response = await fetch('/api/v0/add_message_ffo', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ message })
+			});
+
+			if (!response.ok) {
+				console.error('Failed to send message: {}', response.statusText);
+				return;
+			}
+
+			message = '';
+		} catch (error) {
+			console.error('Error sending message:', error);
+		}
 	}
 </script>
 
