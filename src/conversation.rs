@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use futures_util::Stream;
 use serde::Serialize;
 use uuid::Uuid;
@@ -9,16 +11,12 @@ pub trait ConversationApi: Sized {
 }
 
 #[derive(Clone)]
-pub struct Conversation {}
+pub struct Conversation {
+    messages: Arc<Mutex<Vec<Message>>>,
+}
 
 impl Conversation {
     pub fn new() -> Self {
-        Conversation {}
-    }
-}
-
-impl ConversationApi for Conversation {
-    fn messages(self) -> impl Stream<Item = Message> + Send + 'static {
         let messages = vec![
             Message {
                 id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
@@ -45,13 +43,22 @@ impl ConversationApi for Conversation {
                 timestamp_ms: 1704531603000,
             },
         ];
+        Conversation {
+            messages: Arc::new(Mutex::new(messages)),
+        }
+    }
+}
+
+impl ConversationApi for Conversation {
+    fn messages(self) -> impl Stream<Item = Message> + Send + 'static {
+        let messages = self.messages.lock().unwrap().clone();
         tokio_stream::iter(messages)
     }
 
     fn add_message(&self, id: Uuid, sender: String, content: String) {}
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Message {
     /// Sender generated unique identifier for the message. It is used to recover from errors
     /// sending messages. It also a key for the UI to efficiently update data structures then

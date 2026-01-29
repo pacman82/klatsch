@@ -20,7 +20,7 @@
 		};
 
 		try {
-			const response = await fetch('/api/v0/add_message_ffo', {
+			const response = await fetch('/api/v0/add_message', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
