@@ -10,7 +10,7 @@
 	let sender = 'Bob';
 	let message_content = '';
 
-	async function handleSubmit(_event: Event) {
+	async function handleSubmit() {
 		if (!message_content.trim()) return;
 
 		let message: SendMessage = {
@@ -25,11 +25,11 @@
 				headers: {
 					'Content-Type': 'application/json'
 				},
-				body: JSON.stringify({ message })
+				body: JSON.stringify(message)
 			});
 
 			if (!response.ok) {
-				console.error('Failed to send message: {}', response.statusText);
+				console.error('Failed to send message: ', response.statusText);
 				return;
 			}
 
