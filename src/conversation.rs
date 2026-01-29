@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::SystemTime,
+};
 
 use futures_util::Stream;
 use serde::Serialize;
@@ -17,34 +20,8 @@ pub struct Conversation {
 
 impl Conversation {
     pub fn new() -> Self {
-        let messages = vec![
-            Message {
-                id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                sender: "Alice".to_string(),
-                content: "Hey there! 👋".to_string(),
-                timestamp_ms: 1704531600000,
-            },
-            Message {
-                id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
-                sender: "Bob".to_string(),
-                content: "Hi Alice! How are you?".to_string(),
-                timestamp_ms: 1704531601000,
-            },
-            Message {
-                id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
-                sender: "Alice".to_string(),
-                content: "I'm good, thanks! Working on the chat server project.".to_string(),
-                timestamp_ms: 1704531602000,
-            },
-            Message {
-                id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
-                sender: "Bob".to_string(),
-                content: "That's awesome! Let me know if you need any help.".to_string(),
-                timestamp_ms: 1704531603000,
-            },
-        ];
         Conversation {
-            messages: Arc::new(Mutex::new(messages)),
+            messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -55,7 +32,19 @@ impl ConversationApi for Conversation {
         tokio_stream::iter(messages)
     }
 
-    fn add_message(&self, id: Uuid, sender: String, content: String) {}
+    fn add_message(&self, id: Uuid, sender: String, content: String) {
+        let message = Message {
+            id,
+            sender,
+            content,
+            timestamp_ms: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        };
+        let mut messages = self.messages.lock().unwrap();
+        messages.push(message);
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -70,4 +59,34 @@ pub struct Message {
     pub content: String,
     /// Unix timestamp. Milliseconds since epoch
     pub timestamp_ms: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn messages_are_added_and_read_in_order() {
+        let conversation = Conversation::new();
+
+        let id1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let id2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+
+        conversation.add_message(id1, "Alice".to_string(), "One".to_string());
+        conversation.add_message(id2, "Bob".to_string(), "Two".to_string());
+
+        let mut messages = conversation.clone().messages();
+
+        let msg1 = messages.next().await.expect("First message should exist");
+        let msg2 = messages.next().await.expect("Second message should exist");
+
+        assert_eq!(msg1.id, id1);
+        assert_eq!(msg1.sender, "Alice");
+        assert_eq!(msg1.content, "One");
+
+        assert_eq!(msg2.id, id2);
+        assert_eq!(msg2.sender, "Bob");
+        assert_eq!(msg2.content, "Two");
+    }
 }
