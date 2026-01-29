@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, time::UNIX_EPOCH};
 
 use axum::{
     Json, Router,
@@ -7,10 +7,10 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::conversation::ConversationApi;
+use crate::conversation::{ConversationApi, Message};
 
 pub fn api_router<C>(conversation: C) -> Router
 where
@@ -29,6 +29,7 @@ where
     C: ConversationApi + Send,
 {
     let messages = conversation.messages().enumerate().map(|(id, msg)| {
+        let msg: HttpMessage = msg.into();
         let event = Event::default()
             .id(id.to_string())
             .json_data(msg)
@@ -36,6 +37,39 @@ where
         Ok(event)
     });
     Sse::new(messages)
+}
+
+/// A message as represented by the `messages` route.
+#[derive(Serialize)]
+pub struct HttpMessage {
+    /// Sender generated unique identifier for the message. It is used to recover from errors
+    /// sending messages. It also a key for the UI to efficiently update data structures then
+    /// rendering messages.
+    pub id: Uuid,
+    /// Author of the message
+    pub sender: String,
+    /// Text content of the message. I.e. the actual message
+    pub content: String,
+    /// Unix timestamp of that message being received by the server. Milliseconds since epoch.
+    pub timestamp_ms: u128,
+}
+
+impl From<Message> for HttpMessage {
+    fn from(source: Message) -> Self {
+        let Message {
+            id,
+            sender,
+            content,
+            timestamp,
+        } = source;
+        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis();
+        HttpMessage {
+            id,
+            sender,
+            content,
+            timestamp_ms,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -57,6 +91,7 @@ mod tests {
     use std::{
         mem::swap,
         sync::{Arc, Mutex},
+        time::Duration,
     };
 
     use crate::conversation::Message;
@@ -84,25 +119,25 @@ mod tests {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                         sender: "Alice".to_owned(),
                         content: "One".to_owned(),
-                        timestamp_ms: 1704531600000,
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531600000),
                     },
                     Message {
                         id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
                         sender: "Bob".to_owned(),
                         content: "Two".to_owned(),
-                        timestamp_ms: 1704531601000,
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531601000),
                     },
                     Message {
                         id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
                         sender: "Alice".to_string(),
                         content: "Three".to_owned(),
-                        timestamp_ms: 1704531602000,
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531602000),
                     },
                     Message {
                         id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
                         sender: "Bob".to_owned(),
                         content: "Four".to_owned(),
-                        timestamp_ms: 1704531603000,
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531603000),
                     },
                 ];
                 tokio_stream::iter(messages)

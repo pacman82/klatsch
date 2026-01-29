@@ -4,7 +4,6 @@ use std::{
 };
 
 use futures_util::Stream;
-use serde::Serialize;
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -37,17 +36,14 @@ impl ConversationApi for Conversation {
             id,
             sender,
             content,
-            timestamp_ms: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            timestamp: SystemTime::now(),
         };
         let mut messages = self.messages.lock().unwrap();
         messages.push(message);
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
 pub struct Message {
     /// Sender generated unique identifier for the message. It is used to recover from errors
     /// sending messages. It also a key for the UI to efficiently update data structures then
@@ -57,8 +53,8 @@ pub struct Message {
     pub sender: String,
     /// Text content of the message. I.e. the actual message
     pub content: String,
-    /// Unix timestamp. Milliseconds since epoch
-    pub timestamp_ms: u64,
+    /// Timestamp when the message has been received by the server.
+    pub timestamp: SystemTime,
 }
 
 #[cfg(test)]
