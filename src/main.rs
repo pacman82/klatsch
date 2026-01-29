@@ -1,5 +1,6 @@
 mod configuration;
 mod conversation;
+mod http_api;
 mod server;
 mod shutdown;
 mod ui;
