@@ -7,10 +7,10 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
-use crate::conversation::{ConversationApi, Message};
+use crate::conversation::{ConversationApi, Message, NewMessage};
 
 pub fn api_router<C>(conversation: C) -> Router
 where
@@ -72,18 +72,11 @@ impl From<Message> for HttpMessage {
     }
 }
 
-#[derive(Deserialize)]
-struct AddMessageBody {
-    id: Uuid,
-    sender: String,
-    content: String,
-}
-
-async fn add_message<C>(State(conversation): State<C>, Json(body): Json<AddMessageBody>)
+async fn add_message<C>(State(conversation): State<C>, Json(msg): Json<NewMessage>)
 where
     C: ConversationApi,
 {
-    conversation.add_message(body.id, body.sender, body.content);
+    conversation.add_message(msg);
 }
 
 #[cfg(test)]
@@ -234,35 +227,30 @@ mod tests {
             .unwrap();
 
         // Then
-        assert_eq!(
-            spy.take_add_message_record(),
-            &[(
-                "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
-                    .parse::<Uuid>()
-                    .unwrap(),
-                "Bob".to_owned(),
-                "Hello, Alice!".to_owned()
-            )],
-        );
+        let expected_msg = NewMessage {
+            id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
+                .parse::<Uuid>()
+                .unwrap(),
+            sender: "Bob".to_owned(),
+            content: "Hello, Alice!".to_owned(),
+        };
+        assert_eq!(spy.take_add_message_record(), &[expected_msg],);
     }
 
     // Spy that records calls to add_message for later inspection
     #[derive(Clone, Default)]
     struct ConversationSpy {
-        last_call_add_message: Arc<Mutex<Vec<(Uuid, String, String)>>>,
+        last_call_add_message: Arc<Mutex<Vec<NewMessage>>>,
     }
 
     impl ConversationApi for ConversationSpy {
-        fn add_message(&self, id: Uuid, sender: String, content: String) {
-            self.last_call_add_message
-                .lock()
-                .unwrap()
-                .push((id, sender, content));
+        fn add_message(&self, message: NewMessage) {
+            self.last_call_add_message.lock().unwrap().push(message);
         }
     }
 
     impl ConversationSpy {
-        fn take_add_message_record(&self) -> Vec<(Uuid, String, String)> {
+        fn take_add_message_record(&self) -> Vec<NewMessage> {
             let mut tmp = Vec::new();
             swap(&mut tmp, &mut *self.last_call_add_message.lock().unwrap());
             tmp
