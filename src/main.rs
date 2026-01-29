@@ -2,6 +2,7 @@ mod configuration;
 mod conversation;
 mod server;
 mod shutdown;
+mod ui;
 
 use dotenv::dotenv;
 use tracing::Level;

@@ -7,14 +7,13 @@ use axum::{
     routing::get,
 };
 use futures_util::{Stream, StreamExt as _};
-use memory_serve::{MemoryServe, load_assets};
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
     sync::oneshot,
     task::JoinHandle,
 };
 
-use crate::conversation::ConversationApi;
+use crate::{conversation::ConversationApi, ui::ui_router};
 
 pub struct Server {
     trigger_shutdown: oneshot::Sender<()>,
@@ -59,15 +58,11 @@ fn router<C>(conversation: C) -> Router
 where
     C: ConversationApi + Send + Sync + Clone + 'static,
 {
-    let client_ui_router = MemoryServe::new(load_assets!("./ui/build"))
-        .index_file(Some("/index.html"))
-        .into_router();
-
     Router::new()
-        .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
         .route("/api/v0/messages", get(messages::<C>))
         .with_state(conversation)
+        .merge(ui_router())
 }
 
 async fn messages<C>(
