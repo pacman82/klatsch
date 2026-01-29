@@ -12,7 +12,7 @@ export default defineConfig({
 		// hot reloading during development, we want to use `npm run dev` while working on the frontend.
 		// To have all the functionality we need we still run the rust backend server.
 		proxy: {
-			'/': backend_url_for_dev()
+			'/api': backend_url_for_dev()
 		}
 	}
 });

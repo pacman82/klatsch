@@ -66,7 +66,7 @@ where
     Router::new()
         .merge(client_ui_router)
         .route("/health", get(|| async { "OK" }))
-        .route("/messages", get(messages::<C>))
+        .route("/api/v0/messages", get(messages::<C>))
         .with_state(conversation)
 }
 
