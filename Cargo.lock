@@ -1500,6 +1500,7 @@ dependencies = [
  "nix",
  "reqwest",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tower",

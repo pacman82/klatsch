@@ -1,8 +1,23 @@
 <script lang="ts">
-	let message = '';
+	import { v7 } from 'uuid';
+
+	type SendMessage = {
+		id: string;
+		sender: string;
+		content: string;
+	};
+
+	let sender = 'Bob';
+	let message_content = '';
 
 	async function handleSubmit(_event: Event) {
-		if (!message.trim()) return;
+		if (!message_content.trim()) return;
+
+		let message: SendMessage = {
+			id: v7(),
+			sender: sender,
+			content: message_content.trim()
+		};
 
 		try {
 			const response = await fetch('/api/v0/add_message_ffo', {
@@ -18,7 +33,7 @@
 				return;
 			}
 
-			message = '';
+			message_content = '';
 		} catch (error) {
 			console.error('Error sending message:', error);
 		}
@@ -28,7 +43,12 @@
 <!-- We do not want the page to be reloaded, if we submit the message. Therfore we specify
 preventDefault on the submit handler.-->
 <form on:submit|preventDefault={handleSubmit} class="send-message-form">
-	<input type="text" bind:value={message} placeholder="Type your message..." autocomplete="off" />
+	<input
+		type="text"
+		bind:value={message_content}
+		placeholder="Type your message..."
+		autocomplete="off"
+	/>
 	<button type="submit">Send</button>
 </form>
 

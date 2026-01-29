@@ -1,12 +1,14 @@
 use std::convert::Infallible;
 
 use axum::{
-    Router,
+    Json, Router,
     extract::State,
     response::{Sse, sse::Event},
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
+use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::conversation::ConversationApi;
 
@@ -36,14 +38,27 @@ where
     Sse::new(messages)
 }
 
-async fn add_message<C>(State(conversation): State<C>)
+#[derive(Deserialize)]
+struct AddMessageBody {
+    id: Uuid,
+    sender: String,
+    content: String,
+}
+
+async fn add_message<C>(State(conversation): State<C>, Json(body): Json<AddMessageBody>)
 where
     C: ConversationApi,
 {
+    conversation.add_message(body.id, body.sender, body.content);
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        mem::swap,
+        sync::{Arc, Mutex},
+    };
+
     use crate::conversation::Message;
 
     use super::*;
@@ -53,6 +68,7 @@ mod tests {
     };
     use double_trait::Dummy;
     use http_body_util::BodyExt as _;
+    use serde_json::json;
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
@@ -159,5 +175,62 @@ mod tests {
             "Expected SSE content-type, got: {}",
             content_type
         );
+    }
+    #[tokio::test]
+    async fn add_message_route_forwards_arguments_to_conversation_api() {
+        // Given
+        let spy = ConversationSpy::default();
+        let app = api_router(spy.clone());
+        let new_message = json!({
+            "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
+            "sender": "Bob",
+            "content": "Hello, Alice!"
+        });
+
+        // When
+        let _response = app
+            .oneshot(
+                Request::post("/api/v0/add_message")
+                    .header("content-type", "application/json")
+                    .body(Body::from(new_message.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(
+            spy.take_add_message_record(),
+            &[(
+                "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
+                    .parse::<Uuid>()
+                    .unwrap(),
+                "Bob".to_owned(),
+                "Hello, Alice!".to_owned()
+            )],
+        );
+    }
+
+    // Spy that records calls to add_message for later inspection
+    #[derive(Clone, Default)]
+    struct ConversationSpy {
+        last_call_add_message: Arc<Mutex<Vec<(Uuid, String, String)>>>,
+    }
+
+    impl ConversationApi for ConversationSpy {
+        fn add_message(&self, id: Uuid, sender: String, content: String) {
+            self.last_call_add_message
+                .lock()
+                .unwrap()
+                .push((id, sender, content));
+        }
+    }
+
+    impl ConversationSpy {
+        fn take_add_message_record(&self) -> Vec<(Uuid, String, String)> {
+            let mut tmp = Vec::new();
+            swap(&mut tmp, &mut *self.last_call_add_message.lock().unwrap());
+            tmp
+        }
     }
 }

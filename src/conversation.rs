@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait ConversationApi: Sized {
     fn messages(self) -> impl Stream<Item = Message> + Send + 'static;
+    fn add_message(&self, id: Uuid, sender: String, content: String);
 }
 
 #[derive(Clone)]
@@ -46,6 +47,8 @@ impl ConversationApi for Conversation {
         ];
         tokio_stream::iter(messages)
     }
+
+    fn add_message(&self, id: Uuid, sender: String, content: String) {}
 }
 
 #[derive(Serialize)]
