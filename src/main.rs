@@ -10,7 +10,7 @@ use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 use crate::{
-    configuration::Configuration, conversation::Conversation, server::Server,
+    configuration::Configuration, conversation::ConversationService, server::Server,
     shutdown::shutdown_signal,
 };
 
@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Configuration::from_env()?;
 
     // Forward messages between peers in the conversation
-    let conversation = Conversation::new();
+    let conversation = ConversationService::new();
 
     // Answer incoming HTTP requests
     let server = Server::new(cfg.socket_addr(), conversation).await?;

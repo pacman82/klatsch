@@ -14,19 +14,19 @@ pub trait ConversationApi: Sized {
 }
 
 #[derive(Clone)]
-pub struct Conversation {
+pub struct ConversationService {
     messages: Arc<Mutex<Vec<Message>>>,
 }
 
-impl Conversation {
+impl ConversationService {
     pub fn new() -> Self {
-        Conversation {
+        ConversationService {
             messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
 
-impl ConversationApi for Conversation {
+impl ConversationApi for ConversationService {
     fn messages(self) -> impl Stream<Item = Message> + Send + 'static {
         let messages = self.messages.lock().unwrap().clone();
         tokio_stream::iter(messages)
@@ -100,7 +100,7 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        let conversation = Conversation::new();
+        let conversation = ConversationService::new();
 
         // When
         conversation.add_message(msg_1);
