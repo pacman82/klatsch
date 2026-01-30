@@ -10,7 +10,7 @@ use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 use crate::{
-    configuration::Configuration, conversation::ConversationService, server::Server,
+    configuration::Configuration, conversation::ConversationRuntime, server::Server,
     shutdown::shutdown_signal,
 };
 
@@ -31,16 +31,20 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Configuration::from_env()?;
 
     // Forward messages between peers in the conversation
-    let conversation = ConversationService::new();
+    let conversation = ConversationRuntime::new();
 
     // Answer incoming HTTP requests
-    let server = Server::new(cfg.socket_addr(), conversation).await?;
+    let server = Server::new(cfg.socket_addr(), conversation.api()).await?;
 
     // Run our application until a shutdown signal is received
     shutdown.await;
 
-    // Gracefully shutdown the http server
+    // Gracefully shutdown the http server.
     server.shutdown().await;
+
+    // Let's shutdown the conversation runtime as well. After the http interface, since the http
+    // interface relies on it.
+    conversation.shutdown().await;
 
     Ok(())
 }

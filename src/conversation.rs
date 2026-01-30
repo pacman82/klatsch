@@ -5,30 +5,66 @@ use std::{
 
 use futures_util::Stream;
 use serde::Deserialize;
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait ConversationApi: Sized {
-    fn messages(self) -> impl Stream<Item = Message> + Send + 'static;
+    fn messages(self) -> impl Future<Output = impl Stream<Item = Message> + Send> + Send;
     fn add_message(&self, message: NewMessage);
 }
 
-#[derive(Clone)]
-pub struct ConversationService {
+pub struct ConversationRuntime {
     messages: Arc<Mutex<Vec<Message>>>,
+    sender: mpsc::Sender<ActorMsg>,
+    join_handle: JoinHandle<()>,
 }
 
-impl ConversationService {
+impl ConversationRuntime {
     pub fn new() -> Self {
-        ConversationService {
-            messages: Arc::new(Mutex::new(Vec::new())),
+        let (sender, receiver) = mpsc::channel(5);
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let actor = Actor::new(receiver, messages.clone());
+        let join_handle = tokio::spawn(async move { actor.run().await });
+        ConversationRuntime {
+            sender,
+            messages,
+            join_handle,
         }
+    }
+
+    pub fn api(&self) -> ConversationClient {
+        ConversationClient {
+            sender: self.sender.clone(),
+            messages: self.messages.clone(),
+        }
+    }
+
+    pub async fn shutdown(self) {
+        // We drop the sender, to signal to the actor thread that it can no longer receive messages
+        // and should stop.
+        drop(self.sender);
+        self.join_handle.await.unwrap();
     }
 }
 
-impl ConversationApi for ConversationService {
-    fn messages(self) -> impl Stream<Item = Message> + Send + 'static {
-        let messages = self.messages.lock().unwrap().clone();
+#[derive(Clone)]
+pub struct ConversationClient {
+    sender: mpsc::Sender<ActorMsg>,
+    messages: Arc<Mutex<Vec<Message>>>,
+}
+
+impl ConversationApi for ConversationClient {
+    async fn messages(self) -> impl Stream<Item = Message> + Send {
+        let (request, response) = oneshot::channel();
+        self.sender
+            .send(ActorMsg::ReadMessages(request))
+            .await
+            .expect("Actor must outlive client.");
+        let messages = response.await.unwrap();
         tokio_stream::iter(messages)
     }
 
@@ -80,6 +116,38 @@ pub struct NewMessage {
     pub content: String,
 }
 
+enum ActorMsg {
+    ReadMessages(oneshot::Sender<Vec<Message>>),
+}
+
+struct Actor {
+    messages: Arc<Mutex<Vec<Message>>>,
+    receiver: mpsc::Receiver<ActorMsg>,
+}
+
+impl Actor {
+    pub fn new(receiver: mpsc::Receiver<ActorMsg>, messages: Arc<Mutex<Vec<Message>>>) -> Self {
+        Actor { receiver, messages }
+    }
+
+    pub async fn run(mut self) {
+        while let Some(msg) = self.receiver.recv().await {
+            self.handle_message(msg);
+        }
+    }
+
+    pub fn handle_message(&mut self, msg: ActorMsg) {
+        match msg {
+            ActorMsg::ReadMessages(responder) => {
+                let messages = self.messages.lock().unwrap().clone();
+                // We ignore send errors, since it only happens if the receiver has been dropped. In
+                // that case the receiver is no longer interested in the response, anyway.
+                let _ = responder.send(messages);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,12 +168,13 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        let conversation = ConversationService::new();
+        let runtime = ConversationRuntime::new();
+        let client = runtime.api();
 
         // When
-        conversation.add_message(msg_1);
-        conversation.add_message(msg_2);
-        let mut messages = conversation.messages();
+        client.add_message(msg_1);
+        client.add_message(msg_2);
+        let mut messages = client.messages().await;
 
         // Then
         let first = messages.next().await.expect("First message should exist");
@@ -117,5 +186,8 @@ mod tests {
         assert_eq!(second.id, id_2);
         assert_eq!(second.sender, "Bob");
         assert_eq!(second.content, "Two");
+
+        // Cleanup
+        runtime.shutdown().await;
     }
 }

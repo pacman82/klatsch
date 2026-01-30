@@ -24,19 +24,20 @@ where
 
 async fn messages<C>(
     State(conversation): State<C>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
+) -> Sse<impl Stream<Item = Result<Event, Infallible>> + Send + 'static>
 where
-    C: ConversationApi + Send,
+    C: ConversationApi + Send + 'static,
 {
-    let messages = conversation.messages().enumerate().map(|(id, msg)| {
+    let messages = conversation.messages().await;
+    let events = messages.enumerate().map(|(id, msg)| {
         let msg: HttpMessage = msg.into();
-        let event = Event::default()
+        let events = Event::default()
             .id(id.to_string())
             .json_data(msg)
             .expect("Deserializing message must not fail");
-        Ok(event)
+        Ok(events)
     });
-    Sse::new(messages)
+    Sse::new(events)
 }
 
 /// A message as represented by the `messages` route.
@@ -106,7 +107,7 @@ mod tests {
         struct ConversationStub;
 
         impl ConversationApi for ConversationStub {
-            fn messages(self) -> impl Stream<Item = Message> + Send {
+            async fn messages(self) -> impl Stream<Item = Message> + Send {
                 let messages = vec![
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
