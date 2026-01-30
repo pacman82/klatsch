@@ -6,7 +6,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{conversation::ConversationApi, http_api::api_router, ui::ui_router};
+use crate::{conversation::Conversation, http_api::api_router, ui::ui_router};
 
 pub struct Server {
     trigger_shutdown: oneshot::Sender<()>,
@@ -19,7 +19,7 @@ impl Server {
         conversation: C,
     ) -> anyhow::Result<Server>
     where
-        C: ConversationApi + Send + Sync + Clone + 'static,
+        C: Conversation + Send + Sync + Clone + 'static,
     {
         let listener = TcpListener::bind(socket_address).await?;
         let router = router(conversation);
@@ -49,7 +49,7 @@ impl Server {
 
 fn router<C>(conversation: C) -> Router
 where
-    C: ConversationApi + Send + Sync + Clone + 'static,
+    C: Conversation + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/health", get(|| async { "OK" }))

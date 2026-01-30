@@ -12,7 +12,7 @@ use tokio::{
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait ConversationApi: Sized {
+pub trait Conversation: Sized {
     fn messages(self) -> impl Future<Output = impl Stream<Item = Message> + Send> + Send;
     fn add_message(&self, message: NewMessage);
 }
@@ -57,7 +57,7 @@ pub struct ConversationClient {
     messages: Arc<Mutex<Vec<Message>>>,
 }
 
-impl ConversationApi for ConversationClient {
+impl Conversation for ConversationClient {
     async fn messages(self) -> impl Stream<Item = Message> + Send {
         let (request, response) = oneshot::channel();
         self.sender

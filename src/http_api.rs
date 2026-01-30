@@ -10,11 +10,11 @@ use futures_util::{Stream, StreamExt as _};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::conversation::{ConversationApi, Message, NewMessage};
+use crate::conversation::{Conversation, Message, NewMessage};
 
 pub fn api_router<C>(conversation: C) -> Router
 where
-    C: ConversationApi + Send + Sync + Clone + 'static,
+    C: Conversation + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/api/v0/messages", get(messages::<C>))
@@ -26,7 +26,7 @@ async fn messages<C>(
     State(conversation): State<C>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>> + Send + 'static>
 where
-    C: ConversationApi + Send + 'static,
+    C: Conversation + Send + 'static,
 {
     let messages = conversation.messages().await;
     let events = messages.enumerate().map(|(id, msg)| {
@@ -75,7 +75,7 @@ impl From<Message> for HttpMessage {
 
 async fn add_message<C>(State(conversation): State<C>, Json(msg): Json<NewMessage>)
 where
-    C: ConversationApi,
+    C: Conversation,
 {
     conversation.add_message(msg);
 }
@@ -106,7 +106,7 @@ mod tests {
         #[derive(Clone)]
         struct ConversationStub;
 
-        impl ConversationApi for ConversationStub {
+        impl Conversation for ConversationStub {
             async fn messages(self) -> impl Stream<Item = Message> + Send {
                 let messages = vec![
                     Message {
@@ -244,7 +244,7 @@ mod tests {
         last_call_add_message: Arc<Mutex<Vec<NewMessage>>>,
     }
 
-    impl ConversationApi for ConversationSpy {
+    impl Conversation for ConversationSpy {
         fn add_message(&self, message: NewMessage) {
             self.last_call_add_message.lock().unwrap().push(message);
         }
