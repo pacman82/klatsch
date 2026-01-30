@@ -73,11 +73,11 @@ impl From<Message> for HttpMessage {
     }
 }
 
-async fn add_message<C>(State(conversation): State<C>, Json(msg): Json<NewMessage>)
+async fn add_message<C>(State(mut conversation): State<C>, Json(msg): Json<NewMessage>)
 where
     C: Conversation,
 {
-    conversation.add_message(msg);
+    conversation.add_message(msg).await;
 }
 
 #[cfg(test)]
@@ -245,7 +245,7 @@ mod tests {
     }
 
     impl Conversation for ConversationSpy {
-        fn add_message(&self, message: NewMessage) {
+        async fn add_message(&mut self, message: NewMessage) {
             self.last_call_add_message.lock().unwrap().push(message);
         }
     }

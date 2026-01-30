@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
+use std::time::SystemTime;
 
 use futures_util::Stream;
 use serde::Deserialize;
@@ -14,11 +11,10 @@ use uuid::Uuid;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Conversation: Sized {
     fn messages(self) -> impl Future<Output = impl Stream<Item = Message> + Send> + Send;
-    fn add_message(&self, message: NewMessage);
+    fn add_message(&mut self, message: NewMessage) -> impl Future<Output = ()> + Send;
 }
 
 pub struct ConversationRuntime {
-    messages: Arc<Mutex<Vec<Message>>>,
     sender: mpsc::Sender<ActorMsg>,
     join_handle: JoinHandle<()>,
 }
@@ -26,12 +22,10 @@ pub struct ConversationRuntime {
 impl ConversationRuntime {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel(5);
-        let messages = Arc::new(Mutex::new(Vec::new()));
-        let actor = Actor::new(receiver, messages.clone());
+        let actor = Actor::new(receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
         ConversationRuntime {
             sender,
-            messages,
             join_handle,
         }
     }
@@ -39,7 +33,6 @@ impl ConversationRuntime {
     pub fn api(&self) -> ConversationClient {
         ConversationClient {
             sender: self.sender.clone(),
-            messages: self.messages.clone(),
         }
     }
 
@@ -54,7 +47,6 @@ impl ConversationRuntime {
 #[derive(Clone)]
 pub struct ConversationClient {
     sender: mpsc::Sender<ActorMsg>,
-    messages: Arc<Mutex<Vec<Message>>>,
 }
 
 impl Conversation for ConversationClient {
@@ -68,22 +60,11 @@ impl Conversation for ConversationClient {
         tokio_stream::iter(messages)
     }
 
-    fn add_message(
-        &self,
-        NewMessage {
-            id,
-            sender,
-            content,
-        }: NewMessage,
-    ) {
-        let message = Message {
-            id,
-            sender,
-            content,
-            timestamp: SystemTime::now(),
-        };
-        let mut messages = self.messages.lock().unwrap();
-        messages.push(message);
+    async fn add_message(&mut self, message: NewMessage) {
+        self.sender
+            .send(ActorMsg::AddMessage(message))
+            .await
+            .unwrap();
     }
 }
 
@@ -118,15 +99,17 @@ pub struct NewMessage {
 
 enum ActorMsg {
     ReadMessages(oneshot::Sender<Vec<Message>>),
+    AddMessage(NewMessage),
 }
 
 struct Actor {
-    messages: Arc<Mutex<Vec<Message>>>,
+    messages: Vec<Message>,
     receiver: mpsc::Receiver<ActorMsg>,
 }
 
 impl Actor {
-    pub fn new(receiver: mpsc::Receiver<ActorMsg>, messages: Arc<Mutex<Vec<Message>>>) -> Self {
+    pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
+        let messages = Vec::new();
         Actor { receiver, messages }
     }
 
@@ -139,10 +122,23 @@ impl Actor {
     pub fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
             ActorMsg::ReadMessages(responder) => {
-                let messages = self.messages.lock().unwrap().clone();
+                let messages = self.messages.clone();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
                 let _ = responder.send(messages);
+            }
+            ActorMsg::AddMessage(NewMessage {
+                id,
+                sender,
+                content,
+            }) => {
+                let message = Message {
+                    id,
+                    sender,
+                    content,
+                    timestamp: SystemTime::now(),
+                };
+                self.messages.push(message);
             }
         }
     }
@@ -169,11 +165,11 @@ mod tests {
             content: "Two".to_string(),
         };
         let runtime = ConversationRuntime::new();
-        let client = runtime.api();
+        let mut client = runtime.api();
 
         // When
-        client.add_message(msg_1);
-        client.add_message(msg_2);
+        client.add_message(msg_1).await;
+        client.add_message(msg_2).await;
         let mut messages = client.messages().await;
 
         // Then
