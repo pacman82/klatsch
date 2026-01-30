@@ -3,7 +3,7 @@
 	import SendMessage from '$lib/components/SendMessage.svelte';
 </script>
 
-<svelte:head><title>Tattle</title></svelte:head>
+<svelte:head><title>Klatsch</title></svelte:head>
 
 <ChatMessages />
 <SendMessage />

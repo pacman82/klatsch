@@ -86,7 +86,7 @@ struct TestServerProcess {
 
 impl TestServerProcess {
     fn new(port: u16) -> Self {
-        let binary_path = env!("CARGO_BIN_EXE_tattle");
+        let binary_path = env!("CARGO_BIN_EXE_klatsch");
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
             .spawn()
