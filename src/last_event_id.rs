@@ -22,3 +22,30 @@ where
         Ok(LastEventId(id))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+
+    #[tokio::test]
+    async fn parses_header() {
+        let req = Request::builder()
+            .uri("/")
+            .header("Last-Event-ID", "2")
+            .body(Body::empty())
+            .unwrap();
+        let mut parts = req.into_parts().0;
+        let extractor = LastEventId::from_request_parts(&mut parts, &()).await.unwrap();
+        assert_eq!(extractor.0, 2);
+    }
+
+    #[tokio::test]
+    async fn defaults_to_zero() {
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        let mut parts = req.into_parts().0;
+        let extractor = LastEventId::from_request_parts(&mut parts, &()).await.unwrap();
+        assert_eq!(extractor.0, 0);
+    }
+}
