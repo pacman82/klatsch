@@ -9,16 +9,16 @@
     name = $user;
   });
 
-  function save() {
-    const trimmed = name.trim().slice(0, 32);
+  function updateUser() {
+    const trimmed = name.trim();
     if (trimmed) user.set(trimmed);
   }
 </script>
 
 <div class="user-picker">
   <label for="username">Me</label>
-  <input id="username" bind:value={name} on:blur={save} maxlength="32" />
-  <button type="button" on:click={save}>Save</button>
+  <input id="username" bind:value={name} on:blur={updateUser} maxlength="32" />
+  <button type="button" on:click={updateUser}>Save</button>
 </div>
 
 <style>
