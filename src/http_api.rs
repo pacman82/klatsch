@@ -35,7 +35,7 @@ where
     let last_event_id = last_event_id.0;
 
     let events = conversation
-        .events(0)
+        .events(last_event_id)
         .filter(move |e| ready(e.id > last_event_id))
         .map(|conversation_event| {
             let sse_event: SseEvent = conversation_event.into();
@@ -368,13 +368,41 @@ mod tests {
         assert_eq!(spy.take_add_message_record(), &[expected_msg],);
     }
 
-    // Spy that records calls to add_message for later inspection
+    #[tokio::test]
+    async fn last_event_id_forwarded_to_conversation_events() {
+        // Given
+        let spy = ConversationSpy::default();
+        let app = api_router(spy.clone());
+
+        // When: request with Last-Event-ID = 7
+        let _response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/messages")
+                    .header("Last-Event-ID", "7")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then: the conversation should have been asked for events since id 7
+        assert_eq!(spy.take_events_record(), vec![7]);
+    }
+
+    // Spy that records calls to add_message and events for later inspection
     #[derive(Clone, Default)]
     struct ConversationSpy {
         add_message_record: Arc<Mutex<Vec<Message>>>,
+        events_record: Arc<Mutex<Vec<u64>>>,
     }
 
     impl Conversation for ConversationSpy {
+        fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
+            self.events_record.lock().unwrap().push(last_event_id);
+            tokio_stream::iter(Vec::new())
+        }
+
         async fn add_message(&mut self, message: Message) {
             self.add_message_record.lock().unwrap().push(message);
         }
@@ -384,6 +412,12 @@ mod tests {
         fn take_add_message_record(&self) -> Vec<Message> {
             let mut tmp = Vec::new();
             swap(&mut tmp, &mut *self.add_message_record.lock().unwrap());
+            tmp
+        }
+
+        fn take_events_record(&self) -> Vec<u64> {
+            let mut tmp = Vec::new();
+            swap(&mut tmp, &mut *self.events_record.lock().unwrap());
             tmp
         }
     }
