@@ -12,7 +12,14 @@ use uuid::Uuid;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Conversation: Sized {
     /// A stream which yields future and past events of the conversation.
-    fn events(self) -> impl Stream<Item = Event> + Send;
+    /// 
+    /// # Parameters
+    /// 
+    /// - `last_event_id`: The last event id received by the client. Event ids are ordered. The
+    /// stream will only yield events with an id greater than `last_event_id`, so that clients only
+    /// receive events they have not yet seen. Use `0` to receive all events from the beginning of
+    /// the conversation.
+    fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
     /// Add a new message to the conversation.
     fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
 }
@@ -54,7 +61,7 @@ pub struct ConversationClient {
 }
 
 impl Conversation for ConversationClient {
-    fn events(self) -> impl Stream<Item = Event> + Send {
+    fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
         stream! {
             let (request, response) = oneshot::channel();
             self.sender
@@ -177,7 +184,7 @@ mod tests {
         // that the cleanup won't block. It is not enough to clear the pinned wrapper.
         let history = conversation
             .api()
-            .events()
+            .events(0)
             .take(2)
             .collect::<Vec<_>>()
             .await;

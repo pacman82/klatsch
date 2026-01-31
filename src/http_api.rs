@@ -35,7 +35,7 @@ where
     let last_event_id = last_event_id.0;
 
     let events = conversation
-        .events()
+        .events(0)
         .filter(move |e| ready(e.id > last_event_id))
         .map(|conversation_event| {
             let sse_event: SseEvent = conversation_event.into();
@@ -123,7 +123,7 @@ mod tests {
         time::Duration,
     };
 
-    use crate::conversation::Event;
+    use crate::{conversation::Event};
 
     use super::*;
     use axum::{
@@ -142,7 +142,7 @@ mod tests {
         struct ConversationStub;
 
         impl Conversation for ConversationStub {
-            fn events(self) -> impl Stream<Item = Event> + Send {
+            fn events(self, _last_event_id: u64) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event {
                         id: 1,
@@ -231,7 +231,7 @@ mod tests {
         struct ConversationStub;
 
         impl Conversation for ConversationStub {
-            fn events(self) -> impl Stream<Item = Event> + Send {
+            fn events(self, _last_event_id: u64) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event {
                         id: 1,
