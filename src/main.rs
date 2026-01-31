@@ -7,7 +7,7 @@ mod ui;
 
 use dotenv::dotenv;
 use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::{
     configuration::Configuration, conversation::ConversationRuntime, server::Server,
@@ -21,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
+        .with_env_filter(EnvFilter::default().add_directive("memory_serve=off".parse().unwrap()))
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("Setting global default provider must not fail.");

@@ -152,10 +152,11 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
-    use std::pin::pin;
+    use std::{pin::pin, time::Duration};
 
     use super::*;
     use futures_util::StreamExt;
+    use tokio::time::timeout;
 
     #[tokio::test]
     async fn messages_are_added_and_read_in_order() {
@@ -197,5 +198,17 @@ mod tests {
 
         // Cleanup
         conversation.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_completes_within_one_second() {
+        // Given
+        let conversation = ConversationRuntime::new();
+
+        // When
+        let result = timeout(Duration::from_secs(1), conversation.shutdown()).await;
+
+        // Then
+        assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
 }
