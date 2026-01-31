@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { user } from '$lib/stores/user';
 
   let name = '';
-  const unsub = user.subscribe((v) => (name = v));
-  onDestroy(() => unsub());
+
+  onMount(() => {
+    // initialize input with current store value
+    name = $user;
+  });
 
   function save() {
     const trimmed = name.trim().slice(0, 32);
@@ -13,7 +16,7 @@
 </script>
 
 <div class="user-picker">
-  <label for="username">You</label>
+  <label for="username">Me</label>
   <input id="username" bind:value={name} on:blur={save} maxlength="32" />
   <button type="button" on:click={save}>Save</button>
 </div>

@@ -14,8 +14,8 @@
 
 	const messages = writable<ChatMessage[]>([]);
 
-		onMount(() => {
-			const eventSource = new EventSource('/api/v0/events');
+	onMount(() => {
+		const eventSource = new EventSource('/api/v0/events');
 		eventSource.onmessage = (event) => {
 			try {
 				const msg: ChatMessage = JSON.parse(event.data);
