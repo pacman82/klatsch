@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { v7 } from 'uuid';
+	import { user } from '$lib/stores/user';
 
 	type SendMessage = {
 		id: string;
@@ -7,7 +8,6 @@
 		content: string;
 	};
 
-	let sender = 'Bob';
 	let message_content = '';
 
 	async function handleSubmit() {
@@ -15,7 +15,7 @@
 
 		let message: SendMessage = {
 			id: v7(),
-			sender: sender,
+			sender: $user,
 			content: message_content.trim()
 		};
 

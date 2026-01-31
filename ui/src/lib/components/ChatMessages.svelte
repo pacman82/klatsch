@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
+	import { user } from '$lib/stores/user';
 
 	type ChatMessage = {
 		id: string;
@@ -10,7 +11,6 @@
 		timestamp_ms: number;
 	};
 
-	const me = 'Bob';
 
 	const messages = writable<ChatMessage[]>([]);
 
@@ -37,10 +37,10 @@
 
 <div class="chat-container">
 	{#each $messages as msg (msg.id)}
-		<div class="message-row {msg.sender == me ? 'me' : 'them'}">
+		<div class="message-row {msg.sender == $user ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !(msg.sender == me)}
+					{#if !(msg.sender == $user)}
 						<span class="sender">{msg.sender}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
