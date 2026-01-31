@@ -1,8 +1,9 @@
-use std::{convert::Infallible, time::UNIX_EPOCH};
+use std::{convert::Infallible, future, time::UNIX_EPOCH};
 
 use axum::{
     Json, Router,
     extract::State,
+    http::HeaderMap,
     response::{Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
@@ -24,14 +25,25 @@ where
 
 async fn messages<C>(
     State(conversation): State<C>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: Conversation + Send + 'static,
 {
-    let events = conversation.events().map(|conversation_event| {
-        let sse_event: SseEvent = conversation_event.into();
-        Ok(sse_event)
-    });
+    // Extract Last-Event-ID header if provided by the client. Parse as u64 when present.
+    let last_event_id = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or_default();
+
+    let events = conversation
+        .events()
+        .filter(move |e| future::ready(e.id > last_event_id))
+        .map(|conversation_event| {
+            let sse_event: SseEvent = conversation_event.into();
+            Ok(sse_event)
+        });
     Sse::new(events)
 }
 

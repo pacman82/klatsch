@@ -20,8 +20,6 @@
 			try {
 				const msg: ChatMessage = JSON.parse(event.data);
 				messages.update((current) => {
-					// Avoid duplicates by id
-					if (current.some((m) => m.id === msg.id)) return current;
 					return [...current, msg];
 				});
 			} catch (e) {
