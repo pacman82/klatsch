@@ -3,14 +3,14 @@ use std::{convert::Infallible, time::UNIX_EPOCH};
 use axum::{
     Json, Router,
     extract::State,
-    response::{Sse, sse::Event},
+    response::{Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::conversation::{Conversation, Message, NewMessage};
+use crate::conversation::{Conversation, Event, Message};
 
 pub fn api_router<C>(conversation: C) -> Router
 where
@@ -24,14 +24,14 @@ where
 
 async fn messages<C>(
     State(conversation): State<C>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>> + Send + 'static>
+) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: Conversation + Send + 'static,
 {
-    let messages = conversation.messages();
+    let messages = conversation.events();
     let events = messages.enumerate().map(|(id, msg)| {
         let msg: HttpMessage = msg.into();
-        let events = Event::default()
+        let events = SseEvent::default()
             .id(id.to_string())
             .json_data(msg)
             .expect("Deserializing message must not fail");
@@ -55,12 +55,15 @@ pub struct HttpMessage {
     pub timestamp_ms: u128,
 }
 
-impl From<Message> for HttpMessage {
-    fn from(source: Message) -> Self {
-        let Message {
-            id,
-            sender,
-            content,
+impl From<Event> for HttpMessage {
+    fn from(source: Event) -> Self {
+        let Event {
+            message:
+                Message {
+                    id,
+                    sender,
+                    content,
+                },
             timestamp,
         } = source;
         let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis();
@@ -73,7 +76,7 @@ impl From<Message> for HttpMessage {
     }
 }
 
-async fn add_message<C>(State(mut conversation): State<C>, Json(msg): Json<NewMessage>)
+async fn add_message<C>(State(mut conversation): State<C>, Json(msg): Json<Message>)
 where
     C: Conversation,
 {
@@ -88,7 +91,7 @@ mod tests {
         time::Duration,
     };
 
-    use crate::conversation::Message;
+    use crate::conversation::Event;
 
     use super::*;
     use axum::{
@@ -107,30 +110,38 @@ mod tests {
         struct ConversationStub;
 
         impl Conversation for ConversationStub {
-            fn messages(self) -> impl Stream<Item = Message> + Send {
+            fn events(self) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
-                    Message {
-                        id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        sender: "Alice".to_owned(),
-                        content: "One".to_owned(),
+                    Event {
+                        message: Message {
+                            id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
+                            sender: "Alice".to_owned(),
+                            content: "One".to_owned(),
+                        },
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531600000),
                     },
-                    Message {
-                        id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
-                        sender: "Bob".to_owned(),
-                        content: "Two".to_owned(),
+                    Event {
+                        message: Message {
+                            id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
+                            sender: "Bob".to_owned(),
+                            content: "Two".to_owned(),
+                        },
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531601000),
                     },
-                    Message {
-                        id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
-                        sender: "Alice".to_string(),
-                        content: "Three".to_owned(),
+                    Event {
+                        message: Message {
+                            id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
+                            sender: "Alice".to_string(),
+                            content: "Three".to_owned(),
+                        },
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531602000),
                     },
-                    Message {
-                        id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
-                        sender: "Bob".to_owned(),
-                        content: "Four".to_owned(),
+                    Event {
+                        message: Message {
+                            id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
+                            sender: "Bob".to_owned(),
+                            content: "Four".to_owned(),
+                        },
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531603000),
                     },
                 ];
@@ -228,7 +239,7 @@ mod tests {
             .unwrap();
 
         // Then
-        let expected_msg = NewMessage {
+        let expected_msg = Message {
             id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
                 .parse::<Uuid>()
                 .unwrap(),
@@ -241,19 +252,19 @@ mod tests {
     // Spy that records calls to add_message for later inspection
     #[derive(Clone, Default)]
     struct ConversationSpy {
-        last_call_add_message: Arc<Mutex<Vec<NewMessage>>>,
+        add_message_record: Arc<Mutex<Vec<Message>>>,
     }
 
     impl Conversation for ConversationSpy {
-        async fn add_message(&mut self, message: NewMessage) {
-            self.last_call_add_message.lock().unwrap().push(message);
+        async fn add_message(&mut self, message: Message) {
+            self.add_message_record.lock().unwrap().push(message);
         }
     }
 
     impl ConversationSpy {
-        fn take_add_message_record(&self) -> Vec<NewMessage> {
+        fn take_add_message_record(&self) -> Vec<Message> {
             let mut tmp = Vec::new();
-            swap(&mut tmp, &mut *self.last_call_add_message.lock().unwrap());
+            swap(&mut tmp, &mut *self.add_message_record.lock().unwrap());
             tmp
         }
     }
