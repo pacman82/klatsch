@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 use reqwest::Client;
 use tokio::{
@@ -89,6 +92,8 @@ impl TestServerProcess {
         let binary_path = env!("CARGO_BIN_EXE_klatsch");
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
         let client = Client::new();
