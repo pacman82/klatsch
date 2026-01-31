@@ -152,7 +152,7 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
-    use std::{pin::pin, time::Duration};
+    use std::time::Duration;
 
     use super::*;
     use futures_util::StreamExt;
@@ -179,22 +179,25 @@ mod tests {
         conversation.api().add_message(msg_1).await;
         conversation.api().add_message(msg_2).await;
 
-        // Pin messages in their own local scope as dropping the pinned messages won't drop the
-        // inner messages and therfore will prevent the shutdown of the conversation runtime
-        {
-            let mut messages = pin!(conversation.api().messages());
+        // This line is a bit more tricky than it seems. We need to make sure messages is freed so
+        // that the cleanup won't block. It is not enough to clear the pinned wrapper.
+        let messages = conversation
+            .api()
+            .messages()
+            .take(2)
+            .collect::<Vec<_>>()
+            .await;
 
-            // Then
-            let first = messages.next().await.expect("First message should exist");
-            assert_eq!(first.id, id_1);
-            assert_eq!(first.sender, "Alice");
-            assert_eq!(first.content, "One");
+        // Then
+        let first = &messages[0];
+        assert_eq!(first.id, id_1);
+        assert_eq!(first.sender, "Alice");
+        assert_eq!(first.content, "One");
 
-            let second = messages.next().await.expect("Second message should exist");
-            assert_eq!(second.id, id_2);
-            assert_eq!(second.sender, "Bob");
-            assert_eq!(second.content, "Two");
-        }
+        let second = &messages[1];
+        assert_eq!(second.id, id_2);
+        assert_eq!(second.sender, "Bob");
+        assert_eq!(second.content, "Two");
 
         // Cleanup
         conversation.shutdown().await;
