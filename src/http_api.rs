@@ -233,10 +233,42 @@ mod tests {
         impl Conversation for ConversationStub {
             fn events(self) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
-                    Event { id: 1, message: Message { id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(), sender: "Alice".to_owned(), content: "One".to_owned() }, timestamp: UNIX_EPOCH + Duration::from_millis(1704531600000) },
-                    Event { id: 2, message: Message { id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(), sender: "Bob".to_owned(), content: "Two".to_owned() }, timestamp: UNIX_EPOCH + Duration::from_millis(1704531601000) },
-                    Event { id: 3, message: Message { id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(), sender: "Alice".to_string(), content: "Three".to_owned() }, timestamp: UNIX_EPOCH + Duration::from_millis(1704531602000) },
-                    Event { id: 4, message: Message { id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(), sender: "Bob".to_owned(), content: "Four".to_owned() }, timestamp: UNIX_EPOCH + Duration::from_millis(1704531603000) },
+                    Event {
+                        id: 1,
+                        message: Message {
+                            id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
+                            sender: "Alice".to_owned(),
+                            content: "One".to_owned(),
+                        },
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531600000),
+                    },
+                    Event {
+                        id: 2,
+                        message: Message {
+                            id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
+                            sender: "Bob".to_owned(),
+                            content: "Two".to_owned(),
+                        },
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531601000),
+                    },
+                    Event {
+                        id: 3,
+                        message: Message {
+                            id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
+                            sender: "Alice".to_string(),
+                            content: "Three".to_owned(),
+                        },
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531602000),
+                    },
+                    Event {
+                        id: 4,
+                        message: Message {
+                            id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
+                            sender: "Bob".to_owned(),
+                            content: "Four".to_owned(),
+                        },
+                        timestamp: UNIX_EPOCH + Duration::from_millis(1704531603000),
+                    },
                 ];
                 tokio_stream::iter(messages)
             }
