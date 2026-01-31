@@ -12,9 +12,9 @@ use uuid::Uuid;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Conversation: Sized {
     /// A stream which yields future and past events of the conversation.
-    /// 
+    ///
     /// # Parameters
-    /// 
+    ///
     /// - `last_event_id`: The last event id received by the client. Event ids are ordered. The
     /// stream will only yield events with an id greater than `last_event_id`, so that clients only
     /// receive events they have not yet seen. Use `0` to receive all events from the beginning of
@@ -216,6 +216,63 @@ mod tests {
 
         // Then
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
+    }
+
+    #[tokio::test]
+    #[should_panic] // Not yet implemented
+    async fn events_stream_includes_future_events() {
+        use futures_util::StreamExt;
+
+        // Given: a conversation and one initial message
+        let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let msg_1 = Message {
+            id: id_1.clone(),
+            sender: "Alice".to_string(),
+            content: "One".to_string(),
+        };
+        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+        let msg_2 = Message {
+            id: id_2.clone(),
+            sender: "Bob".to_string(),
+            content: "Two".to_string(),
+        };
+        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
+        let msg_3 = Message {
+            id: id_3.clone(),
+            sender: "Carol".to_string(),
+            content: "Three".to_string(),
+        };
+
+        let conversation = ConversationRuntime::new();
+
+        // Add one message before subscribing
+        conversation.api().add_message(msg_1).await;
+
+        // When: subscribe to events, then add more messages
+        let mut events_stream = conversation.api().events(0).boxed();
+
+        // Extract historic messages so far
+        let _initial_message = events_stream.next().await;
+
+        // Add messages after history has already been consumed
+        conversation.api().add_message(msg_2).await;
+        conversation.api().add_message(msg_3).await;
+
+        // Then: we expect to receive the initial and the later messages (3 total)
+        let collected = tokio::time::timeout(Duration::from_millis(200), async {
+            events_stream.take(3).collect::<Vec<_>>().await
+        })
+        .await
+        .expect("timed out waiting for events");
+
+        assert_eq!(
+            collected.len(),
+            2,
+            "expected 2 events (2 added after historic messages extracted)"
+        );
+
+        // Cleanup
+        conversation.shutdown().await;
     }
 
     #[tokio::test]
