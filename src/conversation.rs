@@ -22,6 +22,7 @@ pub trait Conversation: Sized {
     ///   beginning of the conversation. Filtering of events is only applied to historic events.
     ///   Future events will always be delivered.
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
+
     /// Add a new message to the conversation.
     fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
 }
@@ -73,8 +74,11 @@ impl Conversation for ConversationClient {
                 .send(ActorMsg::ReadEvents{ responder, last_event_id})
                 .await
                 .expect("Actor must outlive client.");
-            let event_reader = response.await.unwrap();
-            for message in event_reader.history {
+            let EventReader { history, mut current } = response.await.unwrap();
+            for message in history {
+                yield message;
+            }
+            while let Ok(message) = current.recv().await {
                 yield message;
             }
         }
@@ -118,6 +122,7 @@ enum ActorMsg {
 
 struct EventReader {
     history: Vec<Event>,
+    current: broadcast::Receiver<Event>,
 }
 
 struct Actor {
@@ -151,7 +156,7 @@ impl Actor {
                 let history = self.history[ last_event_id as usize..].to_owned();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
-                let _ = responder.send(EventReader { history });
+                let _ = responder.send(EventReader { history, current: self.current.subscribe() });
             }
             ActorMsg::AddMessage(message) => {
                 let event = Event {
@@ -317,11 +322,10 @@ mod tests {
         conversation.api().add_message(msg_2).await;
         conversation.api().add_message(msg_3).await;
 
-        // When: request events since last_event_id = 1 should only return events with id 2 and 3
-        let history = conversation.api().events(1).collect::<Vec<_>>().await;
+        // When: requesting two events since last_event_id = 1
+        let history = conversation.api().events(1).take(2).collect::<Vec<_>>().await;
 
-        // Then only events 2 and 3 are returned
-        assert_eq!(history.len(), 2);
+        // Then events 2 and 3 are returned (as opposed to 1, 2)
         assert_eq!(history[0].id, 2);
         assert_eq!(history[1].id, 3);
 
