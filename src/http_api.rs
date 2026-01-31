@@ -28,7 +28,7 @@ async fn messages<C>(
 where
     C: Conversation + Send + 'static,
 {
-    let messages = conversation.messages().await;
+    let messages = conversation.messages();
     let events = messages.enumerate().map(|(id, msg)| {
         let msg: HttpMessage = msg.into();
         let events = Event::default()
@@ -107,7 +107,7 @@ mod tests {
         struct ConversationStub;
 
         impl Conversation for ConversationStub {
-            async fn messages(self) -> impl Stream<Item = Message> + Send {
+            fn messages(self) -> impl Stream<Item = Message> + Send {
                 let messages = vec![
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+async-stream = "0.3.6"
 axum = { version = "0.8.8", features = ["macros"] }
 dotenv = "0.15.0"
 futures-util = "0.3.31"

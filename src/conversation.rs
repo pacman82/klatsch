@@ -1,5 +1,6 @@
 use std::time::SystemTime;
 
+use async_stream::stream;
 use futures_util::Stream;
 use serde::Deserialize;
 use tokio::{
@@ -10,10 +11,11 @@ use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Conversation: Sized {
-    fn messages(self) -> impl Future<Output = impl Stream<Item = Message> + Send> + Send;
+    fn messages(self) -> impl Stream<Item = Message> + Send;
     fn add_message(&mut self, message: NewMessage) -> impl Future<Output = ()> + Send;
 }
 
+/// Manages the lifetime of conversations api.
 pub struct ConversationRuntime {
     sender: mpsc::Sender<ActorMsg>,
     join_handle: JoinHandle<()>,
@@ -50,14 +52,18 @@ pub struct ConversationClient {
 }
 
 impl Conversation for ConversationClient {
-    async fn messages(self) -> impl Stream<Item = Message> + Send {
-        let (request, response) = oneshot::channel();
-        self.sender
-            .send(ActorMsg::ReadMessages(request))
-            .await
-            .expect("Actor must outlive client.");
-        let messages = response.await.unwrap();
-        tokio_stream::iter(messages)
+    fn messages(self) -> impl Stream<Item = Message> + Send {
+        stream! {
+            let (request, response) = oneshot::channel();
+            self.sender
+                .send(ActorMsg::ReadMessages(request))
+                .await
+                .expect("Actor must outlive client.");
+            let messages = response.await.unwrap();
+            for message in messages {
+                yield message;
+            }
+        }
     }
 
     async fn add_message(&mut self, message: NewMessage) {
@@ -146,6 +152,8 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
+
     use super::*;
     use futures_util::StreamExt;
 
@@ -164,26 +172,30 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        let runtime = ConversationRuntime::new();
-        let mut client = runtime.api();
+        let conversation = ConversationRuntime::new();
 
         // When
-        client.add_message(msg_1).await;
-        client.add_message(msg_2).await;
-        let mut messages = client.messages().await;
+        conversation.api().add_message(msg_1).await;
+        conversation.api().add_message(msg_2).await;
 
-        // Then
-        let first = messages.next().await.expect("First message should exist");
-        assert_eq!(first.id, id_1);
-        assert_eq!(first.sender, "Alice");
-        assert_eq!(first.content, "One");
+        // Pin messages in their own local scope as dropping the pinned messages won't drop the
+        // inner messages and therfore will prevent the shutdown of the conversation runtime
+        {
+            let mut messages = pin!(conversation.api().messages());
 
-        let second = messages.next().await.expect("Second message should exist");
-        assert_eq!(second.id, id_2);
-        assert_eq!(second.sender, "Bob");
-        assert_eq!(second.content, "Two");
+            // Then
+            let first = messages.next().await.expect("First message should exist");
+            assert_eq!(first.id, id_1);
+            assert_eq!(first.sender, "Alice");
+            assert_eq!(first.content, "One");
+
+            let second = messages.next().await.expect("Second message should exist");
+            assert_eq!(second.id, id_2);
+            assert_eq!(second.sender, "Bob");
+            assert_eq!(second.content, "Two");
+        }
 
         // Cleanup
-        runtime.shutdown().await;
+        conversation.shutdown().await;
     }
 }
