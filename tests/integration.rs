@@ -92,6 +92,8 @@ impl TestServerProcess {
         let binary_path = env!("CARGO_BIN_EXE_klatsch");
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
+            // We do not want the log output of the process to clutter the output of our test
+            // runner. We can use child.wait_with_output() to get the output if needed.
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
