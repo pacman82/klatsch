@@ -9,6 +9,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
+/// Interaction with a conversation.
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Conversation: Sized {
     /// A stream which yields future and past events of the conversation.
@@ -16,15 +17,16 @@ pub trait Conversation: Sized {
     /// # Parameters
     ///
     /// - `last_event_id`: The last event id received by the client. Event ids are ordered. The
-    /// stream will only yield events with an id greater than `last_event_id`, so that clients only
-    /// receive events they have not yet seen. Use `0` to receive all events from the beginning of
-    /// the conversation.
+    ///   stream will only yield events with an id greater than `last_event_id`, so that clients
+    ///   only receive events they have not yet seen. Use `0` to receive all events from the
+    ///   beginning of the conversation. Filtering of events is only applied to historic events.
+    ///   Future events will always be delivered.
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
     /// Add a new message to the conversation.
     fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
 }
 
-/// Manages the lifetime of conversations api.
+/// Controls the lifecycle of conversations api.
 pub struct ConversationRuntime {
     sender: mpsc::Sender<ActorMsg>,
     join_handle: JoinHandle<()>,
@@ -41,12 +43,15 @@ impl ConversationRuntime {
         }
     }
 
+    /// A client which implements the `Conversation` trait.
     pub fn api(&self) -> ConversationClient {
         ConversationClient {
             sender: self.sender.clone(),
         }
     }
 
+    /// Shuts down the conversation runtime. In order for this to complete, all clients must have
+    /// been dropped.
     pub async fn shutdown(self) {
         // We drop the sender, to signal to the actor thread that it can no longer receive messages
         // and should stop.
@@ -63,16 +68,14 @@ pub struct ConversationClient {
 impl Conversation for ConversationClient {
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
         stream! {
-            let (request, response) = oneshot::channel();
+            let (responder, response) = oneshot::channel();
             self.sender
-                .send(ActorMsg::ReadEvents(request))
+                .send(ActorMsg::ReadEvents{ responder, last_event_id})
                 .await
                 .expect("Actor must outlive client.");
             let event_reader = response.await.unwrap();
             for message in event_reader.history {
-                if message.id > last_event_id {
-                    yield message;
-                }
+                yield message;
             }
         }
     }
@@ -109,7 +112,7 @@ pub struct Message {
 }
 
 enum ActorMsg {
-    ReadEvents(oneshot::Sender<EventReader>),
+    ReadEvents { responder: oneshot::Sender<EventReader>, last_event_id: u64 },
     AddMessage(Message),
 }
 
@@ -144,8 +147,8 @@ impl Actor {
 
     pub fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
-            ActorMsg::ReadEvents(responder) => {
-                let history = self.history.clone();
+            ActorMsg::ReadEvents { responder, last_event_id } => {
+                let history = self.history[ last_event_id as usize..].to_owned();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
                 let _ = responder.send(EventReader { history });
