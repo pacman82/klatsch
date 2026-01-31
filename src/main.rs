@@ -1,7 +1,7 @@
 mod configuration;
 mod conversation;
-mod last_event_id;
 mod http_api;
+mod last_event_id;
 mod server;
 mod shutdown;
 mod ui;

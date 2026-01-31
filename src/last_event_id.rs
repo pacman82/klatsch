@@ -37,7 +37,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let mut parts = req.into_parts().0;
-        let extractor = LastEventId::from_request_parts(&mut parts, &()).await.unwrap();
+        let extractor = LastEventId::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
         assert_eq!(extractor.0, 2);
     }
 
@@ -45,7 +47,9 @@ mod tests {
     async fn defaults_to_zero() {
         let req = Request::builder().uri("/").body(Body::empty()).unwrap();
         let mut parts = req.into_parts().0;
-        let extractor = LastEventId::from_request_parts(&mut parts, &()).await.unwrap();
+        let extractor = LastEventId::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
         assert_eq!(extractor.0, 0);
     }
 }

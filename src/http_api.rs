@@ -122,7 +122,7 @@ mod tests {
         time::Duration,
     };
 
-    use crate::{conversation::Event};
+    use crate::conversation::Event;
 
     use super::*;
     use axum::{

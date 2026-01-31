@@ -4,7 +4,7 @@ use async_stream::stream;
 use futures_util::Stream;
 use serde::Deserialize;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
 use uuid::Uuid;
@@ -65,11 +65,11 @@ impl Conversation for ConversationClient {
         stream! {
             let (request, response) = oneshot::channel();
             self.sender
-                .send(ActorMsg::ReadMessages(request))
+                .send(ActorMsg::ReadEvents(request))
                 .await
                 .expect("Actor must outlive client.");
-            let messages = response.await.unwrap();
-            for message in messages {
+            let event_reader = response.await.unwrap();
+            for message in event_reader.history {
                 if message.id > last_event_id {
                     yield message;
                 }
@@ -109,21 +109,30 @@ pub struct Message {
 }
 
 enum ActorMsg {
-    ReadMessages(oneshot::Sender<Vec<Event>>),
+    ReadEvents(oneshot::Sender<EventReader>),
     AddMessage(Message),
 }
 
-struct Actor {
+struct EventReader {
     history: Vec<Event>,
+}
+
+struct Actor {
+    /// All the events so far
+    history: Vec<Event>,
+    /// Used to broadcast new events to clients whom already have consumed the history.
+    current: broadcast::Sender<Event>,
     receiver: mpsc::Receiver<ActorMsg>,
 }
 
 impl Actor {
     pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
         let messages = Vec::new();
+        let (current, _) = broadcast::channel(10);
         Actor {
             receiver,
             history: messages,
+            current,
         }
     }
 
@@ -135,11 +144,11 @@ impl Actor {
 
     pub fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
-            ActorMsg::ReadMessages(responder) => {
-                let messages = self.history.clone();
+            ActorMsg::ReadEvents(responder) => {
+                let history = self.history.clone();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
-                let _ = responder.send(messages);
+                let _ = responder.send(EventReader { history });
             }
             ActorMsg::AddMessage(message) => {
                 let event = Event {
@@ -147,7 +156,10 @@ impl Actor {
                     message,
                     timestamp: SystemTime::now(),
                 };
-                self.history.push(event);
+                self.history.push(event.clone());
+                // This method only fails if there are no active receivers. This is also fine, we
+                // can safely ignore that.
+                let _ = self.current.send(event);
             }
         }
     }
