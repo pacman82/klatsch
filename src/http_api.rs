@@ -28,14 +28,9 @@ async fn messages<C>(
 where
     C: Conversation + Send + 'static,
 {
-    let messages = conversation.events();
-    let events = messages.enumerate().map(|(id, msg)| {
-        let msg: HttpMessage = msg.into();
-        let events = SseEvent::default()
-            .id(id.to_string())
-            .json_data(msg)
-            .expect("Deserializing message must not fail");
-        Ok(events)
+    let events = conversation.events().map(|conversation_event| {
+        let sse_event: SseEvent = conversation_event.into();
+        Ok(sse_event)
     });
     Sse::new(events)
 }
@@ -58,6 +53,7 @@ pub struct HttpMessage {
 impl From<Event> for HttpMessage {
     fn from(source: Event) -> Self {
         let Event {
+            id: _,
             message:
                 Message {
                     id,
@@ -73,6 +69,33 @@ impl From<Event> for HttpMessage {
             content,
             timestamp_ms,
         }
+    }
+}
+
+impl From<Event> for SseEvent {
+    fn from(source: Event) -> Self {
+        // Destructure source event
+        let Event {
+            id: event_id,
+            message:
+                Message {
+                    id: message_id,
+                    sender,
+                    content,
+                },
+            timestamp,
+        } = source;
+        // Convert timestamp to milliseconds since epoch
+        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis();
+        SseEvent::default()
+            .id(event_id.to_string())
+            .json_data(HttpMessage {
+                id: message_id,
+                sender,
+                content,
+                timestamp_ms,
+            })
+            .expect("Deserializing message must not fail")
     }
 }
 
@@ -113,6 +136,7 @@ mod tests {
             fn events(self) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event {
+                        id: 1,
                         message: Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                             sender: "Alice".to_owned(),
@@ -121,6 +145,7 @@ mod tests {
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531600000),
                     },
                     Event {
+                        id: 2,
                         message: Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
                             sender: "Bob".to_owned(),
@@ -129,6 +154,7 @@ mod tests {
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531601000),
                     },
                     Event {
+                        id: 3,
                         message: Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
                             sender: "Alice".to_string(),
@@ -137,6 +163,7 @@ mod tests {
                         timestamp: UNIX_EPOCH + Duration::from_millis(1704531602000),
                     },
                     Event {
+                        id: 4,
                         message: Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
                             sender: "Bob".to_owned(),
@@ -171,18 +198,18 @@ mod tests {
             .unwrap()
             .to_bytes()
             .to_vec();
-        let expected_body = "id: 0\n\
+        let expected_body = "id: 1\n\
             data: {\"id\":\"019c0050-e4d7-7447-9d8f-81cde690f4a1\",\"sender\":\"Alice\",\
             \"content\":\"One\",\"timestamp_ms\":1704531600000}\n\
             \n\
-            id: 1\n\
+            id: 2\n\
             data: {\"id\":\"019c0051-c29d-7968-b953-4adc898b1360\",\"sender\":\"Bob\",\"content\":\
             \"Two\",\"timestamp_ms\":1704531601000}\n\
             \n\
-            id: 2\ndata: {\"id\":\"019c0051-e50d-7ea7-8a0e-f7df4176dd93\",\"sender\":\"Alice\",\
+            id: 3\ndata: {\"id\":\"019c0051-e50d-7ea7-8a0e-f7df4176dd93\",\"sender\":\"Alice\",\
             \"content\":\"Three\",\"timestamp_ms\":1704531602000}\n\
             \n\
-            id: 3\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
+            id: 4\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
             \"content\":\"Four\",\"timestamp_ms\":1704531603000}\n\
             \n";
         assert_eq!(expected_body, String::from_utf8(bytes).unwrap());

@@ -79,6 +79,8 @@ impl Conversation for ConversationClient {
 /// A message as it is stored and represented as part of a conversation.
 #[derive(Clone)]
 pub struct Event {
+    /// One based ordered identifier of the events in the conversation.
+    pub id: u64,
     pub message: Message,
     pub timestamp: SystemTime,
 }
@@ -129,6 +131,7 @@ impl Actor {
             }
             ActorMsg::AddMessage(message) => {
                 let event = Event {
+                    id: self.history.len() as u64 + 1,
                     message,
                     timestamp: SystemTime::now(),
                 };
