@@ -20,12 +20,12 @@ where
     C: Conversation + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/api/v0/messages", get(messages::<C>))
+        .route("/api/v0/events", get(events::<C>))
         .route("/api/v0/add_message", post(add_message::<C>))
         .with_state(conversation)
 }
 
-async fn messages<C>(
+async fn events<C>(
     State(conversation): State<C>,
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
@@ -189,7 +189,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/v0/messages")
+                    .uri("/api/v0/events")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -232,7 +232,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/v0/messages")
+                    .uri("/api/v0/events")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -294,7 +294,7 @@ mod tests {
         let _response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/v0/messages")
+                    .uri("/api/v0/events")
                     .header("Last-Event-ID", "7")
                     .body(Body::empty())
                     .unwrap(),
