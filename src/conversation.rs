@@ -70,7 +70,9 @@ impl Conversation for ConversationClient {
                 .expect("Actor must outlive client.");
             let messages = response.await.unwrap();
             for message in messages {
-                yield message;
+                if message.id > last_event_id {
+                    yield message;
+                }
             }
         }
     }
@@ -214,5 +216,44 @@ mod tests {
 
         // Then
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
+    }
+
+    #[tokio::test]
+    async fn events_only_return_events_with_id_greater_than_last_event_id() {
+        // Given a conversation with three messages
+        let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let msg_1 = Message {
+            id: id_1.clone(),
+            sender: "Alice".to_string(),
+            content: "One".to_string(),
+        };
+        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+        let msg_2 = Message {
+            id: id_2.clone(),
+            sender: "Bob".to_string(),
+            content: "Two".to_string(),
+        };
+        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
+        let msg_3 = Message {
+            id: id_3.clone(),
+            sender: "Carol".to_string(),
+            content: "Three".to_string(),
+        };
+
+        let conversation = ConversationRuntime::new();
+        conversation.api().add_message(msg_1).await;
+        conversation.api().add_message(msg_2).await;
+        conversation.api().add_message(msg_3).await;
+
+        // When: request events since last_event_id = 1 should only return events with id 2 and 3
+        let history = conversation.api().events(1).collect::<Vec<_>>().await;
+
+        // Then only events 2 and 3 are returned
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].id, 2);
+        assert_eq!(history[1].id, 3);
+
+        // Cleanup
+        conversation.shutdown().await;
     }
 }
