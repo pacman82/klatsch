@@ -112,7 +112,10 @@ struct Actor {
 impl Actor {
     pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
         let messages = Vec::new();
-        Actor { receiver, history: messages }
+        Actor {
+            receiver,
+            history: messages,
+        }
     }
 
     pub async fn run(mut self) {

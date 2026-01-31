@@ -1,9 +1,8 @@
-use std::{convert::Infallible, future, time::UNIX_EPOCH};
+use std::{convert::Infallible, future::ready, time::UNIX_EPOCH};
 
 use axum::{
     Json, Router,
     extract::State,
-    http::HeaderMap,
     response::{Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
@@ -11,7 +10,10 @@ use futures_util::{Stream, StreamExt as _};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::conversation::{Conversation, Event, Message};
+use crate::{
+    conversation::{Conversation, Event, Message},
+    last_event_id::LastEventId,
+};
 
 pub fn api_router<C>(conversation: C) -> Router
 where
@@ -25,21 +27,16 @@ where
 
 async fn messages<C>(
     State(conversation): State<C>,
-    headers: HeaderMap,
+    last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: Conversation + Send + 'static,
 {
-    // Extract Last-Event-ID header if provided by the client. Parse as u64 when present.
-    let last_event_id = headers
-        .get("last-event-id")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or_default();
+    let last_event_id = last_event_id.0;
 
     let events = conversation
         .events()
-        .filter(move |e| future::ready(e.id > last_event_id))
+        .filter(move |e| ready(e.id > last_event_id))
         .map(|conversation_event| {
             let sse_event: SseEvent = conversation_event.into();
             Ok(sse_event)
