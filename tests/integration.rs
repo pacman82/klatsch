@@ -79,6 +79,51 @@ async fn server_boots_within_one_sec() {
     assert!(end - start <= max_duration)
 }
 
+#[cfg(not(windows))]
+#[should_panic] // Not implemented yet
+#[tokio::test]
+async fn shutdown_within_1_sec_with_active_events_stream_client() {
+    use tokio::task;
+
+    // Given a running server
+    let mut child = TestServerProcess::new(3004);
+    child.wait_for_health_check().await;
+
+    // And a client connected to the events stream
+    let client = Client::new();
+    let response = client
+        .get(format!("http://localhost:{}/api/v0/events", 3004))
+        .send()
+        .await
+        .expect("Failed to connect to events stream");
+
+    let body = response.error_for_status().unwrap().bytes();
+    let client_task = task::spawn(async move {
+        // Won't finish until the sever is shut down
+        let _ = body.await;
+    });
+
+    // When sending SIGTERM to the server process
+    child.send_sigterm();
+    // And measuring the time it takes to shut down
+    let start = Instant::now();
+    child
+        .wait_for_termination(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let end = Instant::now();
+
+    // Then it should have taken less than 1 second to shut down
+    let max_duration = Duration::from_secs(1);
+    assert!(
+        end - start <= max_duration,
+        "Shutdown took longer than 1 second with an active events stream client"
+    );
+
+    // Clean up the client task
+    let _ = client_task.abort();
+}
+
 /// Runs the server process as a command from the binary. Useful for testing stuff affecting the
 /// entire process. E.g. signal handling, shutdown, etc.
 struct TestServerProcess {
