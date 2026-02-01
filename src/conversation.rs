@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{cmp::min, time::SystemTime};
 
 use async_stream::stream;
 use futures_util::Stream;
@@ -116,7 +116,10 @@ pub struct Message {
 }
 
 enum ActorMsg {
-    ReadEvents { responder: oneshot::Sender<EventReader>, last_event_id: u64 },
+    ReadEvents {
+        responder: oneshot::Sender<EventReader>,
+        last_event_id: u64,
+    },
     AddMessage(Message),
 }
 
@@ -152,11 +155,18 @@ impl Actor {
 
     pub fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
-            ActorMsg::ReadEvents { responder, last_event_id } => {
-                let history = self.history[ last_event_id as usize..].to_owned();
+            ActorMsg::ReadEvents {
+                responder,
+                last_event_id,
+            } => {
+                let last_event_id = min(last_event_id as usize, self.history.len());
+                let history = self.history[last_event_id..].to_owned();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
-                let _ = responder.send(EventReader { history, current: self.current.subscribe() });
+                let _ = responder.send(EventReader {
+                    history,
+                    current: self.current.subscribe(),
+                });
             }
             ActorMsg::AddMessage(message) => {
                 let event = Event {
@@ -323,13 +333,44 @@ mod tests {
         conversation.api().add_message(msg_3).await;
 
         // When: requesting two events since last_event_id = 1
-        let history = conversation.api().events(1).take(2).collect::<Vec<_>>().await;
+        let history = conversation
+            .api()
+            .events(1)
+            .take(2)
+            .collect::<Vec<_>>()
+            .await;
 
         // Then events 2 and 3 are returned (as opposed to 1, 2)
         assert_eq!(history[0].id, 2);
         assert_eq!(history[1].id, 3);
 
         // Cleanup
+        conversation.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn last_event_id_exceeds_total_number_of_events() {
+        // Given a conversation with one existing message
+        let msg = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Bob".to_string(),
+            content: "Hello".to_string(),
+        };
+        let conversation = ConversationRuntime::new();
+        conversation.api().add_message(msg.clone()).await;
+
+        // When: requesting events with a last_event_id `2`.
+        let mut events_stream = conversation.api().events(2).boxed();
+        let received = timeout(Duration::ZERO, events_stream.next()).await;
+
+        // Then: no historic events should be returned
+        assert!(
+            received.is_err(),
+            "expected no historic events to be returned"
+        );
+
+        // Cleanup
+        drop(events_stream);
         conversation.shutdown().await;
     }
 }
