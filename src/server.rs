@@ -2,13 +2,16 @@ use axum::{Router, routing::get};
 
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
-    sync::oneshot,
+    sync::{oneshot, watch},
     task::JoinHandle,
 };
 
 use crate::{conversation::Conversation, http_api::api_router, ui::ui_router};
 
 pub struct Server {
+    /// Indicates whether the server is about to shut down. Long-lived requests like event streams
+    /// watch this in order to short circut and allow the the graceful shutdown to complete faster.
+    shutting_down: watch::Sender<bool>,
     trigger_shutdown: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
@@ -22,7 +25,8 @@ impl Server {
         C: Conversation + Send + Sync + Clone + 'static,
     {
         let listener = TcpListener::bind(socket_address).await?;
-        let router = router(conversation);
+        let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
+        let router = router(conversation, shutting_down_receiver);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
         let join_handle = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -35,6 +39,7 @@ impl Server {
                 .expect("axum::serve must not return an error");
         });
         let server = Server {
+            shutting_down: shutting_down_sender,
             trigger_shutdown,
             join_handle,
         };
@@ -42,17 +47,18 @@ impl Server {
     }
 
     pub async fn shutdown(self) {
+        self.shutting_down.send(true).expect("Receiver must exist");
         self.trigger_shutdown.send(()).expect("Receiver must exist");
         self.join_handle.await.unwrap();
     }
 }
 
-fn router<C>(conversation: C) -> Router
+fn router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: Conversation + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(conversation))
+        .merge(api_router(conversation, shutting_down))
         .merge(ui_router())
 }
