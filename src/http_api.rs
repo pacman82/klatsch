@@ -8,6 +8,7 @@ use axum::{
 };
 use futures_util::{Stream, StreamExt as _};
 use serde::Serialize;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{
@@ -15,31 +16,33 @@ use crate::{
     last_event_id::LastEventId,
 };
 
-pub fn api_router<C>(conversation: C) -> Router
+pub fn api_router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: Conversation + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/api/v0/events", get(events::<C>))
+        .with_state((conversation.clone(), shutting_down))
         .route("/api/v0/add_message", post(add_message::<C>))
         .with_state(conversation)
 }
 
 async fn events<C>(
-    State(conversation): State<C>,
+    State((conversation, shutting_down)): State<(C, watch::Receiver<bool>)>,
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: Conversation + Send + 'static,
 {
     let last_event_id = last_event_id.0;
-
+    // Convert conversation events into SSE events
     let events = conversation
         .events(last_event_id)
         .map(|conversation_event| {
             let sse_event: SseEvent = conversation_event.into();
             Ok(sse_event)
         });
+
     Sse::new(events)
 }
 
@@ -183,7 +186,8 @@ mod tests {
                 tokio_stream::iter(messages)
             }
         }
-        let app = api_router(ConversationStub);
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(ConversationStub, shutting_down);
 
         // When
         let response = app
@@ -226,7 +230,8 @@ mod tests {
     #[tokio::test]
     async fn messages_should_return_content_type_event_stream() {
         // Given
-        let app = api_router(Dummy);
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, shutting_down);
 
         // When
         let response = app
@@ -255,7 +260,8 @@ mod tests {
     async fn add_message_route_forwards_arguments_to_conversation_api() {
         // Given
         let spy = ConversationSpy::default();
-        let app = api_router(spy.clone());
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(spy.clone(), shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
             "sender": "Bob",
@@ -288,7 +294,8 @@ mod tests {
     async fn last_event_id_forwarded_to_conversation_events() {
         // Given
         let spy = ConversationSpy::default();
-        let app = api_router(spy.clone());
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(spy.clone(), shutting_down);
 
         // When: request with Last-Event-ID = 7
         let _response = app
