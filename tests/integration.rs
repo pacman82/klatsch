@@ -83,25 +83,17 @@ async fn server_boots_within_one_sec() {
 #[should_panic] // Not implemented yet
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
-    use tokio::task;
-
     // Given a running server
     let mut child = TestServerProcess::new(3004);
     child.wait_for_health_check().await;
 
-    // And a client connected to the events stream
-    let client = Client::new();
-    let response = client
-        .get(format!("http://localhost:{}/api/v0/events", 3004))
-        .send()
+    // and a client connected to the events stream
+    let _event_stream_body = child
+        .request_event_stream()
         .await
-        .expect("Failed to connect to events stream");
-
-    let body = response.error_for_status().unwrap().bytes();
-    let client_task = task::spawn(async move {
-        // Won't finish until the sever is shut down
-        let _ = body.await;
-    });
+        .error_for_status()
+        .unwrap()
+        .bytes();
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -119,9 +111,6 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
         end - start <= max_duration,
         "Shutdown took longer than 1 second with an active events stream client"
     );
-
-    // Clean up the client task
-    let _ = client_task.abort();
 }
 
 /// Runs the server process as a command from the binary. Useful for testing stuff affecting the
@@ -160,6 +149,16 @@ impl TestServerProcess {
         {
             sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    // Supported on every platform, but so far only used in unix-specific tests.
+    #[cfg(unix)]
+    async fn request_event_stream(&mut self) -> reqwest::Response {
+        self.client
+            .get(format!("http://localhost:{}/api/v0/events", self.port))
+            .send()
+            .await
+            .expect("Failed to connect to events stream")
     }
 
     #[cfg(unix)]
