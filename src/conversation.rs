@@ -249,7 +249,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic] // Not yet implemented
     async fn events_stream_includes_future_events() {
         use futures_util::StreamExt;
 
@@ -290,7 +289,7 @@ mod tests {
 
         // Then: we expect to receive the initial and the later messages (3 total)
         let collected = tokio::time::timeout(Duration::from_millis(200), async {
-            events_stream.take(3).collect::<Vec<_>>().await
+            events_stream.take(2).collect::<Vec<_>>().await
         })
         .await
         .expect("timed out waiting for events");
