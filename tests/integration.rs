@@ -80,7 +80,6 @@ async fn server_boots_within_one_sec() {
 }
 
 #[cfg(not(windows))]
-#[should_panic] // Not implemented yet
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server

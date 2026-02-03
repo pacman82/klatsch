@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{
     conversation::{Conversation, Event, Message},
     last_event_id::LastEventId,
+    terminate_on_shutdown::terminate_on_shutdown,
 };
 
 pub fn api_router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
@@ -42,6 +43,8 @@ where
             let sse_event: SseEvent = conversation_event.into();
             Ok(sse_event)
         });
+
+    let events = terminate_on_shutdown(events, shutting_down);
 
     Sse::new(events)
 }
@@ -186,7 +189,7 @@ mod tests {
                 tokio_stream::iter(messages)
             }
         }
-        let (_, shutting_down) = watch::channel(false);
+        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
         let app = api_router(ConversationStub, shutting_down);
 
         // When
