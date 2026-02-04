@@ -1,3 +1,8 @@
+mod http_api;
+mod last_event_id;
+mod terminate_on_shutdown;
+mod ui;
+
 use axum::{Router, routing::get};
 
 use tokio::{
@@ -6,7 +11,9 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{conversation::Conversation, http_api::api_router, ui::ui_router};
+use crate::conversation::Conversation;
+
+use self::{http_api::api_router, ui::ui_router};
 
 pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams

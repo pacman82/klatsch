@@ -11,11 +11,9 @@ use serde::Serialize;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::{
-    conversation::{Conversation, Event, Message},
-    last_event_id::LastEventId,
-    terminate_on_shutdown::terminate_on_shutdown,
-};
+use crate::conversation::{Conversation, Event, Message};
+
+use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
 
 pub fn api_router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
 where

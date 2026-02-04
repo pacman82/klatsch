@@ -1,11 +1,7 @@
 mod configuration;
 mod conversation;
-mod http_api;
-mod last_event_id;
 mod server;
 mod shutdown;
-mod terminate_on_shutdown;
-mod ui;
 
 use dotenv::dotenv;
 use tracing::info;
