@@ -52,8 +52,6 @@ async fn main() -> anyhow::Result<()> {
     // Gracefully shutdown the http server.
     server.shutdown().await;
 
-    // TODO: Shutdown even if clients are still connected and have the UI open.
-
     // Let's shutdown the conversation runtime as well. After the http interface, since the http
     // interface relies on it.
     conversation.shutdown().await;
