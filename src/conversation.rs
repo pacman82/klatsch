@@ -27,7 +27,9 @@ pub trait Conversation: Sized {
     fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
 }
 
-/// Controls the lifecycle of conversations api.
+/// Can be used to create multiple instances of [`ConversationClient`] which provide an API to
+/// interact with a shared conversation. The runtime takes care that messages are forwarded between
+/// different clients.
 pub struct ConversationRuntime {
     sender: mpsc::Sender<ActorMsg>,
     join_handle: JoinHandle<()>,
@@ -362,7 +364,7 @@ mod tests {
         let mut events_stream = conversation.api().events(2).boxed();
         let received = timeout(Duration::ZERO, events_stream.next()).await;
 
-        // Then: no historic events should be returned
+        // Then: no events should be returned from conversation history
         assert!(
             received.is_err(),
             "expected no historic events to be returned"
@@ -370,6 +372,40 @@ mod tests {
 
         // Cleanup
         drop(events_stream);
+        conversation.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn state_and_messages_are_shared_between_clients() {
+        // Given a two clients. One of them listening for new events.
+        let conversation = ConversationRuntime::new();
+        let mut sender_client = conversation.api();
+        let receiver_client = conversation.api();
+
+        // Start listening for events on the receiver
+        let events_stream = receiver_client.events(0);
+
+        // When sending a message from the other client
+        let msg = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_string(),
+            content: "Hello from Alice".to_string(),
+        };
+        sender_client.add_message(msg.clone()).await;
+
+        // Then the receiver should get the message as an event
+        let received_events = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            events_stream.take(1).collect::<Vec<_>>(),
+        )
+        .await
+        .expect("timed out waiting for event");
+        assert_eq!(received_events.len(), 1);
+        assert_eq!(received_events[0].message, msg);
+        assert_eq!(received_events[0].id, 1);
+
+        // Cleanup
+        drop(sender_client);
         conversation.shutdown().await;
     }
 }
