@@ -1,4 +1,4 @@
-use std::{cmp::min, time::SystemTime};
+use std::{cmp::min, pin::pin, time::SystemTime};
 
 use async_stream::stream;
 use futures_util::Stream;
@@ -7,6 +7,7 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
+use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 /// Interaction with a conversation.
@@ -69,19 +70,19 @@ pub struct ConversationClient {
 }
 
 impl Conversation for ConversationClient {
-    fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
+    fn events(self, mut last_event_id: u64) -> impl Stream<Item = Event> + Send {
         stream! {
-            let (responder, response) = oneshot::channel();
-            self.sender
-                .send(ActorMsg::ReadEvents{ responder, last_event_id})
-                .await
-                .expect("Actor must outlive client.");
-            let EventReader { history, mut current } = response.await.unwrap();
-            for message in history {
-                yield message;
-            }
-            while let Ok(message) = current.recv().await {
-                yield message;
+            loop {
+                let (responder, response) = oneshot::channel();
+                self.sender
+                    .send(ActorMsg::ReadEvents{ responder, last_event_id})
+                    .await
+                    .expect("Actor must outlive client.");
+                let mut events = pin!(response.await.unwrap().into_stream());
+                while let Some(event) = events.next().await {
+                    last_event_id = event.id;
+                    yield event;
+                }
             }
         }
     }
@@ -128,6 +129,35 @@ enum ActorMsg {
 struct EventReader {
     history: Vec<Event>,
     current: broadcast::Receiver<Event>,
+}
+
+impl EventReader {
+    pub fn into_stream(self) -> impl Stream<Item = Event> + Send {
+        let EventReader {
+            history,
+            mut current,
+        } = self;
+        stream! {
+            for event in history {
+                yield event;
+            }
+            loop {
+                match current.recv().await {
+                    Ok(event) => {
+                        yield event;
+                    },
+                    // Slow receiver. Receiver is lagging and messages have been dropped.
+                    Err(broadcast::error::RecvError::Lagged(_skipped)) => {
+                        break;
+                    },
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // Runtime outlives clients
+                        unreachable!("Currently Sender must always outlive receiver.")
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct Actor {
@@ -410,7 +440,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic] // Not implemented yet. TODO
     async fn slow_receiver() {
         // Given: a conversation and two clients
         let conversation = ConversationRuntime::new();
