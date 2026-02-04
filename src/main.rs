@@ -1,5 +1,5 @@
+mod chat;
 mod configuration;
-mod conversation;
 mod server;
 mod shutdown;
 
@@ -8,8 +8,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::{
-    configuration::Configuration, conversation::ConversationRuntime, server::Server,
-    shutdown::shutdown_signal,
+    chat::ChatRuntime, configuration::Configuration, server::Server, shutdown::shutdown_signal,
 };
 
 #[tokio::main]
@@ -34,11 +33,11 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting");
 
-    // Forward messages between peers in the conversation
-    let conversation = ConversationRuntime::new();
+    // Forward messages between peers in the chat
+    let chat = ChatRuntime::new();
 
     // Answer incoming HTTP requests
-    let server = Server::new(cfg.socket_addr(), conversation.api()).await?;
+    let server = Server::new(cfg.socket_addr(), chat.api()).await?;
     info!("Ready");
 
     // Run our application until a shutdown signal is received
@@ -48,9 +47,9 @@ async fn main() -> anyhow::Result<()> {
     // Gracefully shutdown the http server.
     server.shutdown().await;
 
-    // Let's shutdown the conversation runtime as well. After the http interface, since the http
-    // interface relies on it.
-    conversation.shutdown().await;
+    // Let's shutdown the chat runtime as well. After the http interface, since the http interface
+    // relies on it.
+    chat.shutdown().await;
 
     info!("Shutdown complete, exiting.");
     Ok(())

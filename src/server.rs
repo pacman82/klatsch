@@ -11,7 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::conversation::Conversation;
+use crate::chat::Chat;
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -24,16 +24,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new<C>(
-        socket_address: impl ToSocketAddrs,
-        conversation: C,
-    ) -> anyhow::Result<Server>
+    pub async fn new<C>(socket_address: impl ToSocketAddrs, chat: C) -> anyhow::Result<Server>
     where
-        C: Conversation + Send + Sync + Clone + 'static,
+        C: Chat + Send + Sync + Clone + 'static,
     {
         let listener = TcpListener::bind(socket_address).await?;
         let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
-        let router = router(conversation, shutting_down_receiver);
+        let router = router(chat, shutting_down_receiver);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
         let join_handle = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -60,12 +57,12 @@ impl Server {
     }
 }
 
-fn router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
+fn router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
-    C: Conversation + Send + Sync + Clone + 'static,
+    C: Chat + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(conversation, shutting_down))
+        .merge(api_router(chat, shutting_down))
         .merge(ui_router())
 }

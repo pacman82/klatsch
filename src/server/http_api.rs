@@ -11,36 +11,34 @@ use serde::Serialize;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::conversation::{Conversation, Event, Message};
+use crate::chat::{Chat, Event, Message};
 
 use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
 
-pub fn api_router<C>(conversation: C, shutting_down: watch::Receiver<bool>) -> Router
+pub fn api_router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
-    C: Conversation + Send + Sync + Clone + 'static,
+    C: Chat + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/api/v0/events", get(events::<C>))
-        .with_state((conversation.clone(), shutting_down))
+        .with_state((chat.clone(), shutting_down))
         .route("/api/v0/add_message", post(add_message::<C>))
-        .with_state(conversation)
+        .with_state(chat)
 }
 
 async fn events<C>(
-    State((conversation, shutting_down)): State<(C, watch::Receiver<bool>)>,
+    State((chat, shutting_down)): State<(C, watch::Receiver<bool>)>,
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
-    C: Conversation + Send + 'static,
+    C: Chat + Send + 'static,
 {
     let last_event_id = last_event_id.0;
-    // Convert conversation events into SSE events
-    let events = conversation
-        .events(last_event_id)
-        .map(|conversation_event| {
-            let sse_event: SseEvent = conversation_event.into();
-            Ok(sse_event)
-        });
+    // Convert chat events into SSE events
+    let events = chat.events(last_event_id).map(|chat_event| {
+        let sse_event: SseEvent = chat_event.into();
+        Ok(sse_event)
+    });
 
     let events = terminate_on_shutdown(events, shutting_down);
 
@@ -111,11 +109,11 @@ impl From<Event> for SseEvent {
     }
 }
 
-async fn add_message<C>(State(mut conversation): State<C>, Json(msg): Json<Message>)
+async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>)
 where
-    C: Conversation,
+    C: Chat,
 {
-    conversation.add_message(msg).await;
+    chat.add_message(msg).await;
 }
 
 #[cfg(test)]
@@ -126,7 +124,7 @@ mod tests {
         time::Duration,
     };
 
-    use crate::conversation::Event;
+    use crate::chat::Event;
 
     use super::*;
     use axum::{
@@ -144,9 +142,9 @@ mod tests {
     async fn messages_route_returns_hardcoded_messages_stream() {
         // Given
         #[derive(Clone)]
-        struct ConversationStub;
+        struct ChatStub;
 
-        impl Conversation for ConversationStub {
+        impl Chat for ChatStub {
             fn events(self, _last_event_id: u64) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event {
@@ -190,7 +188,7 @@ mod tests {
             }
         }
         let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
-        let app = api_router(ConversationStub, shutting_down);
+        let app = api_router(ChatStub, shutting_down);
 
         // When
         let response = app
@@ -260,9 +258,9 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn add_message_route_forwards_arguments_to_conversation_api() {
+    async fn add_message_route_forwards_arguments_to_chat_api() {
         // Given
-        let spy = ConversationSpy::default();
+        let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
         let app = api_router(spy.clone(), shutting_down);
         let new_message = json!({
@@ -294,9 +292,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn last_event_id_forwarded_to_conversation_events() {
+    async fn last_event_id_forwarded_to_chat_runtime_then_fetching_events() {
         // Given
-        let spy = ConversationSpy::default();
+        let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
         let app = api_router(spy.clone(), shutting_down);
 
@@ -312,23 +310,23 @@ mod tests {
             .await
             .unwrap();
 
-        // Then: the conversation should have been asked for events since id 7
+        // Then: the chat should have been asked for events since id 7
         assert_eq!(spy.take_events_record(), vec![7]);
     }
 
     #[tokio::test]
     async fn shutdown_terminates_event_stream() {
-        // Given a pending conversation and an open request to events
+        // Given a pending chat and an open request to events
         #[derive(Clone)]
-        struct PendingConversationStub;
-        impl Conversation for PendingConversationStub {
+        struct PendingChatStub;
+        impl Chat for PendingChatStub {
             fn events(self, _last_event_id: u64) -> impl futures_util::Stream<Item = Event> + Send {
                 pending()
             }
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let app = api_router(PendingConversationStub, shutdown_rx);
+        let app = api_router(PendingChatStub, shutdown_rx);
 
         let response_body = app
             .oneshot(
@@ -355,12 +353,12 @@ mod tests {
 
     // Spy that records calls to add_message and events for later inspection
     #[derive(Clone, Default)]
-    struct ConversationSpy {
+    struct ChatSpy {
         add_message_record: Arc<Mutex<Vec<Message>>>,
         events_record: Arc<Mutex<Vec<u64>>>,
     }
 
-    impl Conversation for ConversationSpy {
+    impl Chat for ChatSpy {
         fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
             self.events_record.lock().unwrap().push(last_event_id);
             tokio_stream::iter(Vec::new())
@@ -371,7 +369,7 @@ mod tests {
         }
     }
 
-    impl ConversationSpy {
+    impl ChatSpy {
         fn take_add_message_record(&self) -> Vec<Message> {
             let mut tmp = Vec::new();
             swap(&mut tmp, &mut *self.add_message_record.lock().unwrap());
