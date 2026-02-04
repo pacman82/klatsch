@@ -187,7 +187,7 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{pin::pin, time::Duration};
 
     use super::*;
     use futures_util::StreamExt;
@@ -403,6 +403,64 @@ mod tests {
         assert_eq!(received_events.len(), 1);
         assert_eq!(received_events[0].message, msg);
         assert_eq!(received_events[0].id, 1);
+
+        // Cleanup
+        drop(sender_client);
+        conversation.shutdown().await;
+    }
+
+    #[tokio::test]
+    #[should_panic] // Not implemented yet. TODO
+    async fn slow_receiver() {
+        // Given: a conversation and two clients
+        let conversation = ConversationRuntime::new();
+        let mut sender_client = conversation.api();
+        let receiver_client = conversation.api();
+
+        // And one message in the chat history
+        sender_client
+            .add_message(Message {
+                id: Uuid::now_v7(),
+                sender: "a".to_string(),
+                content: "Initial message".to_string(),
+            })
+            .await;
+
+        // One of the clients has an event stream open, which already has received all messages in the
+        // history so far (one in this case).
+        {
+            // This pin! is why we need the scope around events stream. It needs to be dropped
+            // before we can clean up the runtime.
+            let mut events_stream = pin!(receiver_client.events(0));
+            events_stream.next().await; // Consume initial message
+
+            // When: sender sends 100 messages
+            const NUM_MESSAGES_IN_BURST: usize = 1000;
+            for _ in 0..NUM_MESSAGES_IN_BURST {
+                let msg = Message {
+                    id: Uuid::now_v7(),
+                    sender: "b".to_string(),
+                    content: "dummy".to_owned(),
+                };
+                sender_client.add_message(msg).await;
+            }
+
+            // Then: receiver extracts all 100 messages without timeout
+            let received_events = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                events_stream
+                    .take(NUM_MESSAGES_IN_BURST)
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .expect("timed out waiting for events");
+
+            assert_eq!(
+                received_events.len(),
+                NUM_MESSAGES_IN_BURST,
+                "Receiver did not get all 100 messages"
+            );
+        }
 
         // Cleanup
         drop(sender_client);
