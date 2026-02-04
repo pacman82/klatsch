@@ -138,6 +138,8 @@ mod tests {
     use double_trait::Dummy;
     use http_body_util::BodyExt as _;
     use serde_json::json;
+    use tokio::time::timeout;
+    use tokio_stream::pending;
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
@@ -314,6 +316,43 @@ mod tests {
 
         // Then: the conversation should have been asked for events since id 7
         assert_eq!(spy.take_events_record(), vec![7]);
+    }
+
+    #[tokio::test]
+    async fn shutdown_terminates_event_stream() {
+        // Given a pending conversation and an open request to events
+        #[derive(Clone)]
+        struct PendingConversationStub;
+        impl Conversation for PendingConversationStub {
+            fn events(self, _last_event_id: u64) -> impl futures_util::Stream<Item = Event> + Send {
+                pending()
+            }
+        }
+
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let app = api_router(PendingConversationStub, shutdown_rx);
+
+        let response_body = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body()
+            .collect();
+
+        // When the shutdown is initiated
+        shutdown_tx.send(true).unwrap();
+
+        // Then the request to events stops waiting for new events and terminates immediately
+        let result = timeout(std::time::Duration::from_millis(500), response_body).await;
+        assert!(
+            result.is_ok(),
+            "SSE stream should terminate after shutdown, but timed out"
+        );
     }
 
     // Spy that records calls to add_message and events for later inspection
