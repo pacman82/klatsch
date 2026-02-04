@@ -120,39 +120,42 @@ pub struct Message {
 
 enum ActorMsg {
     ReadEvents {
-        responder: oneshot::Sender<EventReader>,
+        responder: oneshot::Sender<Events>,
         last_event_id: u64,
     },
     AddMessage(Message),
 }
 
-struct EventReader {
-    history: Vec<Event>,
-    current: broadcast::Receiver<Event>,
+/// Transports a set of events from the actor to the client.
+enum Events {
+    History(Vec<Event>),
+    Current(broadcast::Receiver<Event>),
 }
 
-impl EventReader {
+impl Events {
     pub fn into_stream(self) -> impl Stream<Item = Event> + Send {
-        let EventReader {
-            history,
-            mut current,
-        } = self;
         stream! {
-            for event in history {
-                yield event;
-            }
-            loop {
-                match current.recv().await {
-                    Ok(event) => {
+            match self {
+                Events::History(history) => {
+                    for event in history {
                         yield event;
-                    },
-                    // Slow receiver. Receiver is lagging and messages have been dropped.
-                    Err(broadcast::error::RecvError::Lagged(_skipped)) => {
-                        break;
-                    },
-                    Err(broadcast::error::RecvError::Closed) => {
-                        // Runtime outlives clients
-                        unreachable!("Currently Sender must always outlive receiver.")
+                    }
+                },
+                Events::Current(mut current) => {
+                    loop {
+                        match current.recv().await {
+                            Ok(event) => {
+                                yield event;
+                            },
+                            // Slow receiver. Receiver is lagging and messages have been dropped.
+                            Err(broadcast::error::RecvError::Lagged(_skipped)) => {
+                                break;
+                            },
+                            Err(broadcast::error::RecvError::Closed) => {
+                                // Runtime outlives clients
+                                unreachable!("Currently Sender must always outlive receiver.")
+                            }
+                        }
                     }
                 }
             }
@@ -195,10 +198,13 @@ impl Actor {
                 let history = self.history[last_event_id..].to_owned();
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
-                let _ = responder.send(EventReader {
-                    history,
-                    current: self.current.subscribe(),
-                });
+                let events = if history.is_empty() {
+                    let current_receiver = self.current.subscribe();
+                    Events::Current(current_receiver)
+                } else {
+                    Events::History(history)
+                };
+                let _ = responder.send(events);
             }
             ActorMsg::AddMessage(message) => {
                 let event = Event {
