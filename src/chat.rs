@@ -1,4 +1,6 @@
-use std::{cmp::min, pin::pin, time::SystemTime};
+mod history;
+
+use std::pin::pin;
 
 use async_stream::stream;
 use futures_util::Stream;
@@ -9,6 +11,9 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+
+use self::history::ChatHistory;
+pub use self::history::Event;
 
 /// Follow the events in a chat and send messages.
 #[cfg_attr(test, double_trait::dummies)]
@@ -94,15 +99,6 @@ impl Chat for ChatClient {
     }
 }
 
-/// A message as it is stored and represented as part of a chat.
-#[derive(Clone)]
-pub struct Event {
-    /// One based ordered identifier of the events in the chat.
-    pub id: u64,
-    pub message: Message,
-    pub timestamp: SystemTime,
-}
-
 /// A message as it is created by the frontend and sent to the server. It is then relied to all
 /// participants in the chat as part of an `Event`.
 #[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -164,7 +160,7 @@ impl Events {
 
 struct Actor {
     /// All the events so far
-    history: Vec<Event>,
+    history: ChatHistory,
     /// Used to broadcast new events to clients whom already have consumed the history.
     current: broadcast::Sender<Event>,
     receiver: mpsc::Receiver<ActorMsg>,
@@ -172,11 +168,11 @@ struct Actor {
 
 impl Actor {
     pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
-        let messages = Vec::new();
+        let history = ChatHistory::new();
         let (current, _) = broadcast::channel(10);
         Actor {
             receiver,
-            history: messages,
+            history,
             current,
         }
     }
@@ -193,25 +189,19 @@ impl Actor {
                 responder,
                 last_event_id,
             } => {
-                let last_event_id = min(last_event_id as usize, self.history.len());
-                let history = self.history[last_event_id..].to_owned();
+                let remaining_history = self.history.events_since(last_event_id);
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
-                let events = if history.is_empty() {
+                let events = if remaining_history.is_empty() {
                     let current_receiver = self.current.subscribe();
                     Events::Current(current_receiver)
                 } else {
-                    Events::History(history)
+                    Events::History(remaining_history)
                 };
                 let _ = responder.send(events);
             }
             ActorMsg::AddMessage(message) => {
-                let event = Event {
-                    id: self.history.len() as u64 + 1,
-                    message,
-                    timestamp: SystemTime::now(),
-                };
-                self.history.push(event.clone());
+                let event = self.history.record_message(message);
                 // This method only fails if there are no active receivers. This is also fine, we
                 // can safely ignore that.
                 let _ = self.current.send(event);
