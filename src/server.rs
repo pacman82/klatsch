@@ -37,7 +37,7 @@ impl Server {
                 .with_graceful_shutdown(async move {
                     shutdown_triggered
                         .await
-                        .expect("Sendor for shutdown trigger must not be dropped before used.")
+                        .expect("Sender for shutdown trigger must not be dropped before used.")
                 })
                 .await
                 .expect("axum::serve must not return an error");
