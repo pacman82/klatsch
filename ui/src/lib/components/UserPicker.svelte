@@ -2,10 +2,10 @@
 	import { onMount } from 'svelte';
 	import { user } from '$lib/stores/user';
 
-	let name = '';
+	let name = $state('');
 
 	onMount(() => {
-		// initialize input with current store value
+	    // Initialize input with current store value after hydration.
 		name = $user;
 	});
 
@@ -17,8 +17,8 @@
 
 <div class="user-picker">
 	<label for="username">Me</label>
-	<input id="username" bind:value={name} on:blur={updateUser} maxlength="32" />
-	<button type="button" on:click={updateUser}>Save</button>
+	<input id="username" bind:value={name} onblur={updateUser} maxlength="32" />
+	<button type="button" onclick={updateUser}>Save</button>
 </div>
 
 <style>

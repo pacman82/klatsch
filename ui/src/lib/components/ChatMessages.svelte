@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { writable } from 'svelte/store';
 	import { user } from '$lib/stores/user';
 
 	type ChatMessage = {
@@ -11,17 +10,14 @@
 		timestamp_ms: number;
 	};
 
-
-	const messages = writable<ChatMessage[]>([]);
+	let messages: ChatMessage[] = $state([]);
 
 	onMount(() => {
 		const eventSource = new EventSource('/api/v0/events');
 		eventSource.onmessage = (event) => {
 			try {
 				const msg: ChatMessage = JSON.parse(event.data);
-				messages.update((current) => {
-					return [...current, msg];
-				});
+				messages = [...messages, msg];
 			} catch (e) {
 				console.error('Failed to parse message event', e, event.data);
 			}
@@ -36,7 +32,7 @@
 </script>
 
 <div class="chat-container">
-	{#each $messages as msg (msg.id)}
+	{#each messages as msg (msg.id)}
 		<div class="message-row {msg.sender == $user ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">

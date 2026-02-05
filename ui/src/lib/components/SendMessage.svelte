@@ -8,9 +8,13 @@
 		content: string;
 	};
 
-	let message_content = '';
+	let message_content = $state('');
 
-	async function handleSubmit() {
+	async function handleSubmit(e: SubmitEvent) {
+	    // We do not want the page to be reloaded, if we submit the message. Therfore we call
+		// preventDefault which to my understanding would submit the page as a from and trigger a reload
+		// of the entire page.
+		e.preventDefault();
 		if (!message_content.trim()) return;
 
 		let message: SendMessage = {
@@ -40,9 +44,7 @@
 	}
 </script>
 
-<!-- We do not want the page to be reloaded, if we submit the message. Therfore we specify
-preventDefault on the submit handler.-->
-<form on:submit|preventDefault={handleSubmit} class="send-message-form">
+<form onsubmit={handleSubmit} class="send-message-form">
 	<input
 		type="text"
 		bind:value={message_content}
