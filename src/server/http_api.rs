@@ -57,29 +57,7 @@ pub struct HttpMessage {
     /// Text content of the message. I.e. the actual message
     pub content: String,
     /// Unix timestamp of that message being received by the server. Milliseconds since epoch.
-    pub timestamp_ms: u128,
-}
-
-impl From<Event> for HttpMessage {
-    fn from(source: Event) -> Self {
-        let Event {
-            id: _,
-            message:
-                Message {
-                    id,
-                    sender,
-                    content,
-                },
-            timestamp,
-        } = source;
-        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis();
-        HttpMessage {
-            id,
-            sender,
-            content,
-            timestamp_ms,
-        }
-    }
+    pub timestamp_ms: u64,
 }
 
 impl From<Event> for SseEvent {
@@ -95,8 +73,9 @@ impl From<Event> for SseEvent {
                 },
             timestamp,
         } = source;
-        // Convert timestamp to milliseconds since epoch
-        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis();
+        // `u64` covers ~584 million years since epoch, so we can afford to downcast the ms from
+        // `u128` to u64 without fear.
+        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
         SseEvent::default()
             .id(event_id.to_string())
             .json_data(HttpMessage {
