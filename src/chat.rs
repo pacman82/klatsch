@@ -448,7 +448,9 @@ mod tests {
             let mut events_stream = pin!(receiver_client.events(0));
             events_stream.next().await; // Consume initial message
 
-            // When: sender sends 100 messages
+            // When: Sender sends a burst of messages while the reader does not pull them. While we
+            // want to keep our test indepenend from the implementation, it might be helpful to know
+            // that this is designed to set the reader in a lagged state.
             const NUM_MESSAGES_IN_BURST: usize = 1000;
             for _ in 0..NUM_MESSAGES_IN_BURST {
                 let msg = Message {
