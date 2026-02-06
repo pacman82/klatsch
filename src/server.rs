@@ -7,7 +7,7 @@ use axum::{Router, routing::get};
 
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
-    sync::{oneshot, watch},
+    sync::watch,
     task::JoinHandle,
 };
 use tracing::info;
@@ -20,7 +20,6 @@ pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams
     /// watch this in order to short circut and allow the the graceful shutdown to complete faster.
     shutting_down: watch::Sender<bool>,
-    trigger_shutdown: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
 
@@ -48,22 +47,21 @@ impl Server {
                 .port(),
             "Listening"
         );
-        let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
-        let router = router(chat, shutting_down_receiver);
-        let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
+        let (shutting_down_sender, mut shutting_down_receiver) = watch::channel(false);
+        let router = router(chat, shutting_down_receiver.clone());
         let join_handle = tokio::spawn(async move {
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
-                    shutdown_triggered
+                    shutting_down_receiver
+                        .wait_for(|&is_shutting_down| is_shutting_down)
                         .await
-                        .expect("Sender for shutdown trigger must not be dropped before used.")
+                        .expect("Sender for shutdown sender must not be dropped before used.");
                 })
                 .await
                 .expect("axum::serve must not return an error");
         });
         let server = Server {
             shutting_down: shutting_down_sender,
-            trigger_shutdown,
             join_handle,
         };
         Ok(server)
@@ -71,7 +69,6 @@ impl Server {
 
     pub async fn shutdown(self) {
         self.shutting_down.send(true).expect("Receiver must exist");
-        self.trigger_shutdown.send(()).expect("Receiver must exist");
         self.join_handle.await.unwrap();
     }
 }
