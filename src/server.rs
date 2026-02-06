@@ -10,6 +10,7 @@ use tokio::{
     sync::{oneshot, watch},
     task::JoinHandle,
 };
+use tracing::info;
 
 use crate::chat::Chat;
 
@@ -24,11 +25,29 @@ pub struct Server {
 }
 
 impl Server {
+    /// Starts the HTTP server providing both the API and UI to clients. While the server runs in
+    /// its own thread, the TCP socket is already opened and listened to once this function returns.
     pub async fn new<C>(socket_address: impl ToSocketAddrs, chat: C) -> anyhow::Result<Server>
     where
         C: Chat + Send + Sync + Clone + 'static,
     {
         let listener = TcpListener::bind(socket_address).await?;
+
+        // The "Listening" in the event log would indicate to operators that we can do accept
+        // incoming connections. Before creating the listener they would have been refused with a
+        // "transport endpoint not connect" error. This information is however also implied by the
+        // "Ready" message emitted from main. More importantly we provide the port we bind to. In
+        // case our input socket address was telling us to bind to port `0` the operation system
+        // chooses a free port for us. Only through this log message then the operator will learn
+        // on which port the server listens. The integration tests utilize binding to port `0` in
+        // order to run in parallel without clashing on ports.
+        info!(
+            port = listener
+                .local_addr()
+                .expect("Listener must have local address after binding")
+                .port(),
+            "Listening"
+        );
         let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
         let router = router(chat, shutting_down_receiver);
         let (trigger_shutdown, shutdown_triggered) = oneshot::channel();
