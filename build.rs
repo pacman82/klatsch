@@ -16,13 +16,11 @@ fn execute_npm_command(args: &[&str]) {
         .output()
         .expect("Failed to run npm");
     if !output.status.success() {
-        println!(
-            "stderr: stdout: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        println!(
-            "stderr: stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
+        panic!(
+            "npm {} failed:\nstdout: {}\nstderr: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         );
     }
 }
@@ -36,13 +34,11 @@ fn execute_npm_command(args: &[&str]) {
         .output()
         .expect("Failed to run npm");
     if !output.status.success() {
-        println!(
-            "stderr: stdout: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        println!(
-            "stderr: stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
+        panic!(
+            "npm {} failed:\nstdout: {}\nstderr: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         );
     }
 }
