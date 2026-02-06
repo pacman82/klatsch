@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let chat = ChatRuntime::new();
 
     // Answer incoming HTTP requests
-    let server = Server::new(cfg.socket_addr(), chat.api()).await?;
+    let server = Server::new(cfg.socket_addr(), chat.client()).await?;
     info!("Ready");
 
     // Run our application until a shutdown signal is received
