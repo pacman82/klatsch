@@ -22,6 +22,9 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Configuration::from_env()?;
 
     let subscriber = FmtSubscriber::builder()
+        // Surpress rendering of module path. We do not want to bother our operators with our
+        // internal module structure.
+        .with_target(false)
         .with_env_filter(
             EnvFilter::default()
                 .add_directive("memory_serve=off".parse().unwrap())
@@ -42,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Run our application until a shutdown signal is received
     shutdown.await;
-    info!("Shutdown signal received, shutting down...");
+    info!("Shutdown signal received");
 
     // Gracefully shutdown the http server.
     server.shutdown().await;
@@ -51,6 +54,6 @@ async fn main() -> anyhow::Result<()> {
     // relies on it.
     chat.shutdown().await;
 
-    info!("Shutdown complete, exiting.");
+    info!("Shutdown complete");
     Ok(())
 }
