@@ -52,7 +52,7 @@ impl ChatRuntime {
     }
 
     /// A client which implements the [`Chat`] trait.
-    pub fn api(&self) -> ChatClient {
+    pub fn client(&self) -> ChatClient {
         ChatClient {
             sender: self.sender.clone(),
         }
@@ -236,12 +236,12 @@ mod tests {
         let chat = ChatRuntime::new();
 
         // When
-        chat.api().add_message(msg_1).await;
-        chat.api().add_message(msg_2).await;
+        chat.client().add_message(msg_1).await;
+        chat.client().add_message(msg_2).await;
 
         // This line is a bit more tricky than it seems. We need to make sure messages is freed so
         // that the cleanup won't block. It is not enough to clear the pinned wrapper.
-        let history = chat.api().events(0).take(2).collect::<Vec<_>>().await;
+        let history = chat.client().events(0).take(2).collect::<Vec<_>>().await;
 
         // Then
         let first = &history[0].message;
@@ -297,17 +297,17 @@ mod tests {
         let chat = ChatRuntime::new();
 
         // Add one message before subscribing
-        chat.api().add_message(msg_1).await;
+        chat.client().add_message(msg_1).await;
 
         // When: subscribe to events, then add more messages
-        let mut events_stream = chat.api().events(0).boxed();
+        let mut events_stream = chat.client().events(0).boxed();
 
         // Extract historic messages so far
         let _initial_message = events_stream.next().await;
 
         // Add messages after history has already been consumed
-        chat.api().add_message(msg_2).await;
-        chat.api().add_message(msg_3).await;
+        chat.client().add_message(msg_2).await;
+        chat.client().add_message(msg_3).await;
 
         // Then: we expect to receive the initial and the later messages (3 total)
         let collected = tokio::time::timeout(Duration::from_millis(200), async {
@@ -349,12 +349,12 @@ mod tests {
         };
 
         let chat = ChatRuntime::new();
-        chat.api().add_message(msg_1).await;
-        chat.api().add_message(msg_2).await;
-        chat.api().add_message(msg_3).await;
+        chat.client().add_message(msg_1).await;
+        chat.client().add_message(msg_2).await;
+        chat.client().add_message(msg_3).await;
 
         // When: requesting two events since last_event_id = 1
-        let history = chat.api().events(1).take(2).collect::<Vec<_>>().await;
+        let history = chat.client().events(1).take(2).collect::<Vec<_>>().await;
 
         // Then events 2 and 3 are returned (as opposed to 1, 2)
         assert_eq!(history[0].id, 2);
@@ -373,10 +373,10 @@ mod tests {
             content: "Hello".to_string(),
         };
         let chat = ChatRuntime::new();
-        chat.api().add_message(msg.clone()).await;
+        chat.client().add_message(msg.clone()).await;
 
         // When: requesting events with a last_event_id `2`.
-        let mut events_stream = chat.api().events(2).boxed();
+        let mut events_stream = chat.client().events(2).boxed();
         let received = timeout(Duration::ZERO, events_stream.next()).await;
 
         // Then: no events should be returned from chat history
@@ -394,8 +394,8 @@ mod tests {
     async fn state_and_messages_are_shared_between_clients() {
         // Given a two clients. One of them listening for new events.
         let chat = ChatRuntime::new();
-        let mut sender_client = chat.api();
-        let receiver_client = chat.api();
+        let mut sender_client = chat.client();
+        let receiver_client = chat.client();
 
         // Start listening for events on the receiver
         let events_stream = receiver_client.events(0);
@@ -428,8 +428,8 @@ mod tests {
     async fn slow_receiver() {
         // Given: a chat and two clients
         let chat = ChatRuntime::new();
-        let mut sender_client = chat.api();
-        let receiver_client = chat.api();
+        let mut sender_client = chat.client();
+        let receiver_client = chat.client();
 
         // And one message in the chat history
         sender_client
