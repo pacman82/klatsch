@@ -48,8 +48,8 @@ impl Server {
             "Listening"
         );
         let (shutting_down_sender, mut shutting_down_receiver) = watch::channel(false);
-        let router = router(chat, shutting_down_receiver.clone());
         let join_handle = tokio::spawn(async move {
+            let router = router(chat, shutting_down_receiver.clone());
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutting_down_receiver
