@@ -140,14 +140,18 @@ impl TestServerProcess {
     }
 
     async fn wait_for_health_check(&mut self) {
-        while let Err(_) = self
-            .client
-            .get(format!("http://localhost:{}/health", self.port))
-            .send()
-            .await
-        {
-            sleep(Duration::from_millis(10)).await;
-        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while let Err(_) = self
+                .client
+                .get(format!("http://localhost:{}/health", self.port))
+                .send()
+                .await
+            {
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Server did not become healthy within 5 seconds");
     }
 
     // Supported on every platform, but so far only used in unix-specific tests.
