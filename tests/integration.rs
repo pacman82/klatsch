@@ -24,7 +24,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServerProcess::new(3001);
+    let mut child = TestServerProcess::new(3001).await;
     child.wait_for_health_check().await;
 
     // When sending SIGTERM to the server process
@@ -51,7 +51,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServerProcess::new(3002);
+    let mut child = TestServerProcess::new(3002).await;
     child.wait_for_health_check().await;
 
     // When sending SIGTERM to the server process
@@ -71,7 +71,7 @@ async fn server_boots_within_one_sec() {
     // Given a start time
     let start = Instant::now();
     // When measuring the time it takes to boot
-    let mut child = TestServerProcess::new(3003);
+    let mut child = TestServerProcess::new(3003).await;
     child.wait_for_health_check().await;
     let end = Instant::now();
     // Then it should have taken less than 1 second to boot up
@@ -83,7 +83,7 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServerProcess::new(3004);
+    let mut child = TestServerProcess::new(3004).await;
     child.wait_for_health_check().await;
 
     // and a client connected to the events stream
@@ -121,16 +121,17 @@ struct TestServerProcess {
 }
 
 impl TestServerProcess {
-    fn new(port: u16) -> Self {
+    async fn new(port: u16) -> Self {
         let binary_path = env!("CARGO_BIN_EXE_klatsch");
         let child = Command::new(binary_path)
             .env("PORT", port.to_string())
             // We do not want the log output of the process to clutter the output of our test
-            // runner. We can use child.wait_with_output() to get the output if needed.
-            .stdout(Stdio::piped())
+            // runner.
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
+
         let client = Client::new();
         Self {
             child,
