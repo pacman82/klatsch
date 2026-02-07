@@ -5,8 +5,10 @@ use std::{
 
 use reqwest::Client;
 use tokio::{
-    io::{AsyncBufReadExt, BufReader, Lines},
-    process::{Child, ChildStderr, Command},
+    io::{AsyncBufReadExt, BufReader},
+    process::{Child, Command},
+    sync::watch,
+    task::JoinHandle,
     time::timeout,
 };
 
@@ -181,15 +183,10 @@ impl TestServer {
 /// scope.
 struct ServerProcess {
     child: Child,
-    // We use this to wait for the "Ready" log line to appear. We need to keep stderr alive beyond
-    // this, even if we should no longer be interested in the log output, because otherwise the
-    // server process panics trying to write to a closed stderr.
-    //
-    // Current shortcoming: If the server process writes a lot to stderr, it could fill up the
-    // buffer and block the process. In practice this is currently not an issue, because the server
-    // only writes a few log lines during startup and shutdown, but it is something to keep in mind
-    // for the future.
-    stderr_lines: Lines<BufReader<ChildStderr>>,
+    /// Background task that observes the server's log output on stderr and communicates
+    /// observations (like "Ready") back via watch channels.
+    _log_observer: JoinHandle<()>,
+    ready: watch::Receiver<bool>,
 }
 
 impl ServerProcess {
@@ -204,24 +201,32 @@ impl ServerProcess {
             .spawn()
             .unwrap();
         let stderr = child.stderr.take().unwrap();
-        let stderr_lines = BufReader::new(stderr).lines();
+        let (ready_tx, ready_rx) = watch::channel(false);
+        let log_observer = tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.contains("Ready") {
+                    let _ = ready_tx.send(true);
+                }
+                // Continue reading even after all observations have been made, so the pipe
+                // buffer does not fill up and block the server process.
+            }
+        });
 
         Self {
             child,
-            stderr_lines,
+            _log_observer: log_observer,
+            ready: ready_rx,
         }
     }
 
-    /// Waits for a log line containing "Ready" to appear in stderr.
-    /// Returns an error if the process terminates before the line is found.
+    /// Waits for the server process to emit "Ready" to standard error. This indicates that the
+    /// server has been successfully booted and is ready to receive requests.
     pub async fn wait_for_ready(&mut self) {
-        while let Some(line) = self.stderr_lines.next_line().await.unwrap() {
-            if line.contains("Ready") {
-                return;
-            }
-        }
-
-        panic!("Process stderr closed before 'Ready' log line appeared",)
+        self.ready
+            .wait_for(|&ready| ready)
+            .await
+            .expect("Server process exited before becoming ready");
     }
 
     #[cfg(unix)]
