@@ -3,6 +3,8 @@ mod configuration;
 mod server;
 mod shutdown;
 
+use std::io::stderr;
+
 use dotenv::dotenv;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -25,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
         // Surpress rendering of module path. We do not want to bother our operators with our
         // internal module structure.
         .with_target(false)
+        .with_writer(stderr)
         .with_env_filter(
             EnvFilter::default()
                 .add_directive("memory_serve=off".parse().unwrap())
