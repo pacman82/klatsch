@@ -24,7 +24,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServerProcess::new(3001).await;
+    let mut child = TestServer::new(3001).await;
     child.wait_for_health_check().await;
 
     // When sending SIGTERM to the server process
@@ -51,7 +51,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServerProcess::new(3002).await;
+    let mut child = TestServer::new(3002).await;
     child.wait_for_health_check().await;
 
     // When sending SIGTERM to the server process
@@ -71,7 +71,7 @@ async fn server_boots_within_one_sec() {
     // Given a start time
     let start = Instant::now();
     // When measuring the time it takes to boot
-    let mut child = TestServerProcess::new(3003).await;
+    let mut child = TestServer::new(3003).await;
     child.wait_for_health_check().await;
     let end = Instant::now();
     // Then it should have taken less than 1 second to boot up
@@ -83,7 +83,7 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServerProcess::new(3004).await;
+    let mut child = TestServer::new(3004).await;
     child.wait_for_health_check().await;
 
     // and a client connected to the events stream
@@ -112,29 +112,19 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
     );
 }
 
-/// Runs the server process as a command from the binary. Useful for testing stuff affecting the
-/// entire process. E.g. signal handling, shutdown, etc.
-struct TestServerProcess {
-    child: Child,
+/// Allows to interact with a Klatsch Server Running in its own process.
+struct TestServer {
+    process: ServerProcess,
     port: u16,
     client: Client,
 }
 
-impl TestServerProcess {
+impl TestServer {
     async fn new(port: u16) -> Self {
-        let binary_path = env!("CARGO_BIN_EXE_klatsch");
-        let child = Command::new(binary_path)
-            .env("PORT", port.to_string())
-            // We do not want the log output of the process to clutter the output of our test
-            // runner.
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-
+        let process = ServerProcess::new(port);
         let client = Client::new();
         Self {
-            child,
+            process,
             port,
             client,
         }
@@ -167,6 +157,41 @@ impl TestServerProcess {
 
     #[cfg(unix)]
     fn send_sigterm(&mut self) {
+        self.process.send_sigterm();
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_termination(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<std::process::ExitStatus> {
+        self.process.wait_for_termination(timeout).await
+    }
+}
+
+/// RAII wrapper around child process. Takes care of killing the process ones the helper goes out of
+/// scope.
+struct ServerProcess {
+    child: Child,
+}
+
+impl ServerProcess {
+    pub fn new(port: u16) -> Self {
+        let binary_path = env!("CARGO_BIN_EXE_klatsch");
+        let child = Command::new(binary_path)
+            .env("PORT", port.to_string())
+            // We do not want the log output of the process to clutter the output of our test
+            // runner.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+
+        Self { child }
+    }
+
+    #[cfg(unix)]
+    fn send_sigterm(&mut self) {
         let pid = Pid::from_raw(self.child.id().expect("Test process must be running") as i32);
         signal::kill(pid, Signal::SIGTERM).unwrap();
     }
@@ -181,7 +206,7 @@ impl TestServerProcess {
 }
 
 // Try to make sure, none of the processes we spawn are left after finishing the tests.
-impl Drop for TestServerProcess {
+impl Drop for ServerProcess {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
     }
