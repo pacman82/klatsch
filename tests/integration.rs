@@ -27,7 +27,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServer::new(3001).await;
+    let mut child = TestServer::new().await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -53,7 +53,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServer::new(3002).await;
+    let mut child = TestServer::new().await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -73,7 +73,7 @@ async fn server_boots_within_one_sec() {
     let start = Instant::now();
 
     // When measuring the time it takes to boot
-    let _child = TestServer::new(3003).await;
+    let _child = TestServer::new().await;
     let end = Instant::now();
 
     // Then it should have taken less than 1 second to boot up
@@ -84,7 +84,7 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn health_check_returns_200_ok() {
     // Given a running server
-    let server = TestServer::new(3005).await;
+    let server = TestServer::new().await;
 
     // When requesting the health check endpoint
     let response = server.health_check().await;
@@ -98,7 +98,7 @@ async fn health_check_returns_200_ok() {
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServer::new(3004).await;
+    let mut child = TestServer::new().await;
 
     // and a client connected to the events stream
     let _event_stream_body = child
@@ -134,11 +134,12 @@ struct TestServer {
 }
 
 impl TestServer {
-    async fn new(port: u16) -> Self {
-        let mut process = ServerProcess::new(port);
+    async fn new() -> Self {
+        let mut process = ServerProcess::new();
         timeout(Duration::from_secs(5), process.wait_for_ready())
             .await
             .expect("Server did not become ready within 5 seconds");
+        let port = process.port().await;
         let client = Client::new();
         Self {
             process,
@@ -187,13 +188,18 @@ struct ServerProcess {
     /// observations (like "Ready") back via watch channels.
     _log_observer: JoinHandle<()>,
     ready: watch::Receiver<bool>,
+    port: watch::Receiver<Option<u16>>,
 }
 
 impl ServerProcess {
-    pub fn new(port: u16) -> Self {
+    pub fn new() -> Self {
         let binary_path = env!("CARGO_BIN_EXE_klatsch");
         let mut child = Command::new(binary_path)
-            .env("PORT", port.to_string())
+            // Let the OS assign a free port so tests can run in parallel without clashing. The
+            // actual port is learned later from the server's log output.
+            .env("PORT", "0")
+            // Suppress ANSI escape codes so the log observer can parse log lines as plain text.
+            .env("NO_COLOR", "1")
             // We do not want the log output of the process to clutter the output of our test
             // runner.
             .stdout(Stdio::null())
@@ -202,9 +208,13 @@ impl ServerProcess {
             .unwrap();
         let stderr = child.stderr.take().unwrap();
         let (ready_tx, ready_rx) = watch::channel(false);
+        let (port_tx, port_rx) = watch::channel(None);
         let log_observer = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(port) = parse_port(&line) {
+                    let _ = port_tx.send(Some(port));
+                }
                 if line.contains("Ready") {
                     let _ = ready_tx.send(true);
                 }
@@ -217,6 +227,7 @@ impl ServerProcess {
             child,
             _log_observer: log_observer,
             ready: ready_rx,
+            port: port_rx,
         }
     }
 
@@ -227,6 +238,15 @@ impl ServerProcess {
             .wait_for(|&ready| ready)
             .await
             .expect("Server process exited before becoming ready");
+    }
+
+    /// Waits for the server to log the port it is listening on.
+    pub async fn port(&mut self) -> u16 {
+        self.port
+            .wait_for(|port| port.is_some())
+            .await
+            .expect("Server process exited before logging its port")
+            .unwrap()
     }
 
     #[cfg(unix)]
@@ -242,6 +262,12 @@ impl ServerProcess {
     ) -> std::io::Result<std::process::ExitStatus> {
         tokio::time::timeout(timeout, self.child.wait()).await?
     }
+}
+
+/// Extracts the port number from a log line like `... Listening port=3000`.
+fn parse_port(line: &str) -> Option<u16> {
+    let suffix = line.split("port=").nth(1)?;
+    suffix.split_whitespace().next()?.parse().ok()
 }
 
 // Try to make sure, none of the processes we spawn are left after finishing the tests.
