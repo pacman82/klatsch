@@ -129,20 +129,36 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
 /// Allows to interact with a Klatsch Server Running in its own process.
 struct TestServer {
     process: ServerProcess,
+    _log_observer: LogObserver,
     port: u16,
     client: Client,
 }
 
 impl TestServer {
     async fn new() -> Self {
-        let mut process = ServerProcess::new();
-        timeout(Duration::from_secs(5), process.wait_for_ready())
+        let mut child = Command::new(env!("CARGO_BIN_EXE_klatsch"))
+            // Let the OS assign a free port so tests can run in parallel without clashing. The
+            // actual port is learned later from the server's log output.
+            .env("PORT", "0")
+            // Suppress ANSI escape codes so the log observer can parse log lines as plain text.
+            .env("NO_COLOR", "1")
+            // We do not want the log output of the process to clutter the output of our test
+            // runner.
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let process = ServerProcess::new(child);
+        let mut log_observer = LogObserver::new(stderr);
+        timeout(Duration::from_secs(5), log_observer.wait_for_ready())
             .await
             .expect("Server did not become ready within 5 seconds");
-        let port = process.port().await;
+        let port = log_observer.port().await;
         let client = Client::new();
         Self {
             process,
+            _log_observer: log_observer,
             port,
             client,
         }
@@ -180,36 +196,19 @@ impl TestServer {
     }
 }
 
-/// RAII wrapper around child process. Takes care of killing the process ones the helper goes out of
-/// scope.
-struct ServerProcess {
-    child: Child,
-    /// Background task that observes the server's log output on stderr and communicates
-    /// observations (like "Ready") back via watch channels.
-    _log_observer: JoinHandle<()>,
+/// Observes the server's log output on stderr and communicates observations (like "Ready" and the
+/// listening port) back via watch channels.
+struct LogObserver {
+    _task: JoinHandle<()>,
     ready: watch::Receiver<bool>,
     port: watch::Receiver<Option<u16>>,
 }
 
-impl ServerProcess {
-    pub fn new() -> Self {
-        let binary_path = env!("CARGO_BIN_EXE_klatsch");
-        let mut child = Command::new(binary_path)
-            // Let the OS assign a free port so tests can run in parallel without clashing. The
-            // actual port is learned later from the server's log output.
-            .env("PORT", "0")
-            // Suppress ANSI escape codes so the log observer can parse log lines as plain text.
-            .env("NO_COLOR", "1")
-            // We do not want the log output of the process to clutter the output of our test
-            // runner.
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let (ready_tx, ready_rx) = watch::channel(false);
-        let (port_tx, port_rx) = watch::channel(None);
-        let log_observer = tokio::spawn(async move {
+impl LogObserver {
+    fn new(stderr: tokio::process::ChildStderr) -> Self {
+        let (ready_tx, ready) = watch::channel(false);
+        let (port_tx, port) = watch::channel(None);
+        let _task = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 if let Some(port) = parse_port(&line) {
@@ -222,18 +221,12 @@ impl ServerProcess {
                 // buffer does not fill up and block the server process.
             }
         });
-
-        Self {
-            child,
-            _log_observer: log_observer,
-            ready: ready_rx,
-            port: port_rx,
-        }
+        Self { _task, ready, port }
     }
 
     /// Waits for the server process to emit "Ready" to standard error. This indicates that the
     /// server has been successfully booted and is ready to receive requests.
-    pub async fn wait_for_ready(&mut self) {
+    async fn wait_for_ready(&mut self) {
         self.ready
             .wait_for(|&ready| ready)
             .await
@@ -241,12 +234,24 @@ impl ServerProcess {
     }
 
     /// Waits for the server to log the port it is listening on.
-    pub async fn port(&mut self) -> u16 {
+    async fn port(&mut self) -> u16 {
         self.port
             .wait_for(|port| port.is_some())
             .await
             .expect("Server process exited before logging its port")
             .unwrap()
+    }
+}
+
+/// RAII wrapper around child process. Takes care of killing the process once the helper goes out of
+/// scope.
+struct ServerProcess {
+    child: Child,
+}
+
+impl ServerProcess {
+    fn new(child: Child) -> Self {
+        Self { child }
     }
 
     #[cfg(unix)]
