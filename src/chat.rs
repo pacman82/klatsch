@@ -12,9 +12,9 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use self::history::{ChatHistory, InMemoryChatHistory};
+use self::history::ChatHistory;
 
-pub use self::history::Event;
+pub use self::history::{Event, InMemoryChatHistory};
 
 /// Follow the events in a chat and send messages.
 #[cfg_attr(test, double_trait::dummies)]
@@ -42,9 +42,9 @@ pub struct ChatRuntime {
 }
 
 impl ChatRuntime {
-    pub fn new() -> Self {
+    pub fn new(history: impl ChatHistory + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel(5);
-        let actor = Actor::new(InMemoryChatHistory::new(), receiver);
+        let actor = Actor::new(history, receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
         ChatRuntime {
             sender,
@@ -233,7 +233,8 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
 
         // When
         chat.client().add_message(msg_1).await;
@@ -261,7 +262,8 @@ mod tests {
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
         // Given
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
 
         // When
         let result = timeout(Duration::from_secs(1), chat.shutdown()).await;
@@ -294,7 +296,8 @@ mod tests {
             content: "Three".to_string(),
         };
 
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
 
         // Add one message before subscribing
         chat.client().add_message(msg_1).await;
@@ -348,7 +351,8 @@ mod tests {
             content: "Three".to_string(),
         };
 
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
         chat.client().add_message(msg_1).await;
         chat.client().add_message(msg_2).await;
         chat.client().add_message(msg_3).await;
@@ -372,7 +376,8 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Hello".to_string(),
         };
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
         chat.client().add_message(msg.clone()).await;
 
         // When: requesting events with a last_event_id `2`.
@@ -393,7 +398,8 @@ mod tests {
     #[tokio::test]
     async fn state_and_messages_are_shared_between_clients() {
         // Given a two clients. One of them listening for new events.
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
         let mut sender_client = chat.client();
         let receiver_client = chat.client();
 
@@ -427,7 +433,8 @@ mod tests {
     #[tokio::test]
     async fn slow_receiver() {
         // Given: a chat and two clients
-        let chat = ChatRuntime::new();
+        let history = InMemoryChatHistory::new();
+        let chat = ChatRuntime::new(history);
         let mut sender_client = chat.client();
         let receiver_client = chat.client();
 

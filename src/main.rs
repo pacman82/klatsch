@@ -10,7 +10,10 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::{
-    chat::ChatRuntime, configuration::Configuration, server::Server, shutdown::shutdown_signal,
+    chat::{ChatRuntime, InMemoryChatHistory},
+    configuration::Configuration,
+    server::Server,
+    shutdown::shutdown_signal,
 };
 
 #[tokio::main]
@@ -39,8 +42,11 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting");
 
+    // Initialize persistence for chat
+    let history = InMemoryChatHistory::new();
+
     // Forward messages between peers in the chat
-    let chat = ChatRuntime::new();
+    let chat = ChatRuntime::new(history);
 
     // Answer incoming HTTP requests
     let server = Server::new(cfg.socket_addr(), chat.client()).await?;
