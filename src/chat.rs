@@ -12,8 +12,9 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
+use self::history::{ChatHistory as _, InMemoryChatHistory};
+
 pub use self::history::Event;
-use self::history::InMemoryChatHistory;
 
 /// Follow the events in a chat and send messages.
 #[cfg_attr(test, double_trait::dummies)]
