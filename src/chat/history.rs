@@ -2,13 +2,13 @@ use std::{cmp::min, time::SystemTime};
 
 use super::Message;
 
-pub struct ChatHistory {
+pub struct InMemoryChatHistory {
     events: Vec<Event>,
 }
 
-impl ChatHistory {
+impl InMemoryChatHistory {
     pub fn new() -> Self {
-        ChatHistory { events: Vec::new() }
+        InMemoryChatHistory { events: Vec::new() }
     }
 
     pub fn events_since(&self, last_event_id: u64) -> Vec<Event> {

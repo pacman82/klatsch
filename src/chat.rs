@@ -12,8 +12,8 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use self::history::ChatHistory;
 pub use self::history::Event;
+use self::history::InMemoryChatHistory;
 
 /// Follow the events in a chat and send messages.
 #[cfg_attr(test, double_trait::dummies)]
@@ -160,7 +160,7 @@ impl Events {
 
 struct Actor {
     /// All the events so far
-    history: ChatHistory,
+    history: InMemoryChatHistory,
     /// Used to broadcast new events to clients whom already have consumed the history.
     current: broadcast::Sender<Event>,
     receiver: mpsc::Receiver<ActorMsg>,
@@ -168,7 +168,7 @@ struct Actor {
 
 impl Actor {
     pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
-        let history = ChatHistory::new();
+        let history = InMemoryChatHistory::new();
         let (current, _) = broadcast::channel(10);
         Actor {
             receiver,
