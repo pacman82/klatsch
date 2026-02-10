@@ -2,21 +2,22 @@ use std::{cmp::min, time::SystemTime};
 
 use super::Message;
 
-pub struct InMemoryChatHistory {
-    events: Vec<Event>,
+pub trait ChatHistory {
+    /// All events stored in the chat history since the event with the given `last_event_id`
+    /// (exclusive).
+    fn events_since(&self, last_event_id: u64) -> Vec<Event>;
+
+    /// Add a message to the chat history and emit the corresponding event.
+    fn record_message(&mut self, message: Message) -> Event;
 }
 
-impl InMemoryChatHistory {
-    pub fn new() -> Self {
-        InMemoryChatHistory { events: Vec::new() }
-    }
-
-    pub fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+impl ChatHistory for InMemoryChatHistory {
+    fn events_since(&self, last_event_id: u64) -> Vec<Event> {
         let last_event_id = min(last_event_id as usize, self.events.len());
         self.events[last_event_id..].to_owned()
     }
 
-    pub fn record_message(&mut self, message: Message) -> Event {
+    fn record_message(&mut self, message: Message) -> Event {
         let event = Event {
             id: self.events.len() as u64 + 1,
             message,
@@ -24,6 +25,16 @@ impl InMemoryChatHistory {
         };
         self.events.push(event.clone());
         event
+    }
+}
+
+pub struct InMemoryChatHistory {
+    events: Vec<Event>,
+}
+
+impl InMemoryChatHistory {
+    pub fn new() -> Self {
+        InMemoryChatHistory { events: Vec::new() }
     }
 }
 
