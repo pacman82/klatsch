@@ -12,7 +12,7 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use self::history::{ChatHistory as _, InMemoryChatHistory};
+use self::history::{ChatHistory, InMemoryChatHistory};
 
 pub use self::history::Event;
 
@@ -44,7 +44,7 @@ pub struct ChatRuntime {
 impl ChatRuntime {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel(5);
-        let actor = Actor::new(receiver);
+        let actor = Actor::new(InMemoryChatHistory::new(), receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
         ChatRuntime {
             sender,
@@ -159,17 +159,16 @@ impl Events {
     }
 }
 
-struct Actor {
+struct Actor<H> {
     /// All the events so far
-    history: InMemoryChatHistory,
+    history: H,
     /// Used to broadcast new events to clients whom already have consumed the history.
     current: broadcast::Sender<Event>,
     receiver: mpsc::Receiver<ActorMsg>,
 }
 
-impl Actor {
-    pub fn new(receiver: mpsc::Receiver<ActorMsg>) -> Self {
-        let history = InMemoryChatHistory::new();
+impl<H: ChatHistory> Actor<H> {
+    pub fn new(history: H, receiver: mpsc::Receiver<ActorMsg>) -> Self {
         let (current, _) = broadcast::channel(10);
         Actor {
             receiver,
