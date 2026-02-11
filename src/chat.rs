@@ -213,6 +213,7 @@ impl<H: ChatHistory> Actor<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use double_trait::Dummy;
     use futures_util::StreamExt;
     use std::{
         mem::take,
@@ -287,8 +288,7 @@ mod tests {
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
         // Given
-        let history = InMemoryChatHistory::new();
-        let chat = ChatRuntime::new(history);
+        let chat = ChatRuntime::new(Dummy);
 
         // When
         let result = timeout(Duration::from_secs(1), chat.shutdown()).await;
