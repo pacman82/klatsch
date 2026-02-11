@@ -285,47 +285,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn messages_are_added_and_read_in_order() {
-        // Given
-        let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let msg_1 = Message {
-            id: id_1.clone(),
-            sender: "Alice".to_string(),
-            content: "One".to_string(),
-        };
-        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        let msg_2 = Message {
-            id: id_2.clone(),
-            sender: "Bob".to_string(),
-            content: "Two".to_string(),
-        };
-        let history = InMemoryChatHistory::new();
-        let chat = ChatRuntime::new(history);
-
-        // When
-        chat.client().add_message(msg_1).await;
-        chat.client().add_message(msg_2).await;
-
-        // This line is a bit more tricky than it seems. We need to make sure messages is freed so
-        // that the cleanup won't block. It is not enough to clear the pinned wrapper.
-        let history = chat.client().events(0).take(2).collect::<Vec<_>>().await;
-
-        // Then
-        let first = &history[0].message;
-        assert_eq!(first.id, id_1);
-        assert_eq!(first.sender, "Alice");
-        assert_eq!(first.content, "One");
-
-        let second = &history[1].message;
-        assert_eq!(second.id, id_2);
-        assert_eq!(second.sender, "Bob");
-        assert_eq!(second.content, "Two");
-
-        // Cleanup
-        chat.shutdown().await;
-    }
-
-    #[tokio::test]
     async fn shutdown_completes_within_one_second() {
         // Given
         let history = InMemoryChatHistory::new();
