@@ -2,6 +2,7 @@ use std::{cmp::min, time::SystemTime};
 
 use super::Message;
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait ChatHistory {
     /// All events stored in the chat history since the event with the given `last_event_id`
     /// (exclusive).
@@ -89,7 +90,7 @@ mod tests {
 }
 
 /// A message as it is stored and represented as part of a chat.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Event {
     /// One based ordered identifier of the events in the chat.
     pub id: u64,

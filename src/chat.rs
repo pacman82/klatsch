@@ -223,6 +223,47 @@ mod tests {
     use tokio::time::timeout;
 
     #[tokio::test]
+    async fn events_forwards_history() {
+        // Given
+        let canned = vec![
+            Event {
+                id: 1,
+                message: Message {
+                    id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                    sender: "Alice".to_string(),
+                    content: "One".to_string(),
+                },
+                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+            },
+            Event {
+                id: 2,
+                message: Message {
+                    id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
+                    sender: "Bob".to_string(),
+                    content: "Two".to_string(),
+                },
+                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
+            },
+        ];
+        struct HistoryStub(Vec<Event>);
+        impl ChatHistory for HistoryStub {
+            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+                self.0.clone()
+            }
+        }
+        let chat = ChatRuntime::new(HistoryStub(canned.clone()));
+
+        // When
+        let events = chat.client().events(0).take(2).collect::<Vec<_>>().await;
+
+        // Then
+        assert_eq!(events, canned);
+
+        // Cleanup
+        chat.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn add_message_forwards_to_history() {
         // Given
         let history = HistorySpy::new();
