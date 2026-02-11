@@ -128,6 +128,9 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
 
 /// Allows to interact with a Klatsch Server Running in its own process.
 struct TestServer {
+    // Process member is currently unused in windows. This might change if we can have test helpers
+    // for graceful shutdown on windows as well.
+    #[cfg_attr(windows, allow(dead_code))]
     process: ServerProcess,
     _log_observer: LogObserver,
     port: u16,
