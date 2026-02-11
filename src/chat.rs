@@ -212,11 +212,36 @@ impl<H: ChatHistory> Actor<H> {
 
 #[cfg(test)]
 mod tests {
-    use std::{pin::pin, time::Duration};
-
     use super::*;
     use futures_util::StreamExt;
+    use std::{
+        mem::take,
+        pin::pin,
+        sync::{Arc, Mutex},
+        time::{Duration, SystemTime},
+    };
     use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn add_message_forwards_to_history() {
+        // Given
+        let history = HistorySpy::new();
+        let chat = ChatRuntime::new(history.clone());
+
+        // When
+        let msg = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_string(),
+            content: "Hello".to_string(),
+        };
+        chat.client().add_message(msg.clone()).await;
+        chat.shutdown().await; // Make sure messages have been flushed.
+
+        // Then
+        let recorded = history.take_recorded_messages();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0], msg);
+    }
 
     #[tokio::test]
     async fn messages_are_added_and_read_in_order() {
@@ -488,5 +513,37 @@ mod tests {
         // Cleanup
         drop(sender_client);
         chat.shutdown().await;
+    }
+
+    #[derive(Clone)]
+    struct HistorySpy {
+        recorded: Arc<Mutex<Vec<Message>>>,
+    }
+
+    impl HistorySpy {
+        fn new() -> Self {
+            HistorySpy {
+                recorded: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn take_recorded_messages(&self) -> Vec<Message> {
+            take(&mut *self.recorded.lock().unwrap())
+        }
+    }
+
+    impl ChatHistory for HistorySpy {
+        fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            Vec::new()
+        }
+
+        fn record_message(&mut self, message: Message) -> Event {
+            self.recorded.lock().unwrap().push(message.clone());
+            Event {
+                id: 1,
+                message,
+                timestamp: SystemTime::now(),
+            }
+        }
     }
 }
