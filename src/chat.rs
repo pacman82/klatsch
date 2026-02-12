@@ -371,6 +371,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn events_stream_delivers_new_history_on_re_request() {
+        // Given: a history that grows between requests
+        struct HistoryStub;
+        impl ChatHistory for HistoryStub {
+            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+                match last_event_id {
+                    0 => vec![Event {
+                        id: 1,
+                        message: Message {
+                            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                            sender: "Alice".to_string(),
+                            content: "One".to_string(),
+                        },
+                        timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+                    }],
+                    1 => vec![Event {
+                        id: 2,
+                        message: Message {
+                            id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
+                            sender: "Bob".to_string(),
+                            content: "Two".to_string(),
+                        },
+                        timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
+                    }],
+                    _ => Vec::new(),
+                }
+            }
+        }
+        let chat = ChatRuntime::new(HistoryStub);
+
+        // When
+        let events = chat.client().events(0).take(2).collect::<Vec<_>>().await;
+
+        // Then
+        assert_eq!(events[0].message.sender, "Alice");
+        assert_eq!(events[1].message.sender, "Bob");
+
+        // Cleanup
+        chat.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn events_only_return_events_with_id_greater_than_last_event_id() {
         // Given a chat with three messages
         let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
