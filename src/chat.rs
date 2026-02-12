@@ -217,7 +217,6 @@ mod tests {
     use futures_util::StreamExt;
     use std::{
         mem::take,
-        pin::pin,
         sync::{Arc, Mutex},
         time::{Duration, SystemTime},
     };
@@ -532,41 +531,37 @@ mod tests {
 
         // One of the clients has an event stream open, which already has received all messages in the
         // history so far (one in this case).
-        {
-            // This pin! is why we need the scope around events stream. It needs to be dropped
-            // before we can clean up the runtime.
-            let mut events_stream = pin!(receiver_client.events(0));
-            events_stream.next().await; // Consume initial message
+        let mut events_stream = receiver_client.events(0).boxed();
+        events_stream.next().await; // Consume initial message
 
-            // When: Sender sends a burst of messages while the reader does not pull them. While we
-            // want to keep our test indepenend from the implementation, it might be helpful to know
-            // that this is designed to set the reader in a lagged state.
-            const NUM_MESSAGES_IN_BURST: usize = 1000;
-            for _ in 0..NUM_MESSAGES_IN_BURST {
-                let msg = Message {
-                    id: Uuid::now_v7(),
-                    sender: "b".to_string(),
-                    content: "dummy".to_owned(),
-                };
-                sender_client.add_message(msg).await;
-            }
-
-            // Then: receiver extracts all 100 messages without timeout
-            let received_events = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                events_stream
-                    .take(NUM_MESSAGES_IN_BURST)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .expect("timed out waiting for events");
-
-            assert_eq!(
-                received_events.len(),
-                NUM_MESSAGES_IN_BURST,
-                "Receiver did not get all 100 messages"
-            );
+        // When: Sender sends a burst of messages while the reader does not pull them. While we
+        // want to keep our test indepenend from the implementation, it might be helpful to know
+        // that this is designed to set the reader in a lagged state.
+        const NUM_MESSAGES_IN_BURST: usize = 1000;
+        for _ in 0..NUM_MESSAGES_IN_BURST {
+            let msg = Message {
+                id: Uuid::now_v7(),
+                sender: "b".to_string(),
+                content: "dummy".to_owned(),
+            };
+            sender_client.add_message(msg).await;
         }
+
+        // Then: receiver extracts all 100 messages without timeout
+        let received_events = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            events_stream
+                .take(NUM_MESSAGES_IN_BURST)
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .expect("timed out waiting for events");
+
+        assert_eq!(
+            received_events.len(),
+            NUM_MESSAGES_IN_BURST,
+            "Receiver did not get all 100 messages"
+        );
 
         // Cleanup
         drop(sender_client);
