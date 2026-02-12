@@ -87,6 +87,30 @@ mod tests {
         assert_eq!(events[0].message.id, id_1);
         assert_eq!(events[1].message.id, id_2);
     }
+
+    #[test]
+    fn events_since_excludes_events_up_to_last_event_id() {
+        // Given a history with three messages
+        let mut history = InMemoryChatHistory::new();
+        let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+        let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
+        for id in [id_1, id_2, id_3] {
+            history.record_message(Message {
+                id,
+                sender: "dummy".to_string(),
+                content: "dummy".to_string(),
+            });
+        }
+
+        // When retrieving events since event 1
+        let events = history.events_since(1);
+
+        // Then only events 2 and 3 are returned
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].message.id, id_2);
+        assert_eq!(events[1].message.id, id_3);
+    }
 }
 
 /// A message as it is stored and represented as part of a chat.
