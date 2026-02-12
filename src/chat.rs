@@ -221,7 +221,7 @@ mod tests {
         sync::{Arc, Mutex},
         time::{Duration, SystemTime},
     };
-    use tokio::time::timeout;
+    use tokio::{sync::Notify, time::timeout};
 
     #[tokio::test]
     async fn events_forwards_history() {
@@ -298,57 +298,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn events_stream_includes_future_events() {
-        use futures_util::StreamExt;
+    async fn event_stream_seamlessly_transitions_from_history_replay_to_live_broadcast() {
+        // Given a history with one event
+        fn canned_event() -> Event {
+            Event {
+                id: 1,
+                message: Message {
+                    id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                    sender: "Alice".to_string(),
+                    content: "One".to_string(),
+                },
+                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+            }
+        }
+        let history_exhausted = Arc::new(Notify::new());
+        struct HistoryDouble {
+            history_exhausted: Arc<Notify>,
+        }
+        impl ChatHistory for HistoryDouble {
+            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+                if last_event_id == 0 {
+                    vec![canned_event()]
+                } else {
+                    self.history_exhausted.notify_one();
+                    Vec::new()
+                }
+            }
+            fn record_message(&mut self, message: Message) -> Event {
+                Event {
+                    id: 2,
+                    message,
+                    timestamp: SystemTime::UNIX_EPOCH,
+                }
+            }
+        }
+        let chat = ChatRuntime::new(HistoryDouble {
+            history_exhausted: history_exhausted.clone(),
+        });
 
-        // Given: a chat with one initial message
-        let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let msg_1 = Message {
-            id: id_1.clone(),
-            sender: "Alice".to_string(),
-            content: "One".to_string(),
-        };
-        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        let msg_2 = Message {
-            id: id_2.clone(),
+        // When: subscribe and consume the historic event
+        let mut events_stream = chat.client().events(0).boxed();
+        let historic = events_stream.next().await.unwrap();
+
+        // Spawn the stream consumer so it actively polls for the next event
+        let stream_handle = tokio::spawn(async move { events_stream.next().await.unwrap() });
+
+        // Wait until the stub confirms history is exhausted, meaning the actor has subscribed
+        // to the broadcast channel
+        history_exhausted.notified().await;
+
+        // add a message after history is exhausted — it must arrive via broadcast
+        let live_msg = Message {
+            id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
-        let msg_3 = Message {
-            id: id_3.clone(),
-            sender: "Carol".to_string(),
-            content: "Three".to_string(),
-        };
+        chat.client().add_message(live_msg.clone()).await;
 
-        let history = InMemoryChatHistory::new();
-        let chat = ChatRuntime::new(history);
+        // Then we receive the live event within a reasonable time frame
+        let live = tokio::time::timeout(Duration::from_millis(200), stream_handle)
+            .await
+            .expect("timed out waiting for live event")
+            .unwrap();
 
-        // Add one message before subscribing
-        chat.client().add_message(msg_1).await;
-
-        // When: subscribe to events, then add more messages
-        let mut events_stream = chat.client().events(0).boxed();
-
-        // Extract historic messages so far
-        let _initial_message = events_stream.next().await;
-
-        // Add messages after history has already been consumed
-        chat.client().add_message(msg_2).await;
-        chat.client().add_message(msg_3).await;
-
-        // Then: we expect to receive the initial and the later messages (3 total)
-        let collected = tokio::time::timeout(Duration::from_millis(200), async {
-            events_stream.take(2).collect::<Vec<_>>().await
-        })
-        .await
-        .expect("timed out waiting for events");
-
-        assert_eq!(
-            collected.len(),
-            2,
-            "expected 2 events (2 added after historic messages extracted)"
-        );
+        // The historic event matches the canned data
+        assert_eq!(historic, canned_event());
+        // Live event carries the message we just sent
+        assert_eq!(live.message, live_msg);
 
         // Cleanup
         chat.shutdown().await;
