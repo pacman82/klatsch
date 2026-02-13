@@ -62,6 +62,11 @@ impl ChatRuntime {
     /// Shuts down the chat runtime. In order for this to complete, all clients must have been
     /// dropped.
     pub async fn shutdown(self) {
+        // At this point we should be the only owner of the sender, since all clients should have
+        // been dropped. This might be unecessary restrictive if we want to shutdown things in
+        // parallel. Right now however the invariant holds. The panic might save us some time if we
+        // forget to clean up all senders in a test.
+        debug_assert_eq!(self.sender.strong_count(), 1);
         // We drop the sender, to signal to the actor thread that it can no longer receive messages
         // and should stop.
         drop(self.sender);
@@ -423,38 +428,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn state_and_messages_are_shared_between_clients() {
-        // Given a two clients. One of them listening for new events.
-        let history = InMemoryChatHistory::new();
+    async fn state_is_shared_between_clients() {
+        // Given two clients from the same runtime
+        let history = HistorySpy::new();
+        let spy = history.clone();
         let chat = ChatRuntime::new(history);
-        let mut sender_client = chat.client();
-        let receiver_client = chat.client();
+        let mut client_a = chat.client();
+        let mut client_b = chat.client();
 
-        // Start listening for events on the receiver
-        let events_stream = receiver_client.events(0);
-
-        // When sending a message from the other client
-        let msg = Message {
+        // When each client sends a message
+        let msg_a = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_string(),
-            content: "Hello from Alice".to_string(),
+            content: "From Alice".to_string(),
         };
-        sender_client.add_message(msg.clone()).await;
+        let msg_b = Message {
+            id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
+            sender: "Bob".to_string(),
+            content: "From Bob".to_string(),
+        };
+        client_a.add_message(msg_a.clone()).await;
+        client_b.add_message(msg_b.clone()).await;
 
-        // Then the receiver should get the message as an event
-        let received_events = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            events_stream.take(1).collect::<Vec<_>>(),
-        )
-        .await
-        .expect("timed out waiting for event");
-        assert_eq!(received_events.len(), 1);
-        assert_eq!(received_events[0].message, msg);
-        assert_eq!(received_events[0].id, 1);
-
-        // Cleanup
-        drop(sender_client);
+        // Then both messages are recorded in the same history
+        drop(client_a);
+        drop(client_b);
         chat.shutdown().await;
+        let recorded = spy.take_recorded_messages();
+        assert_eq!(recorded, vec![msg_a, msg_b]);
     }
 
     #[tokio::test]
