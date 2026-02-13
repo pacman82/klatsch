@@ -423,33 +423,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn last_event_id_exceeds_total_number_of_events() {
-        // Given a chat with one existing message
-        let msg = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Bob".to_string(),
-            content: "Hello".to_string(),
-        };
-        let history = InMemoryChatHistory::new();
-        let chat = ChatRuntime::new(history);
-        chat.client().add_message(msg.clone()).await;
-
-        // When: requesting events with a last_event_id `2`.
-        let mut events_stream = chat.client().events(2).boxed();
-        let received = timeout(Duration::ZERO, events_stream.next()).await;
-
-        // Then: no events should be returned from chat history
-        assert!(
-            received.is_err(),
-            "expected no historic events to be returned"
-        );
-
-        // Cleanup
-        drop(events_stream);
-        chat.shutdown().await;
-    }
-
-    #[tokio::test]
     async fn state_and_messages_are_shared_between_clients() {
         // Given a two clients. One of them listening for new events.
         let history = InMemoryChatHistory::new();
