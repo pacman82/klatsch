@@ -23,6 +23,7 @@ double-trait = { version = "0.2.9", features = ["stream"] }
 reqwest = "0.13.2"
 serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["process", "time"] }
+tokio-test = "0.4.5"
 tower = { version = "0.5.3", features = ["util"] }
 uuid = { version = "1.20.0", features = ["serde", "v7"] }
 

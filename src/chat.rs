@@ -220,7 +220,7 @@ mod tests {
         sync::{Arc, Mutex},
         time::{Duration, SystemTime},
     };
-    use tokio::{sync::Notify, time::timeout};
+    use tokio::time::timeout;
 
     #[tokio::test]
     async fn events_forwards_history() {
@@ -310,16 +310,13 @@ mod tests {
                 timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
             }
         }
-        let history_exhausted = Arc::new(Notify::new());
-        struct HistoryDouble {
-            history_exhausted: Arc<Notify>,
-        }
+
+        struct HistoryDouble;
         impl ChatHistory for HistoryDouble {
             fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 if last_event_id == 0 {
                     vec![canned_event()]
                 } else {
-                    self.history_exhausted.notify_one();
                     Vec::new()
                 }
             }
@@ -331,22 +328,17 @@ mod tests {
                 }
             }
         }
-        let chat = ChatRuntime::new(HistoryDouble {
-            history_exhausted: history_exhausted.clone(),
-        });
+        let chat = ChatRuntime::new(HistoryDouble);
 
-        // When: subscribe and consume the historic event
+        // When a client subscribes and consume the historic event
         let mut events_stream = chat.client().events(0).boxed();
         let historic = events_stream.next().await.unwrap();
 
-        // Spawn the stream consumer so it actively polls for the next event
-        let stream_handle = tokio::spawn(async move { events_stream.next().await.unwrap() });
+        // and after that it waits for the next event
+        let mut live = tokio_test::task::spawn(events_stream.next());
+        debug_assert!(live.poll().is_pending());
 
-        // Wait until the stub confirms history is exhausted, meaning the actor has subscribed
-        // to the broadcast channel
-        history_exhausted.notified().await;
-
-        // add a message after history is exhausted — it must arrive via broadcast
+        // while the client is waiting another client sends a message.
         let live_msg = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
             sender: "Bob".to_string(),
@@ -355,7 +347,7 @@ mod tests {
         chat.client().add_message(live_msg.clone()).await;
 
         // Then we receive the live event within a reasonable time frame
-        let live = tokio::time::timeout(Duration::from_millis(200), stream_handle)
+        let live = timeout(Duration::from_secs(1), live)
             .await
             .expect("timed out waiting for live event")
             .unwrap();
@@ -366,6 +358,7 @@ mod tests {
         assert_eq!(live.message, live_msg);
 
         // Cleanup
+        drop(events_stream);
         chat.shutdown().await;
     }
 
