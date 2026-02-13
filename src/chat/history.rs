@@ -111,6 +111,23 @@ mod tests {
         assert_eq!(events[0].message.id, id_2);
         assert_eq!(events[1].message.id, id_3);
     }
+
+    #[test]
+    fn last_event_id_exceeds_total_number_of_events() {
+        // Given a history with one message
+        let mut history = InMemoryChatHistory::new();
+        history.record_message(Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "dummy".to_string(),
+            content: "dummy".to_string(),
+        });
+
+        // When retrieving events since an id beyond the history
+        let events = history.events_since(2);
+
+        // Then no events are returned
+        assert!(events.is_empty());
+    }
 }
 
 /// A message as it is stored and represented as part of a chat.
