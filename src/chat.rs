@@ -405,39 +405,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn events_only_return_events_with_id_greater_than_last_event_id() {
-        // Given a chat with three messages
-        let id_1: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let msg_1 = Message {
-            id: id_1.clone(),
-            sender: "Alice".to_string(),
-            content: "One".to_string(),
-        };
-        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        let msg_2 = Message {
-            id: id_2.clone(),
-            sender: "Bob".to_string(),
-            content: "Two".to_string(),
-        };
-        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
-        let msg_3 = Message {
-            id: id_3.clone(),
-            sender: "Carol".to_string(),
-            content: "Three".to_string(),
-        };
-
-        let history = InMemoryChatHistory::new();
+    async fn events_passes_last_event_id_to_history() {
+        // Given
+        let history = HistorySpy::new();
+        let spy = history.clone();
         let chat = ChatRuntime::new(history);
-        chat.client().add_message(msg_1).await;
-        chat.client().add_message(msg_2).await;
-        chat.client().add_message(msg_3).await;
 
-        // When: requesting two events since last_event_id = 1
-        let history = chat.client().events(1).take(2).collect::<Vec<_>>().await;
+        // When requesting events with last_event_id = 42
+        let _event = chat.client().events(42).boxed().next().await;
 
-        // Then events 2 and 3 are returned (as opposed to 1, 2)
-        assert_eq!(history[0].id, 2);
-        assert_eq!(history[1].id, 3);
+        // Then history was queried with the provided last_event_id
+        let ids = spy.take_observed_last_event_ids();
+        assert_eq!(ids[0], 42);
 
         // Cleanup
         chat.shutdown().await;
@@ -563,28 +542,46 @@ mod tests {
 
     #[derive(Clone)]
     struct HistorySpy {
-        recorded: Arc<Mutex<Vec<Message>>>,
+        recorded_messages: Arc<Mutex<Vec<Message>>>,
+        observed_last_event_ids: Arc<Mutex<Vec<u64>>>,
     }
 
     impl HistorySpy {
         fn new() -> Self {
             HistorySpy {
-                recorded: Arc::new(Mutex::new(Vec::new())),
+                recorded_messages: Arc::new(Mutex::new(Vec::new())),
+                observed_last_event_ids: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
         fn take_recorded_messages(&self) -> Vec<Message> {
-            take(&mut *self.recorded.lock().unwrap())
+            take(&mut *self.recorded_messages.lock().unwrap())
+        }
+
+        fn take_observed_last_event_ids(&self) -> Vec<u64> {
+            take(&mut *self.observed_last_event_ids.lock().unwrap())
         }
     }
 
     impl ChatHistory for HistorySpy {
-        fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
-            Vec::new()
+        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            self.observed_last_event_ids
+                .lock()
+                .unwrap()
+                .push(last_event_id);
+            vec![Event {
+                id: last_event_id + 1,
+                message: Message {
+                    id: Uuid::nil(),
+                    sender: "dummy".to_owned(),
+                    content: "dummy".to_owned(),
+                },
+                timestamp: SystemTime::UNIX_EPOCH,
+            }]
         }
 
         fn record_message(&mut self, message: Message) -> Event {
-            self.recorded.lock().unwrap().push(message.clone());
+            self.recorded_messages.lock().unwrap().push(message.clone());
             Event {
                 id: 1,
                 message,
