@@ -9,19 +9,30 @@
 	};
 
 	let message_content = $state('');
+	// We are keepin track of the last message that we tried (and failed) to send. This allows us to
+	// remember the generated id for the message and rely on the idempotency of the API for retrying
+	// the sending.
+	//
+	// The actual retry will be triggered by the user. He/she can resubmit the same message without
+	// fear of creating duplicates. Resetting the pending message to null between submits allows for
+	// equal (not same) message to be sent in succession.
+	let pending: { id: string; content: string } | null = $state(null);
+
+	// Reuses the id if the content is unchanged (retry), generates a new one otherwise.
+	function messageToSend(content: string): SendMessage {
+		if (pending?.content !== content) {
+			pending = { id: v7(), content };
+		}
+		return { id: pending.id, sender: $user, content };
+	}
 
 	async function handleSubmit(e: SubmitEvent) {
-	    // We do not want the page to be reloaded, if we submit the message. Therfore we call
+		// We do not want the page to be reloaded, if we submit the message. Therfore we call
 		// preventDefault which to my understanding would submit the page as a from and trigger a reload
 		// of the entire page.
 		e.preventDefault();
-		if (!message_content.trim()) return;
-
-		let message: SendMessage = {
-			id: v7(),
-			sender: $user,
-			content: message_content.trim()
-		};
+		const content = message_content.trim();
+		if (!content) return;
 
 		try {
 			const response = await fetch('/api/v0/add_message', {
@@ -29,7 +40,7 @@
 				headers: {
 					'Content-Type': 'application/json'
 				},
-				body: JSON.stringify(message)
+				body: JSON.stringify(messageToSend(content))
 			});
 
 			if (!response.ok) {
@@ -37,6 +48,7 @@
 				return;
 			}
 
+			pending = null;
 			message_content = '';
 		} catch (error) {
 			console.error('Error sending message:', error);
