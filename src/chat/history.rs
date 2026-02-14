@@ -7,8 +7,9 @@ pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).
     fn events_since(&self, last_event_id: u64) -> Vec<Event>;
 
-    /// Record a message and return the corresponding event.
-    fn record_message(&mut self, message: Message) -> Event;
+    /// Record a message and return the corresponding event. `None` indiactes that no event should
+    /// be emitted due to the message being a duplicate of an already recorded message.
+    fn record_message(&mut self, message: Message) -> Option<Event>;
 }
 
 impl Chat for InMemoryChatHistory {
@@ -17,14 +18,14 @@ impl Chat for InMemoryChatHistory {
         self.events[last_event_id..].to_owned()
     }
 
-    fn record_message(&mut self, message: Message) -> Event {
+    fn record_message(&mut self, message: Message) -> Option<Event> {
         let event = Event {
             id: self.events.len() as u64 + 1,
             message,
             timestamp: SystemTime::now(),
         };
         self.events.push(event.clone());
-        event
+        Some(event)
     }
 }
 
@@ -54,7 +55,7 @@ mod tests {
             content: "Hello".to_string(),
         };
         // ... and retrieving its corresponding event
-        let event = history.record_message(msg.clone());
+        let event = history.record_message(msg.clone()).unwrap();
 
         // Then the event contains the same message.
         assert_eq!(event.message, msg);

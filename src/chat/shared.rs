@@ -203,7 +203,7 @@ impl<H: Chat> Actor<H> {
                 let _ = responder.send(events);
             }
             ActorMsg::AddMessage(message) => {
-                let event = self.history.record_message(message);
+                let event = self.history.record_message(message).unwrap();
                 // This method only fails if there are no active receivers. This is also fine, we
                 // can safely ignore that.
                 let _ = self.current.send(event);
@@ -322,12 +322,12 @@ mod tests {
                     Vec::new()
                 }
             }
-            fn record_message(&mut self, message: Message) -> Event {
-                Event {
+            fn record_message(&mut self, message: Message) -> Option<Event> {
+                Some(Event {
                     id: 2,
                     message,
                     timestamp: SystemTime::UNIX_EPOCH,
-                }
+                })
             }
         }
         let chat = ChatRuntime::new(HistoryDouble);
@@ -557,13 +557,13 @@ mod tests {
             }]
         }
 
-        fn record_message(&mut self, message: Message) -> Event {
+        fn record_message(&mut self, message: Message) -> Option<Event> {
             self.recorded_messages.lock().unwrap().push(message.clone());
-            Event {
+            Some(Event {
                 id: 1,
                 message,
                 timestamp: SystemTime::now(),
-            }
+            })
         }
     }
 
@@ -583,14 +583,14 @@ mod tests {
             self.events[start..].to_vec()
         }
 
-        fn record_message(&mut self, message: Message) -> Event {
+        fn record_message(&mut self, message: Message) -> Option<Event> {
             let event = Event {
                 id: self.events.len() as u64 + 1,
                 message,
                 timestamp: SystemTime::UNIX_EPOCH,
             };
             self.events.push(event.clone());
-            event
+            Some(event)
         }
     }
 }
