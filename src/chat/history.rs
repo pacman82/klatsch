@@ -3,16 +3,15 @@ use std::{cmp::min, time::SystemTime};
 use super::Message;
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait ChatHistory {
-    /// All events stored in the chat history since the event with the given `last_event_id`
-    /// (exclusive).
+pub trait Chat {
+    /// All events since the event with the given `last_event_id` (exclusive).
     fn events_since(&self, last_event_id: u64) -> Vec<Event>;
 
-    /// Add a message to the chat history and emit the corresponding event.
+    /// Record a message and return the corresponding event.
     fn record_message(&mut self, message: Message) -> Event;
 }
 
-impl ChatHistory for InMemoryChatHistory {
+impl Chat for InMemoryChatHistory {
     fn events_since(&self, last_event_id: u64) -> Vec<Event> {
         let last_event_id = min(last_event_id as usize, self.events.len());
         self.events[last_event_id..].to_owned()

@@ -12,13 +12,14 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use self::history::ChatHistory;
+use self::history::Chat;
 
 pub use self::history::{Event, InMemoryChatHistory};
 
-/// Follow the events in a chat and send messages.
+/// A shared chat. Allows multiple clients to communicate with each other by writing and reading
+/// messages to the same chat.
 #[cfg_attr(test, double_trait::dummies)]
-pub trait Chat: Sized {
+pub trait SharedChat: Sized {
     /// A stream which yields future and past events of the chat.
     ///
     /// # Parameters
@@ -42,7 +43,7 @@ pub struct ChatRuntime {
 }
 
 impl ChatRuntime {
-    pub fn new(history: impl ChatHistory + Send + 'static) -> Self {
+    pub fn new(history: impl Chat + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel(5);
         let actor = Actor::new(history, receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
@@ -52,7 +53,7 @@ impl ChatRuntime {
         }
     }
 
-    /// A client which implements the [`Chat`] trait.
+    /// A client which implements the [`SharedChat`] trait.
     pub fn client(&self) -> ChatClient {
         ChatClient {
             sender: self.sender.clone(),
@@ -79,7 +80,7 @@ pub struct ChatClient {
     sender: mpsc::Sender<ActorMsg>,
 }
 
-impl Chat for ChatClient {
+impl SharedChat for ChatClient {
     fn events(self, mut last_event_id: u64) -> impl Stream<Item = Event> + Send {
         stream! {
             loop {
@@ -165,14 +166,14 @@ impl Events {
 }
 
 struct Actor<H> {
-    /// All the events so far
+    /// The chat's persistent state.
     history: H,
-    /// Used to broadcast new events to clients whom already have consumed the history.
+    /// Used to broadcast new events to clients who have caught up with the chat.
     current: broadcast::Sender<Event>,
     receiver: mpsc::Receiver<ActorMsg>,
 }
 
-impl<H: ChatHistory> Actor<H> {
+impl<H: Chat> Actor<H> {
     pub fn new(history: H, receiver: mpsc::Receiver<ActorMsg>) -> Self {
         let (current, _) = broadcast::channel(10);
         Actor {
@@ -251,7 +252,7 @@ mod tests {
             },
         ];
         struct HistoryStub(Vec<Event>);
-        impl ChatHistory for HistoryStub {
+        impl Chat for HistoryStub {
             fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 self.0.clone()
             }
@@ -317,7 +318,7 @@ mod tests {
         }
 
         struct HistoryDouble;
-        impl ChatHistory for HistoryDouble {
+        impl Chat for HistoryDouble {
             fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 if last_event_id == 0 {
                     vec![canned_event()]
@@ -371,7 +372,7 @@ mod tests {
     async fn events_stream_delivers_new_history_on_re_request() {
         // Given: a history that grows between requests
         struct HistoryStub;
-        impl ChatHistory for HistoryStub {
+        impl Chat for HistoryStub {
             fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 match last_event_id {
                     0 => vec![Event {
@@ -543,7 +544,7 @@ mod tests {
         }
     }
 
-    impl ChatHistory for HistorySpy {
+    impl Chat for HistorySpy {
         fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             self.observed_last_event_ids
                 .lock()
@@ -580,7 +581,7 @@ mod tests {
         }
     }
 
-    impl ChatHistory for FakeHistory {
+    impl Chat for FakeHistory {
         fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             let start = (last_event_id as usize).min(self.events.len());
             self.events[start..].to_vec()
