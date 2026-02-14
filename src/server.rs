@@ -12,7 +12,7 @@ use tokio::{
 };
 use tracing::info;
 
-use crate::chat::Chat;
+use crate::chat::SharedChat;
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -28,7 +28,7 @@ impl Server {
     /// its own thread, the TCP socket is already opened and listened to once this function returns.
     pub async fn new<C>(socket_address: impl ToSocketAddrs, chat: C) -> anyhow::Result<Server>
     where
-        C: Chat + Send + Sync + Clone + 'static,
+        C: SharedChat + Send + Sync + Clone + 'static,
     {
         let listener = TcpListener::bind(socket_address).await?;
 
@@ -75,7 +75,7 @@ impl Server {
 
 fn router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
-    C: Chat + Send + Sync + Clone + 'static,
+    C: SharedChat + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/health", get(|| async { "OK" }))

@@ -11,13 +11,13 @@ use serde::Serialize;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::chat::{Chat, Event, Message};
+use crate::chat::{Event, Message, SharedChat};
 
 use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
 
 pub fn api_router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
-    C: Chat + Send + Sync + Clone + 'static,
+    C: SharedChat + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route("/api/v0/events", get(events::<C>))
@@ -31,7 +31,7 @@ async fn events<C>(
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
-    C: Chat + Send + 'static,
+    C: SharedChat + Send + 'static,
 {
     let last_event_id = last_event_id.0;
     // Convert chat events into SSE events
@@ -90,7 +90,7 @@ impl From<Event> for SseEvent {
 
 async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>)
 where
-    C: Chat,
+    C: SharedChat,
 {
     chat.add_message(msg).await;
 }
@@ -123,7 +123,7 @@ mod tests {
         #[derive(Clone)]
         struct ChatStub;
 
-        impl Chat for ChatStub {
+        impl SharedChat for ChatStub {
             fn events(self, _last_event_id: u64) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event {
@@ -298,7 +298,7 @@ mod tests {
         // Given a pending chat and an open request to events
         #[derive(Clone)]
         struct PendingChatStub;
-        impl Chat for PendingChatStub {
+        impl SharedChat for PendingChatStub {
             fn events(self, _last_event_id: u64) -> impl futures_util::Stream<Item = Event> + Send {
                 pending()
             }
@@ -337,7 +337,7 @@ mod tests {
         events_record: Arc<Mutex<Vec<u64>>>,
     }
 
-    impl Chat for ChatSpy {
+    impl SharedChat for ChatSpy {
         fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
             self.events_record.lock().unwrap().push(last_event_id);
             tokio_stream::iter(Vec::new())
