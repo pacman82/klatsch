@@ -3,6 +3,9 @@ use std::{cmp::min, collections::HashSet, time::SystemTime};
 use super::Message;
 use uuid::Uuid;
 
+#[derive(Debug)]
+pub struct ChatError;
+
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).

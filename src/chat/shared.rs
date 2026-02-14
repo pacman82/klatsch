@@ -10,7 +10,7 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use super::{Event, history::Chat};
+use super::{Event, history::{Chat, ChatError}};
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
 /// messages to the same chat.
@@ -28,7 +28,7 @@ pub trait SharedChat: Sized {
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
 
     /// Add a new message to the chat.
-    fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
+    fn add_message(&mut self, message: Message) -> impl Future<Output = Result<(), ChatError>> + Send;
 }
 
 /// Can be used to create multiple instances of [`ChatClient`] which provide an API to interact with
@@ -94,11 +94,12 @@ impl SharedChat for ChatClient {
         }
     }
 
-    async fn add_message(&mut self, message: Message) {
+    async fn add_message(&mut self, message: Message) -> Result<(), ChatError> {
         self.sender
             .send(ActorMsg::AddMessage(message))
             .await
             .unwrap();
+        Ok(())
     }
 }
 
@@ -278,7 +279,7 @@ mod tests {
             sender: "Alice".to_string(),
             content: "Hello".to_string(),
         };
-        chat.client().add_message(msg.clone()).await;
+        chat.client().add_message(msg.clone()).await.unwrap();
         chat.shutdown().await; // Make sure messages have been flushed.
 
         // Then
@@ -326,14 +327,16 @@ mod tests {
                 sender: "dummy".to_owned(),
                 content: "dummy".to_owned(),
             })
-            .await;
+            .await
+            .unwrap();
         sender
             .add_message(Message {
                 id: fresh_id,
                 sender: "dummy".to_owned(),
                 content: "dummy".to_owned(),
             })
-            .await;
+            .await
+            .unwrap();
 
         // Then the first event received is the fresh message — the duplicate was not broadcast
         let event = timeout(Duration::from_secs(1), next_event)
@@ -408,7 +411,7 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        chat.client().add_message(live_msg.clone()).await;
+        chat.client().add_message(live_msg.clone()).await.unwrap();
 
         // Then we receive the live event within a reasonable time frame
         let live = timeout(Duration::from_secs(1), live)
@@ -506,8 +509,8 @@ mod tests {
             sender: "Bob".to_string(),
             content: "From Bob".to_string(),
         };
-        client_a.add_message(msg_a.clone()).await;
-        client_b.add_message(msg_b.clone()).await;
+        client_a.add_message(msg_a.clone()).await.unwrap();
+        client_b.add_message(msg_b.clone()).await.unwrap();
 
         // Then both messages are recorded in the same history
         drop(client_a);
@@ -538,7 +541,8 @@ mod tests {
                 sender: "a".to_string(),
                 content: "Initial message".to_string(),
             })
-            .await;
+            .await
+            .unwrap();
 
         // One of the clients has an event stream open, which already has received all messages in the
         // history so far (one in this case).
@@ -555,7 +559,7 @@ mod tests {
                 sender: "b".to_string(),
                 content: "dummy".to_owned(),
             };
-            sender_client.add_message(msg).await;
+            sender_client.add_message(msg).await.unwrap();
         }
 
         // Then: receiver extracts all 100 messages without timeout
