@@ -458,11 +458,17 @@ mod tests {
         assert_eq!(recorded, vec![msg_a, msg_b]);
     }
 
+    /// Verifies that a client which is slow in receiving messages (pulling them from the stream)
+    /// does not miss any messages. I.e. if a sender insertes a lot of messages in between a
+    /// receiver pulling two events, the receiver will still receive all messages.
+    ///
+    /// Another way to look at this, is that this is the reverse of the seamless transition from
+    /// replaying hisoric messages to broadcasting current ones. The receiver has been so slow that
+    /// the current messages are now considered history and have to be fetched from it again.
     #[tokio::test]
     async fn slow_receiver() {
         // Given: a chat and two clients
-        let history = InMemoryChatHistory::new();
-        let chat = ChatRuntime::new(history);
+        let chat = ChatRuntime::new(FakeHistory::new());
         let mut sender_client = chat.client();
         let receiver_client = chat.client();
 
@@ -561,6 +567,33 @@ mod tests {
                 message,
                 timestamp: SystemTime::now(),
             }
+        }
+    }
+
+    struct FakeHistory {
+        events: Vec<Event>,
+    }
+
+    impl FakeHistory {
+        fn new() -> Self {
+            FakeHistory { events: Vec::new() }
+        }
+    }
+
+    impl ChatHistory for FakeHistory {
+        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            let start = (last_event_id as usize).min(self.events.len());
+            self.events[start..].to_vec()
+        }
+
+        fn record_message(&mut self, message: Message) -> Event {
+            let event = Event {
+                id: self.events.len() as u64 + 1,
+                message,
+                timestamp: SystemTime::UNIX_EPOCH,
+            };
+            self.events.push(event.clone());
+            event
         }
     }
 }
