@@ -1,6 +1,7 @@
-use std::{cmp::min, time::SystemTime};
+use std::{cmp::min, collections::HashSet, time::SystemTime};
 
 use super::Message;
+use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
@@ -19,7 +20,7 @@ impl Chat for InMemoryChatHistory {
     }
 
     fn record_message(&mut self, message: Message) -> Option<Event> {
-        if self.events.iter().any(|e| e.message.id == message.id) {
+        if !self.seen_ids.insert(message.id) {
             return None;
         }
         let event = Event {
@@ -34,11 +35,15 @@ impl Chat for InMemoryChatHistory {
 
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
+    seen_ids: HashSet<Uuid>,
 }
 
 impl InMemoryChatHistory {
     pub fn new() -> Self {
-        InMemoryChatHistory { events: Vec::new() }
+        InMemoryChatHistory {
+            events: Vec::new(),
+            seen_ids: HashSet::new(),
+        }
     }
 }
 
