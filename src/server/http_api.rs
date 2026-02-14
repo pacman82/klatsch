@@ -11,7 +11,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::chat::{Event, Message, SharedChat};
+use crate::chat::{ChatError, Event, Message, SharedChat};
 
 use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
 
@@ -92,7 +92,7 @@ async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>)
 where
     C: SharedChat,
 {
-    chat.add_message(msg).await;
+    chat.add_message(msg).await.unwrap();
 }
 
 #[cfg(test)]
@@ -343,8 +343,9 @@ mod tests {
             tokio_stream::iter(Vec::new())
         }
 
-        async fn add_message(&mut self, message: Message) {
+        async fn add_message(&mut self, message: Message) -> Result<(), ChatError> {
             self.add_message_record.lock().unwrap().push(message);
+            Ok(())
         }
     }
 
