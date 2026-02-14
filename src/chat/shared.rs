@@ -203,10 +203,11 @@ impl<H: Chat> Actor<H> {
                 let _ = responder.send(events);
             }
             ActorMsg::AddMessage(message) => {
-                let event = self.history.record_message(message).unwrap();
-                // This method only fails if there are no active receivers. This is also fine, we
-                // can safely ignore that.
-                let _ = self.current.send(event);
+                if let Some(event) = self.history.record_message(message) {
+                    // This method only fails if there are no active receivers. This is also fine,
+                    // we can safely ignore that.
+                    let _ = self.current.send(event);
+                }
             }
         }
     }
@@ -284,6 +285,67 @@ mod tests {
         let recorded = history.take_recorded_messages();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0], msg);
+    }
+
+    #[tokio::test]
+    async fn duplicate_message_is_not_broadcast() {
+        // Given a history that treats one specific message ID as a duplicate
+        let duplicate_id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let fresh_id: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+        struct HistoryStub {
+            duplicate_id: Uuid,
+        }
+        impl Chat for HistoryStub {
+            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+                Vec::new()
+            }
+            fn record_message(&mut self, message: Message) -> Option<Event> {
+                if message.id == self.duplicate_id {
+                    None
+                } else {
+                    Some(Event {
+                        id: 1,
+                        message,
+                        timestamp: SystemTime::UNIX_EPOCH,
+                    })
+                }
+            }
+        }
+        let chat = ChatRuntime::new(HistoryStub { duplicate_id });
+
+        // and a receiver subscribed to live broadcast
+        let mut events = chat.client().events(0).boxed();
+        let mut next_event = tokio_test::task::spawn(events.next());
+        assert!(next_event.poll().is_pending());
+
+        // When a sender sends a duplicate followed by a fresh message
+        let mut sender = chat.client();
+        sender
+            .add_message(Message {
+                id: duplicate_id,
+                sender: "dummy".to_owned(),
+                content: "dummy".to_owned(),
+            })
+            .await;
+        sender
+            .add_message(Message {
+                id: fresh_id,
+                sender: "dummy".to_owned(),
+                content: "dummy".to_owned(),
+            })
+            .await;
+
+        // Then the first event received is the fresh message — the duplicate was not broadcast
+        let event = timeout(Duration::from_secs(1), next_event)
+            .await
+            .expect("timed out waiting for event")
+            .unwrap();
+        assert_eq!(event.message.id, fresh_id);
+
+        // Cleanup
+        drop(sender);
+        drop(events);
+        chat.shutdown().await;
     }
 
     #[tokio::test]
