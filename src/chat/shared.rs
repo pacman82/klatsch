@@ -10,7 +10,10 @@ use tokio::{
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use super::{Event, history::{Chat, ChatError}};
+use super::{
+    Event,
+    history::{Chat, ChatError},
+};
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
 /// messages to the same chat.
@@ -28,7 +31,10 @@ pub trait SharedChat: Sized {
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
 
     /// Add a new message to the chat.
-    fn add_message(&mut self, message: Message) -> impl Future<Output = Result<(), ChatError>> + Send;
+    fn add_message(
+        &mut self,
+        message: Message,
+    ) -> impl Future<Output = Result<(), ChatError>> + Send;
 }
 
 /// Can be used to create multiple instances of [`ChatClient`] which provide an API to interact with
