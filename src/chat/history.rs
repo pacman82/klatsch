@@ -19,6 +19,9 @@ impl Chat for InMemoryChatHistory {
     }
 
     fn record_message(&mut self, message: Message) -> Option<Event> {
+        if self.events.iter().any(|e| e.message.id == message.id) {
+            return None;
+        }
         let event = Event {
             id: self.events.len() as u64 + 1,
             message,
@@ -110,6 +113,29 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].message.id, id_2);
         assert_eq!(events[1].message.id, id_3);
+    }
+
+    #[test]
+    fn duplicate_message_id_is_not_stored() {
+        // Given a history with one message
+        let mut history = InMemoryChatHistory::new();
+        let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        history.record_message(Message {
+            id,
+            sender: "Bob".to_owned(),
+            content: "Hello, World!".to_owned(),
+        });
+
+        // When recording a duplicate message with the same id
+        let result = history.record_message(Message {
+            id,
+            sender: "Bob".to_owned(),
+            content: "Hello, World!".to_owned(),
+        });
+
+        // Then no event is emitted and the history remains unchanged
+        assert!(result.is_none());
+        assert_eq!(history.events_since(0).len(), 1);
     }
 
     #[test]
