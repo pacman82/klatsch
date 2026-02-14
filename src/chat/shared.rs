@@ -2,17 +2,15 @@ use std::pin::pin;
 
 use async_stream::stream;
 use futures_util::Stream;
-use serde::Deserialize;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
 use tokio_stream::StreamExt;
-use uuid::Uuid;
 
 use super::{
     Event,
-    history::{Chat, ChatError},
+    history::{Chat, ChatError, Message},
 };
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
@@ -107,20 +105,6 @@ impl SharedChat for ChatClient {
             .unwrap();
         Ok(())
     }
-}
-
-/// A message as it is created by the frontend and sent to the server. It is then relied to all
-/// participants in the chat as part of an `Event`.
-#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct Message {
-    /// Sender generated unique identifier for the message. It is used to recover from errors
-    /// sending messages. It also a key for the UI to efficiently update data structures then
-    /// rendering messages.
-    pub id: Uuid,
-    /// Author of the message
-    pub sender: String,
-    /// Text content of the message. I.e. the actual message
-    pub content: String,
 }
 
 enum ActorMsg {
@@ -231,6 +215,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
     use tokio::time::timeout;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn events_forwards_history() {

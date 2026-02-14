@@ -1,6 +1,6 @@
 use std::{cmp::min, collections::HashSet, time::SystemTime};
 
-use super::Message;
+use serde::Deserialize;
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -11,6 +11,20 @@ pub trait Chat {
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
     fn record_message(&mut self, message: Message) -> Option<Event>;
+}
+
+/// A message as it is created by the frontend and sent to the server. It is then relied to all
+/// participants in the chat as part of an `Event`.
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct Message {
+    /// Sender generated unique identifier for the message. It is used to recover from errors
+    /// sending messages. It also a key for the UI to efficiently update data structures then
+    /// rendering messages.
+    pub id: Uuid,
+    /// Author of the message
+    pub sender: String,
+    /// Text content of the message. I.e. the actual message
+    pub content: String,
 }
 
 /// A message as it is stored and represented as part of a chat.
