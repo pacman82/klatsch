@@ -3,9 +3,6 @@ use std::{cmp::min, collections::HashSet, time::SystemTime};
 use super::Message;
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub struct ChatError;
-
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).
@@ -15,6 +12,18 @@ pub trait Chat {
     /// be emitted due to the message being a duplicate of an already recorded message.
     fn record_message(&mut self, message: Message) -> Option<Event>;
 }
+
+/// A message as it is stored and represented as part of a chat.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Event {
+    /// One based ordered identifier of the events in the chat.
+    pub id: u64,
+    pub message: Message,
+    pub timestamp: SystemTime,
+}
+
+#[derive(Debug)]
+pub struct ChatError;
 
 impl Chat for InMemoryChatHistory {
     fn events_since(&self, last_event_id: u64) -> Vec<Event> {
@@ -162,13 +171,4 @@ mod tests {
         // Then no events are returned
         assert!(events.is_empty());
     }
-}
-
-/// A message as it is stored and represented as part of a chat.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Event {
-    /// One based ordered identifier of the events in the chat.
-    pub id: u64,
-    pub message: Message,
-    pub timestamp: SystemTime,
 }
