@@ -37,7 +37,9 @@ pub struct Event {
 }
 
 #[derive(Debug)]
-pub struct ChatError;
+pub enum ChatError {
+    Conflict,
+}
 
 impl Chat for InMemoryChatHistory {
     fn events_since(&self, last_event_id: u64) -> Vec<Event> {

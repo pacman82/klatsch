@@ -1,9 +1,10 @@
-use std::{convert::Infallible, time::UNIX_EPOCH};
+use std::{borrow::Cow, convert::Infallible, time::UNIX_EPOCH};
 
 use axum::{
     Json, Router,
     extract::State,
-    response::{Sse, sse::Event as SseEvent},
+    http::StatusCode,
+    response::{IntoResponse, Response, Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
@@ -12,6 +13,28 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::chat::{ChatError, Event, Message, SharedChat};
+
+struct HttpError {
+    status_code: StatusCode,
+    message: Cow<'static, str>,
+}
+
+impl IntoResponse for HttpError {
+    fn into_response(self) -> Response {
+        (self.status_code, self.message).into_response()
+    }
+}
+
+impl From<ChatError> for HttpError {
+    fn from(err: ChatError) -> Self {
+        match err {
+            ChatError::Conflict => HttpError {
+                status_code: StatusCode::CONFLICT,
+                message: "A different message with this ID already exists".into(),
+            },
+        }
+    }
+}
 
 use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
 
@@ -88,11 +111,12 @@ impl From<Event> for SseEvent {
     }
 }
 
-async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>)
+async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>) -> Result<(), HttpError>
 where
     C: SharedChat,
 {
-    chat.add_message(msg).await.unwrap();
+    chat.add_message(msg).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -328,6 +352,41 @@ mod tests {
             result.is_ok(),
             "SSE stream should terminate after shutdown, but timed out"
         );
+    }
+
+    #[tokio::test]
+    async fn conflict_error_translates_to_409() {
+        // Given a chat that reports any message as a conflict
+        #[derive(Clone)]
+        struct ChatSaboteur;
+        impl SharedChat for ChatSaboteur {
+            async fn add_message(&mut self, _: Message) -> Result<(), ChatError> {
+                Err(ChatError::Conflict)
+            }
+        }
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(ChatSaboteur, shutting_down);
+
+        // When a message is sent
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/add_message")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
+                            "sender": "dummy",
+                            "content": "dummy"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then the response is 409 Conflict
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 
     // Spy that records calls to add_message and events for later inspection
