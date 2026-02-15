@@ -79,6 +79,14 @@ impl InMemoryChatHistory {
 mod tests {
     use super::*;
 
+    fn dummy_message(id: Uuid) -> Message {
+        Message {
+            id,
+            sender: "dummy".to_owned(),
+            content: "dummy".to_owned(),
+        }
+    }
+
     #[test]
     fn recorded_message_is_preserved_in_event() {
         // Given a chat history
@@ -105,20 +113,8 @@ mod tests {
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        history
-            .record_message(Message {
-                id: id_1,
-                sender: "dummy".to_string(),
-                content: "dummy".to_string(),
-            })
-            .unwrap();
-        history
-            .record_message(Message {
-                id: id_2,
-                sender: "dummy".to_string(),
-                content: "dummy".to_string(),
-            })
-            .unwrap();
+        history.record_message(dummy_message(id_1)).unwrap();
+        history.record_message(dummy_message(id_2)).unwrap();
         // ...and retrieving these messages after insertion
         let events = history.events_since(0);
 
@@ -136,13 +132,7 @@ mod tests {
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
         for id in [id_1, id_2, id_3] {
-            history
-                .record_message(Message {
-                    id,
-                    sender: "dummy".to_string(),
-                    content: "dummy".to_string(),
-                })
-                .unwrap();
+            history.record_message(dummy_message(id)).unwrap();
         }
 
         // When retrieving events since event 1
@@ -186,11 +176,9 @@ mod tests {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
         history
-            .record_message(Message {
-                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                sender: "dummy".to_string(),
-                content: "dummy".to_string(),
-            })
+            .record_message(dummy_message(
+                "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            ))
             .unwrap();
 
         // When retrieving events since an id beyond the history
