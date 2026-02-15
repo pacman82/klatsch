@@ -111,7 +111,10 @@ impl From<Event> for SseEvent {
     }
 }
 
-async fn add_message<C>(State(mut chat): State<C>, Json(msg): Json<Message>) -> Result<(), HttpError>
+async fn add_message<C>(
+    State(mut chat): State<C>,
+    Json(msg): Json<Message>,
+) -> Result<(), HttpError>
 where
     C: SharedChat,
 {

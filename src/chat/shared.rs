@@ -194,7 +194,7 @@ impl<H: Chat> Actor<H> {
                 let _ = responder.send(events);
             }
             ActorMsg::AddMessage(message) => {
-                if let Some(event) = self.history.record_message(message) {
+                if let Some(event) = self.history.record_message(message).unwrap() {
                     // This method only fails if there are no active receivers. This is also fine,
                     // we can safely ignore that.
                     let _ = self.current.send(event);
@@ -291,15 +291,15 @@ mod tests {
             fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 Vec::new()
             }
-            fn record_message(&mut self, message: Message) -> Option<Event> {
+            fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
                 if message.id == self.duplicate_id {
-                    None
+                    Ok(None)
                 } else {
-                    Some(Event {
+                    Ok(Some(Event {
                         id: 1,
                         message,
                         timestamp: SystemTime::UNIX_EPOCH,
-                    })
+                    }))
                 }
             }
         }
@@ -378,12 +378,12 @@ mod tests {
                     Vec::new()
                 }
             }
-            fn record_message(&mut self, message: Message) -> Option<Event> {
-                Some(Event {
+            fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+                Ok(Some(Event {
                     id: 2,
                     message,
                     timestamp: SystemTime::UNIX_EPOCH,
-                })
+                }))
             }
         }
         let chat = ChatRuntime::new(HistoryDouble);
@@ -614,13 +614,13 @@ mod tests {
             }]
         }
 
-        fn record_message(&mut self, message: Message) -> Option<Event> {
+        fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             self.recorded_messages.lock().unwrap().push(message.clone());
-            Some(Event {
+            Ok(Some(Event {
                 id: 1,
                 message,
                 timestamp: SystemTime::now(),
-            })
+            }))
         }
     }
 
@@ -640,14 +640,14 @@ mod tests {
             self.events[start..].to_vec()
         }
 
-        fn record_message(&mut self, message: Message) -> Option<Event> {
+        fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             let event = Event {
                 id: self.events.len() as u64 + 1,
                 message,
                 timestamp: SystemTime::UNIX_EPOCH,
             };
             self.events.push(event.clone());
-            Some(event)
+            Ok(Some(event))
         }
     }
 }
