@@ -10,7 +10,7 @@ pub trait Chat {
 
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
-    fn record_message(&mut self, message: Message) -> Option<Event>;
+    fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError>;
 }
 
 /// A message as it is created by the frontend and sent to the server. It is then relied to all
@@ -47,9 +47,9 @@ impl Chat for InMemoryChatHistory {
         self.events[last_event_id..].to_owned()
     }
 
-    fn record_message(&mut self, message: Message) -> Option<Event> {
+    fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
         if !self.seen_ids.insert(message.id) {
-            return None;
+            return Ok(None);
         }
         let event = Event {
             id: self.events.len() as u64 + 1,
@@ -57,7 +57,7 @@ impl Chat for InMemoryChatHistory {
             timestamp: SystemTime::now(),
         };
         self.events.push(event.clone());
-        Some(event)
+        Ok(Some(event))
     }
 }
 
@@ -91,7 +91,7 @@ mod tests {
             content: "Hello".to_string(),
         };
         // ... and retrieving its corresponding event
-        let event = history.record_message(msg.clone()).unwrap();
+        let event = history.record_message(msg.clone()).unwrap().unwrap();
 
         // Then the event contains the same message.
         assert_eq!(event.message, msg);
@@ -105,16 +105,20 @@ mod tests {
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        history.record_message(Message {
-            id: id_1,
-            sender: "dummy".to_string(),
-            content: "dummy".to_string(),
-        });
-        history.record_message(Message {
-            id: id_2,
-            sender: "dummy".to_string(),
-            content: "dummy".to_string(),
-        });
+        history
+            .record_message(Message {
+                id: id_1,
+                sender: "dummy".to_string(),
+                content: "dummy".to_string(),
+            })
+            .unwrap();
+        history
+            .record_message(Message {
+                id: id_2,
+                sender: "dummy".to_string(),
+                content: "dummy".to_string(),
+            })
+            .unwrap();
         // ...and retrieving these messages after insertion
         let events = history.events_since(0);
 
@@ -132,11 +136,13 @@ mod tests {
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
         for id in [id_1, id_2, id_3] {
-            history.record_message(Message {
-                id,
-                sender: "dummy".to_string(),
-                content: "dummy".to_string(),
-            });
+            history
+                .record_message(Message {
+                    id,
+                    sender: "dummy".to_string(),
+                    content: "dummy".to_string(),
+                })
+                .unwrap();
         }
 
         // When retrieving events since event 1
@@ -153,18 +159,22 @@ mod tests {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        history.record_message(Message {
-            id,
-            sender: "Bob".to_owned(),
-            content: "Hello, World!".to_owned(),
-        });
+        history
+            .record_message(Message {
+                id,
+                sender: "Bob".to_owned(),
+                content: "Hello, World!".to_owned(),
+            })
+            .unwrap();
 
         // When recording a duplicate message with the same id
-        let result = history.record_message(Message {
-            id,
-            sender: "Bob".to_owned(),
-            content: "Hello, World!".to_owned(),
-        });
+        let result = history
+            .record_message(Message {
+                id,
+                sender: "Bob".to_owned(),
+                content: "Hello, World!".to_owned(),
+            })
+            .unwrap();
 
         // Then no event is emitted and the history remains unchanged
         assert!(result.is_none());
@@ -175,11 +185,13 @@ mod tests {
     fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
-        history.record_message(Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "dummy".to_string(),
-            content: "dummy".to_string(),
-        });
+        history
+            .record_message(Message {
+                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                sender: "dummy".to_string(),
+                content: "dummy".to_string(),
+            })
+            .unwrap();
 
         // When retrieving events since an id beyond the history
         let events = history.events_since(2);
