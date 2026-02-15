@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashSet, time::SystemTime};
+use std::{cmp::min, collections::HashMap, time::SystemTime};
 
 use serde::Deserialize;
 use uuid::Uuid;
@@ -48,9 +48,13 @@ impl Chat for InMemoryChatHistory {
     }
 
     fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        if !self.seen_ids.insert(message.id) {
-            return Ok(None);
+        if let Some(existing) = self.seen_messages.get(&message.id) {
+            if *existing == message {
+                return Ok(None);
+            }
+            return Err(ChatError::Conflict);
         }
+        self.seen_messages.insert(message.id, message.clone());
         let event = Event {
             id: self.events.len() as u64 + 1,
             message,
@@ -63,14 +67,14 @@ impl Chat for InMemoryChatHistory {
 
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
-    seen_ids: HashSet<Uuid>,
+    seen_messages: HashMap<Uuid, Message>,
 }
 
 impl InMemoryChatHistory {
     pub fn new() -> Self {
         InMemoryChatHistory {
             events: Vec::new(),
-            seen_ids: HashSet::new(),
+            seen_messages: HashMap::new(),
         }
     }
 }
@@ -169,6 +173,30 @@ mod tests {
         // Then no event is emitted and the history remains unchanged
         assert!(result.is_none());
         assert_eq!(history.events_since(0).len(), 1);
+    }
+
+    #[test]
+    fn different_message_with_same_id_is_a_conflict() {
+        // Given a history with one message
+        let mut history = InMemoryChatHistory::new();
+        let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        history
+            .record_message(Message {
+                id,
+                sender: "Alice".to_owned(),
+                content: "Hello".to_owned(),
+            })
+            .unwrap();
+
+        // When recording a different message with the same id
+        let result = history.record_message(Message {
+            id,
+            sender: "Alice".to_owned(),
+            content: "Goodbye".to_owned(),
+        });
+
+        // Then a conflict error is returned
+        assert!(matches!(result, Err(ChatError::Conflict)));
     }
 
     #[test]
