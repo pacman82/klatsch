@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, time::SystemTime};
+use std::{cmp::min, collections::hash_map::Entry, collections::HashMap, time::SystemTime};
 
 use serde::Deserialize;
 use uuid::Uuid;
@@ -48,20 +48,25 @@ impl Chat for InMemoryChatHistory {
     }
 
     fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        if let Some(existing) = self.seen_messages.get(&message.id) {
-            if *existing == message {
-                return Ok(None);
+        match self.seen_messages.entry(message.id) {
+            Entry::Occupied(existing) => {
+                if *existing.get() == message {
+                    Ok(None)
+                } else {
+                    Err(ChatError::Conflict)
+                }
             }
-            return Err(ChatError::Conflict);
+            Entry::Vacant(slot) => {
+                slot.insert(message.clone());
+                let event = Event {
+                    id: self.events.len() as u64 + 1,
+                    message,
+                    timestamp: SystemTime::now(),
+                };
+                self.events.push(event.clone());
+                Ok(Some(event))
+            }
         }
-        self.seen_messages.insert(message.id, message.clone());
-        let event = Event {
-            id: self.events.len() as u64 + 1,
-            message,
-            timestamp: SystemTime::now(),
-        };
-        self.events.push(event.clone());
-        Ok(Some(event))
     }
 }
 
