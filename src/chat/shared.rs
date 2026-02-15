@@ -283,12 +283,14 @@ mod tests {
             content: "Hello".to_string(),
         };
         chat.client().add_message(msg.clone()).await.unwrap();
-        chat.shutdown().await; // Make sure messages have been flushed.
 
         // Then
         let recorded = history.take_recorded_messages();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0], msg);
+
+        // Cleanup
+        chat.shutdown().await;
     }
 
     #[tokio::test]
@@ -544,11 +546,13 @@ mod tests {
         client_b.add_message(msg_b.clone()).await.unwrap();
 
         // Then both messages are recorded in the same history
+        let recorded = spy.take_recorded_messages();
+        assert_eq!(recorded, vec![msg_a, msg_b]);
+
+        // Cleanup
         drop(client_a);
         drop(client_b);
         chat.shutdown().await;
-        let recorded = spy.take_recorded_messages();
-        assert_eq!(recorded, vec![msg_a, msg_b]);
     }
 
     /// Verifies that a client which is slow in receiving messages (pulling them from the stream)
