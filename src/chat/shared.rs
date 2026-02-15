@@ -99,11 +99,12 @@ impl SharedChat for ChatClient {
     }
 
     async fn add_message(&mut self, message: Message) -> Result<(), ChatError> {
+        let (responder, response) = oneshot::channel();
         self.sender
-            .send(ActorMsg::AddMessage(message))
+            .send(ActorMsg::AddMessage { message, responder })
             .await
-            .unwrap();
-        Ok(())
+            .expect("Actor must outlive client.");
+        response.await.unwrap()
     }
 }
 
@@ -112,7 +113,10 @@ enum ActorMsg {
         responder: oneshot::Sender<Events>,
         last_event_id: u64,
     },
-    AddMessage(Message),
+    AddMessage {
+        message: Message,
+        responder: oneshot::Sender<Result<(), ChatError>>,
+    },
 }
 
 /// Transports a set of events from the actor to the client.
@@ -193,12 +197,20 @@ impl<H: Chat> Actor<H> {
                 };
                 let _ = responder.send(events);
             }
-            ActorMsg::AddMessage(message) => {
-                if let Some(event) = self.history.record_message(message).unwrap() {
-                    // This method only fails if there are no active receivers. This is also fine,
-                    // we can safely ignore that.
-                    let _ = self.current.send(event);
-                }
+            ActorMsg::AddMessage { message, responder } => {
+                let result = match self.history.record_message(message) {
+                    // New message — broadcast to listening clients. Only fails if there are no
+                    // active receivers, which is fine.
+                    Ok(Some(event)) => {
+                        let _ = self.current.send(event);
+                        Ok(())
+                    }
+                    // Duplicate — silently accepted, nothing to broadcast
+                    Ok(None) => Ok(()),
+                    // Conflict — forward error to the client
+                    Err(err) => Err(err),
+                };
+                let _ = responder.send(result);
             }
         }
     }
@@ -339,6 +351,34 @@ mod tests {
         // Cleanup
         drop(sender);
         drop(events);
+        chat.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn conflict_error_is_forwarded_to_client() {
+        // Given a chat that reports any message as a conflict
+        struct ChatSaboteur;
+        impl Chat for ChatSaboteur {
+            fn record_message(&mut self, _: Message) -> Result<Option<Event>, ChatError> {
+                Err(ChatError::Conflict)
+            }
+        }
+        let chat = ChatRuntime::new(ChatSaboteur);
+
+        // When a message is sent
+        let result = chat
+            .client()
+            .add_message(Message {
+                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                sender: "dummy".to_owned(),
+                content: "dummy".to_owned(),
+            })
+            .await;
+
+        // Then the error is forwarded to the client
+        assert!(matches!(result, Err(ChatError::Conflict)));
+
+        // Cleanup
         chat.shutdown().await;
     }
 
