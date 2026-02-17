@@ -186,7 +186,7 @@ impl<H: Chat> Actor<H> {
                 responder,
                 last_event_id,
             } => {
-                let remaining_history = self.history.events_since(last_event_id);
+                let remaining_history = self.history.events_since(last_event_id).await;
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
                 let events = if remaining_history.is_empty() {
@@ -254,7 +254,7 @@ mod tests {
         ];
         struct HistoryStub(Vec<Event>);
         impl Chat for HistoryStub {
-            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 self.0.clone()
             }
         }
@@ -302,10 +302,13 @@ mod tests {
             duplicate_id: Uuid,
         }
         impl Chat for HistoryStub {
-            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 Vec::new()
             }
-            async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+            async fn record_message(
+                &mut self,
+                message: Message,
+            ) -> Result<Option<Event>, ChatError> {
                 if message.id == self.duplicate_id {
                     Ok(None)
                 } else {
@@ -413,14 +416,17 @@ mod tests {
 
         struct HistoryDouble;
         impl Chat for HistoryDouble {
-            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 if last_event_id == 0 {
                     vec![canned_event()]
                 } else {
                     Vec::new()
                 }
             }
-            async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+            async fn record_message(
+                &mut self,
+                message: Message,
+            ) -> Result<Option<Event>, ChatError> {
                 Ok(Some(Event {
                     id: 2,
                     message,
@@ -467,7 +473,7 @@ mod tests {
         // Given: a history that grows between requests
         struct HistoryStub;
         impl Chat for HistoryStub {
-            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 match last_event_id {
                     0 => vec![Event {
                         id: 1,
@@ -642,7 +648,7 @@ mod tests {
     }
 
     impl Chat for HistorySpy {
-        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             self.observed_last_event_ids
                 .lock()
                 .unwrap()
@@ -679,7 +685,7 @@ mod tests {
     }
 
     impl Chat for FakeHistory {
-        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             let start = (last_event_id as usize).min(self.events.len());
             self.events[start..].to_vec()
         }
