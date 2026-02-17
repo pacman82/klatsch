@@ -2,15 +2,16 @@ use std::pin::pin;
 
 use async_stream::stream;
 use futures_util::Stream;
-use serde::Deserialize;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
 use tokio_stream::StreamExt;
-use uuid::Uuid;
 
-use super::{Event, history::Chat};
+use super::{
+    Event,
+    history::{Chat, ChatError, Message},
+};
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
 /// messages to the same chat.
@@ -28,7 +29,10 @@ pub trait SharedChat: Sized {
     fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
 
     /// Add a new message to the chat.
-    fn add_message(&mut self, message: Message) -> impl Future<Output = ()> + Send;
+    fn add_message(
+        &mut self,
+        message: Message,
+    ) -> impl Future<Output = Result<(), ChatError>> + Send;
 }
 
 /// Can be used to create multiple instances of [`ChatClient`] which provide an API to interact with
@@ -94,26 +98,14 @@ impl SharedChat for ChatClient {
         }
     }
 
-    async fn add_message(&mut self, message: Message) {
+    async fn add_message(&mut self, message: Message) -> Result<(), ChatError> {
+        let (responder, response) = oneshot::channel();
         self.sender
-            .send(ActorMsg::AddMessage(message))
+            .send(ActorMsg::AddMessage { message, responder })
             .await
-            .unwrap();
+            .expect("Actor must outlive client.");
+        response.await.unwrap()
     }
-}
-
-/// A message as it is created by the frontend and sent to the server. It is then relied to all
-/// participants in the chat as part of an `Event`.
-#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct Message {
-    /// Sender generated unique identifier for the message. It is used to recover from errors
-    /// sending messages. It also a key for the UI to efficiently update data structures then
-    /// rendering messages.
-    pub id: Uuid,
-    /// Author of the message
-    pub sender: String,
-    /// Text content of the message. I.e. the actual message
-    pub content: String,
 }
 
 enum ActorMsg {
@@ -121,7 +113,10 @@ enum ActorMsg {
         responder: oneshot::Sender<Events>,
         last_event_id: u64,
     },
-    AddMessage(Message),
+    AddMessage {
+        message: Message,
+        responder: oneshot::Sender<Result<(), ChatError>>,
+    },
 }
 
 /// Transports a set of events from the actor to the client.
@@ -181,17 +176,17 @@ impl<H: Chat> Actor<H> {
 
     pub async fn run(mut self) {
         while let Some(msg) = self.receiver.recv().await {
-            self.handle_message(msg);
+            self.handle_message(msg).await;
         }
     }
 
-    pub fn handle_message(&mut self, msg: ActorMsg) {
+    pub async fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
             ActorMsg::ReadEvents {
                 responder,
                 last_event_id,
             } => {
-                let remaining_history = self.history.events_since(last_event_id);
+                let remaining_history = self.history.events_since(last_event_id).await;
                 // We ignore send errors, since it only happens if the receiver has been dropped. In
                 // that case the receiver is no longer interested in the response, anyway.
                 let events = if remaining_history.is_empty() {
@@ -202,12 +197,20 @@ impl<H: Chat> Actor<H> {
                 };
                 let _ = responder.send(events);
             }
-            ActorMsg::AddMessage(message) => {
-                if let Some(event) = self.history.record_message(message) {
-                    // This method only fails if there are no active receivers. This is also fine,
-                    // we can safely ignore that.
-                    let _ = self.current.send(event);
-                }
+            ActorMsg::AddMessage { message, responder } => {
+                let result = match self.history.record_message(message).await {
+                    // New message — broadcast to listening clients. Only fails if there are no
+                    // active receivers, which is fine.
+                    Ok(Some(event)) => {
+                        let _ = self.current.send(event);
+                        Ok(())
+                    }
+                    // Duplicate — silently accepted, nothing to broadcast
+                    Ok(None) => Ok(()),
+                    // Conflict — forward error to the client
+                    Err(err) => Err(err),
+                };
+                let _ = responder.send(result);
             }
         }
     }
@@ -224,6 +227,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
     use tokio::time::timeout;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn events_forwards_history() {
@@ -250,7 +254,7 @@ mod tests {
         ];
         struct HistoryStub(Vec<Event>);
         impl Chat for HistoryStub {
-            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 self.0.clone()
             }
         }
@@ -278,13 +282,15 @@ mod tests {
             sender: "Alice".to_string(),
             content: "Hello".to_string(),
         };
-        chat.client().add_message(msg.clone()).await;
-        chat.shutdown().await; // Make sure messages have been flushed.
+        chat.client().add_message(msg.clone()).await.unwrap();
 
         // Then
         let recorded = history.take_recorded_messages();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0], msg);
+
+        // Cleanup
+        chat.shutdown().await;
     }
 
     #[tokio::test]
@@ -296,18 +302,21 @@ mod tests {
             duplicate_id: Uuid,
         }
         impl Chat for HistoryStub {
-            fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 Vec::new()
             }
-            fn record_message(&mut self, message: Message) -> Option<Event> {
+            async fn record_message(
+                &mut self,
+                message: Message,
+            ) -> Result<Option<Event>, ChatError> {
                 if message.id == self.duplicate_id {
-                    None
+                    Ok(None)
                 } else {
-                    Some(Event {
+                    Ok(Some(Event {
                         id: 1,
                         message,
                         timestamp: SystemTime::UNIX_EPOCH,
-                    })
+                    }))
                 }
             }
         }
@@ -326,14 +335,16 @@ mod tests {
                 sender: "dummy".to_owned(),
                 content: "dummy".to_owned(),
             })
-            .await;
+            .await
+            .unwrap();
         sender
             .add_message(Message {
                 id: fresh_id,
                 sender: "dummy".to_owned(),
                 content: "dummy".to_owned(),
             })
-            .await;
+            .await
+            .unwrap();
 
         // Then the first event received is the fresh message — the duplicate was not broadcast
         let event = timeout(Duration::from_secs(1), next_event)
@@ -345,6 +356,34 @@ mod tests {
         // Cleanup
         drop(sender);
         drop(events);
+        chat.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn conflict_error_is_forwarded_to_client() {
+        // Given a chat that reports any message as a conflict
+        struct ChatSaboteur;
+        impl Chat for ChatSaboteur {
+            async fn record_message(&mut self, _: Message) -> Result<Option<Event>, ChatError> {
+                Err(ChatError::Conflict)
+            }
+        }
+        let chat = ChatRuntime::new(ChatSaboteur);
+
+        // When a message is sent
+        let result = chat
+            .client()
+            .add_message(Message {
+                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                sender: "dummy".to_owned(),
+                content: "dummy".to_owned(),
+            })
+            .await;
+
+        // Then the error is forwarded to the client
+        assert!(matches!(result, Err(ChatError::Conflict)));
+
+        // Cleanup
         chat.shutdown().await;
     }
 
@@ -377,19 +416,22 @@ mod tests {
 
         struct HistoryDouble;
         impl Chat for HistoryDouble {
-            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 if last_event_id == 0 {
                     vec![canned_event()]
                 } else {
                     Vec::new()
                 }
             }
-            fn record_message(&mut self, message: Message) -> Option<Event> {
-                Some(Event {
+            async fn record_message(
+                &mut self,
+                message: Message,
+            ) -> Result<Option<Event>, ChatError> {
+                Ok(Some(Event {
                     id: 2,
                     message,
                     timestamp: SystemTime::UNIX_EPOCH,
-                })
+                }))
             }
         }
         let chat = ChatRuntime::new(HistoryDouble);
@@ -408,7 +450,7 @@ mod tests {
             sender: "Bob".to_string(),
             content: "Two".to_string(),
         };
-        chat.client().add_message(live_msg.clone()).await;
+        chat.client().add_message(live_msg.clone()).await.unwrap();
 
         // Then we receive the live event within a reasonable time frame
         let live = timeout(Duration::from_secs(1), live)
@@ -431,7 +473,7 @@ mod tests {
         // Given: a history that grows between requests
         struct HistoryStub;
         impl Chat for HistoryStub {
-            fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 match last_event_id {
                     0 => vec![Event {
                         id: 1,
@@ -506,15 +548,17 @@ mod tests {
             sender: "Bob".to_string(),
             content: "From Bob".to_string(),
         };
-        client_a.add_message(msg_a.clone()).await;
-        client_b.add_message(msg_b.clone()).await;
+        client_a.add_message(msg_a.clone()).await.unwrap();
+        client_b.add_message(msg_b.clone()).await.unwrap();
 
         // Then both messages are recorded in the same history
+        let recorded = spy.take_recorded_messages();
+        assert_eq!(recorded, vec![msg_a, msg_b]);
+
+        // Cleanup
         drop(client_a);
         drop(client_b);
         chat.shutdown().await;
-        let recorded = spy.take_recorded_messages();
-        assert_eq!(recorded, vec![msg_a, msg_b]);
     }
 
     /// Verifies that a client which is slow in receiving messages (pulling them from the stream)
@@ -538,7 +582,8 @@ mod tests {
                 sender: "a".to_string(),
                 content: "Initial message".to_string(),
             })
-            .await;
+            .await
+            .unwrap();
 
         // One of the clients has an event stream open, which already has received all messages in the
         // history so far (one in this case).
@@ -555,7 +600,7 @@ mod tests {
                 sender: "b".to_string(),
                 content: "dummy".to_owned(),
             };
-            sender_client.add_message(msg).await;
+            sender_client.add_message(msg).await.unwrap();
         }
 
         // Then: receiver extracts all 100 messages without timeout
@@ -603,7 +648,7 @@ mod tests {
     }
 
     impl Chat for HistorySpy {
-        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             self.observed_last_event_ids
                 .lock()
                 .unwrap()
@@ -619,13 +664,13 @@ mod tests {
             }]
         }
 
-        fn record_message(&mut self, message: Message) -> Option<Event> {
+        async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             self.recorded_messages.lock().unwrap().push(message.clone());
-            Some(Event {
+            Ok(Some(Event {
                 id: 1,
                 message,
                 timestamp: SystemTime::now(),
-            })
+            }))
         }
     }
 
@@ -640,19 +685,19 @@ mod tests {
     }
 
     impl Chat for FakeHistory {
-        fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
             let start = (last_event_id as usize).min(self.events.len());
             self.events[start..].to_vec()
         }
 
-        fn record_message(&mut self, message: Message) -> Option<Event> {
+        async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             let event = Event {
                 id: self.events.len() as u64 + 1,
                 message,
                 timestamp: SystemTime::UNIX_EPOCH,
             };
             self.events.push(event.clone());
-            Some(event)
+            Ok(Some(event))
         }
     }
 }
