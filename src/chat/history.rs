@@ -1,4 +1,9 @@
-use std::{cmp::min, collections::hash_map::Entry, collections::HashMap, time::SystemTime};
+use std::{
+    cmp::min,
+    collections::{hash_map::Entry, HashMap},
+    future::Future,
+    time::SystemTime,
+};
 
 use serde::Deserialize;
 use uuid::Uuid;
@@ -10,7 +15,7 @@ pub trait Chat {
 
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
-    fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError>;
+    fn record_message(&mut self, message: Message) -> impl Future<Output = Result<Option<Event>, ChatError>> + Send;
 }
 
 /// A message as it is created by the frontend and sent to the server. It is then relied to all
@@ -47,7 +52,7 @@ impl Chat for InMemoryChatHistory {
         self.events[last_event_id..].to_owned()
     }
 
-    fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+    async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
         match self.seen_messages.entry(message.id) {
             Entry::Occupied(existing) => {
                 if *existing.get() == message {
@@ -96,8 +101,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn recorded_message_is_preserved_in_event() {
+    #[tokio::test]
+    async fn recorded_message_is_preserved_in_event() {
         // Given a chat history
         let mut history = InMemoryChatHistory::new();
 
@@ -108,22 +113,22 @@ mod tests {
             content: "Hello".to_string(),
         };
         // ... and retrieving its corresponding event
-        let event = history.record_message(msg.clone()).unwrap().unwrap();
+        let event = history.record_message(msg.clone()).await.unwrap().unwrap();
 
         // Then the event contains the same message.
         assert_eq!(event.message, msg);
     }
 
-    #[test]
-    fn messages_are_retrieved_in_insertion_order() {
+    #[tokio::test]
+    async fn messages_are_retrieved_in_insertion_order() {
         // Given an empty chat history
         let mut history = InMemoryChatHistory::new();
 
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        history.record_message(dummy_message(id_1)).unwrap();
-        history.record_message(dummy_message(id_2)).unwrap();
+        history.record_message(dummy_message(id_1)).await.unwrap();
+        history.record_message(dummy_message(id_2)).await.unwrap();
         // ...and retrieving these messages after insertion
         let events = history.events_since(0);
 
@@ -133,15 +138,15 @@ mod tests {
         assert_eq!(events[1].message.id, id_2);
     }
 
-    #[test]
-    fn events_since_excludes_events_up_to_last_event_id() {
+    #[tokio::test]
+    async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three messages
         let mut history = InMemoryChatHistory::new();
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
         for id in [id_1, id_2, id_3] {
-            history.record_message(dummy_message(id)).unwrap();
+            history.record_message(dummy_message(id)).await.unwrap();
         }
 
         // When retrieving events since event 1
@@ -153,8 +158,8 @@ mod tests {
         assert_eq!(events[1].message.id, id_3);
     }
 
-    #[test]
-    fn duplicate_message_id_is_not_stored() {
+    #[tokio::test]
+    async fn duplicate_message_id_is_not_stored() {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -164,6 +169,7 @@ mod tests {
                 sender: "Bob".to_owned(),
                 content: "Hello, World!".to_owned(),
             })
+            .await
             .unwrap();
 
         // When recording a duplicate message with the same id
@@ -173,6 +179,7 @@ mod tests {
                 sender: "Bob".to_owned(),
                 content: "Hello, World!".to_owned(),
             })
+            .await
             .unwrap();
 
         // Then no event is emitted and the history remains unchanged
@@ -180,8 +187,8 @@ mod tests {
         assert_eq!(history.events_since(0).len(), 1);
     }
 
-    #[test]
-    fn different_message_with_same_id_is_a_conflict() {
+    #[tokio::test]
+    async fn different_message_with_same_id_is_a_conflict() {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -191,6 +198,7 @@ mod tests {
                 sender: "Alice".to_owned(),
                 content: "Hello".to_owned(),
             })
+            .await
             .unwrap();
 
         // When recording a different message with the same id
@@ -198,20 +206,21 @@ mod tests {
             id,
             sender: "Alice".to_owned(),
             content: "Goodbye".to_owned(),
-        });
+        }).await;
 
         // Then a conflict error is returned
         assert!(matches!(result, Err(ChatError::Conflict)));
     }
 
-    #[test]
-    fn last_event_id_exceeds_total_number_of_events() {
+    #[tokio::test]
+    async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
         let mut history = InMemoryChatHistory::new();
         history
             .record_message(dummy_message(
                 "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             ))
+            .await
             .unwrap();
 
         // When retrieving events since an id beyond the history
