@@ -176,11 +176,11 @@ impl<H: Chat> Actor<H> {
 
     pub async fn run(mut self) {
         while let Some(msg) = self.receiver.recv().await {
-            self.handle_message(msg);
+            self.handle_message(msg).await;
         }
     }
 
-    pub fn handle_message(&mut self, msg: ActorMsg) {
+    pub async fn handle_message(&mut self, msg: ActorMsg) {
         match msg {
             ActorMsg::ReadEvents {
                 responder,
@@ -198,7 +198,7 @@ impl<H: Chat> Actor<H> {
                 let _ = responder.send(events);
             }
             ActorMsg::AddMessage { message, responder } => {
-                let result = match self.history.record_message(message) {
+                let result = match self.history.record_message(message).await {
                     // New message — broadcast to listening clients. Only fails if there are no
                     // active receivers, which is fine.
                     Ok(Some(event)) => {
@@ -305,7 +305,7 @@ mod tests {
             fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
                 Vec::new()
             }
-            fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+            async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
                 if message.id == self.duplicate_id {
                     Ok(None)
                 } else {
@@ -361,7 +361,7 @@ mod tests {
         // Given a chat that reports any message as a conflict
         struct ChatSaboteur;
         impl Chat for ChatSaboteur {
-            fn record_message(&mut self, _: Message) -> Result<Option<Event>, ChatError> {
+            async fn record_message(&mut self, _: Message) -> Result<Option<Event>, ChatError> {
                 Err(ChatError::Conflict)
             }
         }
@@ -420,7 +420,7 @@ mod tests {
                     Vec::new()
                 }
             }
-            fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+            async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
                 Ok(Some(Event {
                     id: 2,
                     message,
@@ -658,7 +658,7 @@ mod tests {
             }]
         }
 
-        fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+        async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             self.recorded_messages.lock().unwrap().push(message.clone());
             Ok(Some(Event {
                 id: 1,
@@ -684,7 +684,7 @@ mod tests {
             self.events[start..].to_vec()
         }
 
-        fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
+        async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             let event = Event {
                 id: self.events.len() as u64 + 1,
                 message,
