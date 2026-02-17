@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     future::Future,
     time::SystemTime,
 };
@@ -11,11 +11,14 @@ use uuid::Uuid;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).
-    fn events_since(&self, last_event_id: u64) -> Vec<Event>;
+    fn events_since(&self, last_event_id: u64) -> impl Future<Output = Vec<Event>> + Send;
 
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
-    fn record_message(&mut self, message: Message) -> impl Future<Output = Result<Option<Event>, ChatError>> + Send;
+    fn record_message(
+        &mut self,
+        message: Message,
+    ) -> impl Future<Output = Result<Option<Event>, ChatError>> + Send;
 }
 
 /// A message as it is created by the frontend and sent to the server. It is then relied to all
@@ -47,7 +50,7 @@ pub enum ChatError {
 }
 
 impl Chat for InMemoryChatHistory {
-    fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+    async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
         let last_event_id = min(last_event_id as usize, self.events.len());
         self.events[last_event_id..].to_owned()
     }
@@ -130,7 +133,7 @@ mod tests {
         history.record_message(dummy_message(id_1)).await.unwrap();
         history.record_message(dummy_message(id_2)).await.unwrap();
         // ...and retrieving these messages after insertion
-        let events = history.events_since(0);
+        let events = history.events_since(0).await;
 
         // Then the messages are retrieved in the order they were inserted.
         assert_eq!(events.len(), 2);
@@ -150,7 +153,7 @@ mod tests {
         }
 
         // When retrieving events since event 1
-        let events = history.events_since(1);
+        let events = history.events_since(1).await;
 
         // Then only events 2 and 3 are returned
         assert_eq!(events.len(), 2);
@@ -184,7 +187,7 @@ mod tests {
 
         // Then no event is emitted and the history remains unchanged
         assert!(result.is_none());
-        assert_eq!(history.events_since(0).len(), 1);
+        assert_eq!(history.events_since(0).await.len(), 1);
     }
 
     #[tokio::test]
@@ -202,11 +205,13 @@ mod tests {
             .unwrap();
 
         // When recording a different message with the same id
-        let result = history.record_message(Message {
-            id,
-            sender: "Alice".to_owned(),
-            content: "Goodbye".to_owned(),
-        }).await;
+        let result = history
+            .record_message(Message {
+                id,
+                sender: "Alice".to_owned(),
+                content: "Goodbye".to_owned(),
+            })
+            .await;
 
         // Then a conflict error is returned
         assert!(matches!(result, Err(ChatError::Conflict)));
@@ -224,7 +229,7 @@ mod tests {
             .unwrap();
 
         // When retrieving events since an id beyond the history
-        let events = history.events_since(2);
+        let events = history.events_since(2).await;
 
         // Then no events are returned
         assert!(events.is_empty());
