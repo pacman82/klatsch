@@ -32,3 +32,9 @@ jobs:
         working-directory: ui
 
       - run: cargo test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build .
