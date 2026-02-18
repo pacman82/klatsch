@@ -5,6 +5,7 @@ use std::{
     time::SystemTime,
 };
 
+use async_sqlite::{Client, ClientBuilder};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -81,13 +82,30 @@ impl Chat for InMemoryChatHistory {
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
     seen_messages: HashMap<Uuid, Message>,
+    db: Client,
 }
 
 impl InMemoryChatHistory {
     pub async fn new() -> Self {
+        // Opening the database without a path creates an in-memory database.
+        let db = ClientBuilder::new().open().await.unwrap();
+        db.conn(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE events (
+                    id INTEGER PRIMARY KEY,
+                    message_id BLOB UNIQUE NOT NULL,
+                    sender TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                )",
+            )
+        })
+        .await
+        .unwrap();
         InMemoryChatHistory {
             events: Vec::new(),
             seen_messages: HashMap::new(),
+            db,
         }
     }
 }
