@@ -15,8 +15,12 @@ RUN cargo install cargo-chef
 # Cargo Auditable is used to enrich the executable with metainformation about our build
 # dependencies. These can be used to scan for vulnerabilities later on
 RUN cargo install cargo-auditable
-# Install Node.js for building the SvelteKit UI
-RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    # Node.js and npm for building the SvelteKit UI
+    nodejs npm \
+    # musl-gcc for compiling the bundled SQLite against musl libc
+    musl-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock build.rs ./
