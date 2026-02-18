@@ -84,7 +84,7 @@ pub struct InMemoryChatHistory {
 }
 
 impl InMemoryChatHistory {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         InMemoryChatHistory {
             events: Vec::new(),
             seen_messages: HashMap::new(),
@@ -107,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn recorded_message_is_preserved_in_event() {
         // Given a chat history
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
 
         // When recording a message ...
         let msg = Message {
@@ -125,7 +125,7 @@ mod tests {
     #[tokio::test]
     async fn messages_are_retrieved_in_insertion_order() {
         // Given an empty chat history
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
 
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -144,7 +144,7 @@ mod tests {
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three messages
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
@@ -164,7 +164,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_message_id_is_not_stored() {
         // Given a history with one message
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -193,7 +193,7 @@ mod tests {
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
         // Given a history with one message
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -220,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let mut history = InMemoryChatHistory::new();
+        let mut history = InMemoryChatHistory::new().await;
         history
             .record_message(dummy_message(
                 "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
