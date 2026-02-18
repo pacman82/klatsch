@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  api-and-ui:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
