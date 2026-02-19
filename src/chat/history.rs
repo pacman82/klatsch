@@ -1,11 +1,14 @@
 use std::{
     cmp::min,
-    collections::{HashMap, hash_map::Entry},
+    collections::HashMap,
     future::Future,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use async_sqlite::{Client, ClientBuilder, rusqlite::params};
+use async_sqlite::{
+    Client, ClientBuilder,
+    rusqlite::{self, ffi, params},
+};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -63,7 +66,8 @@ impl Chat for InMemoryChatHistory {
             timestamp: SystemTime::now(),
         };
         let row = event.clone();
-        self.conn
+        let insert_result = self
+            .conn
             .conn_mut(move |conn| {
                 conn.execute(
                     "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
@@ -81,21 +85,28 @@ impl Chat for InMemoryChatHistory {
                 )?;
                 Ok(())
             })
-            .await
-            .ok();
-        match self.seen_messages.entry(event.message.id) {
-            Entry::Occupied(existing) => {
-                if *existing.get() == event.message {
+            .await;
+        match insert_result {
+            Ok(()) => {
+                self.seen_messages
+                    .insert(event.message.id, event.message.clone());
+                self.events.push(event.clone());
+                Ok(Some(event))
+            }
+            Err(async_sqlite::Error::Rusqlite(rusqlite::Error::SqliteFailure(
+                ffi::Error {
+                    code: ffi::ErrorCode::ConstraintViolation,
+                    extended_code: ffi::SQLITE_CONSTRAINT_UNIQUE,
+                },
+                _,
+            ))) => {
+                if self.seen_messages.get(&event.message.id) == Some(&event.message) {
                     Ok(None)
                 } else {
                     Err(ChatError::Conflict)
                 }
             }
-            Entry::Vacant(slot) => {
-                slot.insert(event.message.clone());
-                self.events.push(event.clone());
-                Ok(Some(event))
-            }
+            Err(err) => panic!("Unexpected database error: {err}"),
         }
     }
 }
