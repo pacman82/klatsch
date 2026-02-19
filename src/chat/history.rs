@@ -100,7 +100,27 @@ impl Chat for InMemoryChatHistory {
                 },
                 _,
             ))) => {
-                if self.seen_messages.get(&event.message.id) == Some(&event.message) {
+                let message_id = event.message.id;
+                let existing = self
+                    .conn
+                    .conn(move |conn| {
+                        conn.query_row(
+                            "SELECT sender, content FROM events WHERE message_id = ?1",
+                            [message_id.as_bytes().as_slice()],
+                            |row| {
+                                let sender = row
+                                    .get::<_, String>(0)
+                                    .expect("sender must be a non-null TEXT column");
+                                let content = row
+                                    .get::<_, String>(1)
+                                    .expect("content must be a non-null TEXT column");
+                                Ok((sender, content))
+                            },
+                        )
+                    })
+                    .await
+                    .unwrap();
+                if existing == (event.message.sender, event.message.content) {
                     Ok(None)
                 } else {
                     Err(ChatError::Conflict)
