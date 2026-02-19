@@ -57,21 +57,21 @@ impl Chat for InMemoryChatHistory {
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        match self.seen_messages.entry(message.id) {
+        let event = Event {
+            id: self.events.len() as u64 + 1,
+            message,
+            timestamp: SystemTime::now(),
+        };
+        match self.seen_messages.entry(event.message.id) {
             Entry::Occupied(existing) => {
-                if *existing.get() == message {
+                if *existing.get() == event.message {
                     Ok(None)
                 } else {
                     Err(ChatError::Conflict)
                 }
             }
             Entry::Vacant(slot) => {
-                slot.insert(message.clone());
-                let event = Event {
-                    id: self.events.len() as u64 + 1,
-                    message,
-                    timestamp: SystemTime::now(),
-                };
+                slot.insert(event.message.clone());
                 self.events.push(event.clone());
                 Ok(Some(event))
             }
@@ -82,7 +82,7 @@ impl Chat for InMemoryChatHistory {
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
     seen_messages: HashMap<Uuid, Message>,
-    db: Client,
+    conn: Client,
 }
 
 impl InMemoryChatHistory {
@@ -90,7 +90,7 @@ impl InMemoryChatHistory {
         // Opening the database without a path creates an in-memory database.
         let db = ClientBuilder::new().open().await.unwrap();
         db.conn(|conn| {
-            conn.execute_batch(
+            conn.execute(
                 "CREATE TABLE events (
                     id INTEGER PRIMARY KEY,
                     message_id BLOB UNIQUE NOT NULL,
@@ -98,6 +98,7 @@ impl InMemoryChatHistory {
                     content TEXT NOT NULL,
                     timestamp_ms INTEGER NOT NULL
                 )",
+                (),
             )
         })
         .await
@@ -105,7 +106,7 @@ impl InMemoryChatHistory {
         InMemoryChatHistory {
             events: Vec::new(),
             seen_messages: HashMap::new(),
-            db,
+            conn: db,
         }
     }
 }
