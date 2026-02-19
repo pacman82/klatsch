@@ -1,6 +1,5 @@
 use std::{
     cmp::min,
-    collections::HashMap,
     future::Future,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -88,8 +87,6 @@ impl Chat for InMemoryChatHistory {
             .await;
         match insert_result {
             Ok(()) => {
-                self.seen_messages
-                    .insert(event.message.id, event.message.clone());
                 self.events.push(event.clone());
                 Ok(Some(event))
             }
@@ -133,7 +130,6 @@ impl Chat for InMemoryChatHistory {
 
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
-    seen_messages: HashMap<Uuid, Message>,
     conn: Client,
 }
 
@@ -157,7 +153,6 @@ impl InMemoryChatHistory {
         .unwrap();
         InMemoryChatHistory {
             events: Vec::new(),
-            seen_messages: HashMap::new(),
             conn: db,
         }
     }
