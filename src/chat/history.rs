@@ -6,7 +6,7 @@ use std::{
 
 use async_sqlite::{
     Client, ClientBuilder,
-    rusqlite::{self, ffi, params},
+    rusqlite::{self, ffi},
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -68,20 +68,21 @@ impl Chat for InMemoryChatHistory {
         let insert_result = self
             .conn
             .conn_mut(move |conn| {
-                conn.execute(
+                conn.prepare_cached(
                     "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        i64::try_from(row.id).unwrap(),
-                        row.message.id.as_bytes().as_slice(),
-                        row.message.sender,
-                        row.message.content,
-                        row.timestamp
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as i64,
-                    ],
-                )?;
+                )
+                .expect("hardcoded SQL must be valid")
+                .execute((
+                    i64::try_from(row.id).unwrap(),
+                    row.message.id.as_bytes().as_slice(),
+                    row.message.sender,
+                    row.message.content,
+                    row.timestamp
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64,
+                ))?;
                 Ok(())
             })
             .await;
@@ -101,8 +102,11 @@ impl Chat for InMemoryChatHistory {
                 let existing = self
                     .conn
                     .conn(move |conn| {
-                        conn.query_row(
+                        conn.prepare_cached(
                             "SELECT sender, content FROM events WHERE message_id = ?1",
+                        )
+                        .expect("hardcoded SQL must be valid")
+                        .query_row(
                             [message_id.as_bytes().as_slice()],
                             |row| {
                                 let sender = row
