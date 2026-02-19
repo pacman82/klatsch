@@ -2,10 +2,10 @@ use std::{
     cmp::min,
     collections::{HashMap, hash_map::Entry},
     future::Future,
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use async_sqlite::{Client, ClientBuilder};
+use async_sqlite::{Client, ClientBuilder, rusqlite::params};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -62,6 +62,27 @@ impl Chat for InMemoryChatHistory {
             message,
             timestamp: SystemTime::now(),
         };
+        let row = event.clone();
+        self.conn
+            .conn_mut(move |conn| {
+                conn.execute(
+                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        i64::try_from(row.id).unwrap(),
+                        row.message.id.as_bytes().as_slice(),
+                        row.message.sender,
+                        row.message.content,
+                        row.timestamp
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64,
+                    ],
+                )?;
+                Ok(())
+            })
+            .await
+            .ok();
         match self.seen_messages.entry(event.message.id) {
             Entry::Occupied(existing) => {
                 if *existing.get() == event.message {
