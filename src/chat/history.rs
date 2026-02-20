@@ -47,6 +47,16 @@ pub struct Event {
     pub timestamp: SystemTime,
 }
 
+impl Event {
+    pub fn new(id: u64, message: Message) -> Self {
+        Event {
+            id,
+            message,
+            timestamp: SystemTime::now(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ChatError {
     Conflict,
@@ -59,11 +69,7 @@ impl Chat for InMemoryChatHistory {
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        let event = Event {
-            id: self.events.len() as u64 + 1,
-            message,
-            timestamp: SystemTime::now(),
-        };
+        let event = Event::new(self.events.len() as u64 + 1, message);
         let row = event.clone();
         let insert_result = self
             .conn
