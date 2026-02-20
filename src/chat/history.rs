@@ -2,7 +2,7 @@ use std::{cmp::min, future::Future};
 
 use async_sqlite::{
     Client, ClientBuilder,
-    rusqlite::{self, ffi},
+    rusqlite::{self, ToSql, ffi, types::ToSqlOutput},
 };
 
 use super::event::{Event, EventId, Message};
@@ -43,7 +43,7 @@ impl Chat for InMemoryChatHistory {
                 )
                 .expect("hardcoded SQL must be valid")
                 .execute((
-                    row.id.as_i64(),
+                    &row.id,
                     row.message.id.as_bytes().as_slice(),
                     row.message.sender,
                     row.message.content,
@@ -125,6 +125,12 @@ impl InMemoryChatHistory {
             events: Vec::new(),
             conn: db,
         }
+    }
+}
+
+impl ToSql for EventId {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.0 as i64))
     }
 }
 
