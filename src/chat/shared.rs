@@ -233,24 +233,24 @@ mod tests {
     async fn events_forwards_history() {
         // Given
         let canned = vec![
-            Event {
-                id: 1,
-                message: Message {
+            Event::with_timestamp(
+                1,
+                Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
                     content: "One".to_string(),
                 },
-                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
-            },
-            Event {
-                id: 2,
-                message: Message {
+                SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+            ),
+            Event::with_timestamp(
+                2,
+                Message {
                     id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                     sender: "Bob".to_string(),
                     content: "Two".to_string(),
                 },
-                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
-            },
+                SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
+            ),
         ];
         struct HistoryStub(Vec<Event>);
         impl Chat for HistoryStub {
@@ -312,11 +312,11 @@ mod tests {
                 if message.id == self.duplicate_id {
                     Ok(None)
                 } else {
-                    Ok(Some(Event {
-                        id: 1,
+                    Ok(Some(Event::with_timestamp(
+                        1,
                         message,
-                        timestamp: SystemTime::UNIX_EPOCH,
-                    }))
+                        SystemTime::UNIX_EPOCH,
+                    )))
                 }
             }
         }
@@ -403,15 +403,15 @@ mod tests {
     async fn event_stream_seamlessly_transitions_from_history_replay_to_live_broadcast() {
         // Given a history with one event
         fn canned_event() -> Event {
-            Event {
-                id: 1,
-                message: Message {
+            Event::with_timestamp(
+                1,
+                Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
                     content: "One".to_string(),
                 },
-                timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
-            }
+                SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+            )
         }
 
         struct HistoryDouble;
@@ -427,11 +427,11 @@ mod tests {
                 &mut self,
                 message: Message,
             ) -> Result<Option<Event>, ChatError> {
-                Ok(Some(Event {
-                    id: 2,
+                Ok(Some(Event::with_timestamp(
+                    2,
                     message,
-                    timestamp: SystemTime::UNIX_EPOCH,
-                }))
+                    SystemTime::UNIX_EPOCH,
+                )))
             }
         }
         let chat = ChatRuntime::new(HistoryDouble);
@@ -475,24 +475,24 @@ mod tests {
         impl Chat for HistoryStub {
             async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
                 match last_event_id {
-                    0 => vec![Event {
-                        id: 1,
-                        message: Message {
+                    0 => vec![Event::with_timestamp(
+                        1,
+                        Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                             sender: "Alice".to_string(),
                             content: "One".to_string(),
                         },
-                        timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
-                    }],
-                    1 => vec![Event {
-                        id: 2,
-                        message: Message {
+                        SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+                    )],
+                    1 => vec![Event::with_timestamp(
+                        2,
+                        Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                             sender: "Bob".to_string(),
                             content: "Two".to_string(),
                         },
-                        timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
-                    }],
+                        SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
+                    )],
                     _ => Vec::new(),
                 }
             }
@@ -653,24 +653,20 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(last_event_id);
-            vec![Event {
-                id: last_event_id + 1,
-                message: Message {
+            vec![Event::with_timestamp(
+                last_event_id + 1,
+                Message {
                     id: Uuid::nil(),
                     sender: "dummy".to_owned(),
                     content: "dummy".to_owned(),
                 },
-                timestamp: SystemTime::UNIX_EPOCH,
-            }]
+                SystemTime::UNIX_EPOCH,
+            )]
         }
 
         async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             self.recorded_messages.lock().unwrap().push(message.clone());
-            Ok(Some(Event {
-                id: 1,
-                message,
-                timestamp: SystemTime::now(),
-            }))
+            Ok(Some(Event::new(1, message)))
         }
     }
 
@@ -691,11 +687,11 @@ mod tests {
         }
 
         async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-            let event = Event {
-                id: self.events.len() as u64 + 1,
+            let event = Event::with_timestamp(
+                self.events.len() as u64 + 1,
                 message,
-                timestamp: SystemTime::UNIX_EPOCH,
-            };
+                SystemTime::UNIX_EPOCH,
+            );
             self.events.push(event.clone());
             Ok(Some(event))
         }
