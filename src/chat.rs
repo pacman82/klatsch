@@ -3,7 +3,7 @@ mod history;
 mod shared;
 
 pub use self::{
-    event::{Event, Message},
+    event::{Event, EventId, Message},
     history::{ChatError, InMemoryChatHistory},
     shared::{ChatRuntime, SharedChat},
 };

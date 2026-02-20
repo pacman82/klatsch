@@ -9,7 +9,7 @@ use tokio::{
 use tokio_stream::StreamExt;
 
 use super::{
-    event::{Event, Message},
+    event::{Event, EventId, Message},
     history::{Chat, ChatError},
 };
 
@@ -26,7 +26,7 @@ pub trait SharedChat: Sized {
     ///   only receive events they have not yet seen. Use `0` to receive all events from the
     ///   beginning of the chat. Filtering of events is only applied to historic events. Future
     ///   events will always be delivered.
-    fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send;
+    fn events(self, last_event_id: EventId) -> impl Stream<Item = Event> + Send;
 
     /// Add a new message to the chat.
     fn add_message(
@@ -81,7 +81,7 @@ pub struct ChatClient {
 }
 
 impl SharedChat for ChatClient {
-    fn events(self, mut last_event_id: u64) -> impl Stream<Item = Event> + Send {
+    fn events(self, mut last_event_id: EventId) -> impl Stream<Item = Event> + Send {
         stream! {
             loop {
                 let (responder, response) = oneshot::channel();
@@ -111,7 +111,7 @@ impl SharedChat for ChatClient {
 enum ActorMsg {
     ReadEvents {
         responder: oneshot::Sender<Events>,
-        last_event_id: u64,
+        last_event_id: EventId,
     },
     AddMessage {
         message: Message,
@@ -218,6 +218,8 @@ impl<H: Chat> Actor<H> {
 
 #[cfg(test)]
 mod tests {
+    use crate::chat::event::EventId;
+
     use super::*;
     use double_trait::Dummy;
     use futures_util::StreamExt;
@@ -234,7 +236,7 @@ mod tests {
         // Given
         let canned = vec![
             Event::with_timestamp(
-                1,
+                EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
@@ -243,7 +245,7 @@ mod tests {
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
             ),
             Event::with_timestamp(
-                2,
+                EventId(2),
                 Message {
                     id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                     sender: "Bob".to_string(),
@@ -254,14 +256,19 @@ mod tests {
         ];
         struct HistoryStub(Vec<Event>);
         impl Chat for HistoryStub {
-            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: EventId) -> Vec<Event> {
                 self.0.clone()
             }
         }
         let chat = ChatRuntime::new(HistoryStub(canned.clone()));
 
         // When
-        let events = chat.client().events(0).take(2).collect::<Vec<_>>().await;
+        let events = chat
+            .client()
+            .events(EventId::before_all())
+            .take(2)
+            .collect::<Vec<_>>()
+            .await;
 
         // Then
         assert_eq!(events, canned);
@@ -302,7 +309,7 @@ mod tests {
             duplicate_id: Uuid,
         }
         impl Chat for HistoryStub {
-            async fn events_since(&self, _last_event_id: u64) -> Vec<Event> {
+            async fn events_since(&self, _last_event_id: EventId) -> Vec<Event> {
                 Vec::new()
             }
             async fn record_message(
@@ -313,7 +320,7 @@ mod tests {
                     Ok(None)
                 } else {
                     Ok(Some(Event::with_timestamp(
-                        1,
+                        EventId(1),
                         message,
                         SystemTime::UNIX_EPOCH,
                     )))
@@ -323,7 +330,7 @@ mod tests {
         let chat = ChatRuntime::new(HistoryStub { duplicate_id });
 
         // and a receiver subscribed to live broadcast
-        let mut events = chat.client().events(0).boxed();
+        let mut events = chat.client().events(EventId::before_all()).boxed();
         let mut next_event = tokio_test::task::spawn(events.next());
         assert!(next_event.poll().is_pending());
 
@@ -404,7 +411,7 @@ mod tests {
         // Given a history with one event
         fn canned_event() -> Event {
             Event::with_timestamp(
-                1,
+                EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
@@ -416,8 +423,8 @@ mod tests {
 
         struct HistoryDouble;
         impl Chat for HistoryDouble {
-            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
-                if last_event_id == 0 {
+            async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
+                if last_event_id == EventId::before_all() {
                     vec![canned_event()]
                 } else {
                     Vec::new()
@@ -428,7 +435,7 @@ mod tests {
                 message: Message,
             ) -> Result<Option<Event>, ChatError> {
                 Ok(Some(Event::with_timestamp(
-                    2,
+                    EventId(2),
                     message,
                     SystemTime::UNIX_EPOCH,
                 )))
@@ -437,7 +444,7 @@ mod tests {
         let chat = ChatRuntime::new(HistoryDouble);
 
         // When a client subscribes and consume the historic event
-        let mut events_stream = chat.client().events(0).boxed();
+        let mut events_stream = chat.client().events(EventId::before_all()).boxed();
         let historic = events_stream.next().await.unwrap();
 
         // and after that it waits for the next event
@@ -473,10 +480,10 @@ mod tests {
         // Given: a history that grows between requests
         struct HistoryStub;
         impl Chat for HistoryStub {
-            async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
-                match last_event_id {
+            async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
+                match last_event_id.0 {
                     0 => vec![Event::with_timestamp(
-                        1,
+                        EventId(1),
                         Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                             sender: "Alice".to_string(),
@@ -485,7 +492,7 @@ mod tests {
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
                     )],
                     1 => vec![Event::with_timestamp(
-                        2,
+                        EventId(2),
                         Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                             sender: "Bob".to_string(),
@@ -500,7 +507,12 @@ mod tests {
         let chat = ChatRuntime::new(HistoryStub);
 
         // When
-        let events = chat.client().events(0).take(2).collect::<Vec<_>>().await;
+        let events = chat
+            .client()
+            .events(EventId::before_all())
+            .take(2)
+            .collect::<Vec<_>>()
+            .await;
 
         // Then
         assert_eq!(events[0].message.sender, "Alice");
@@ -518,11 +530,11 @@ mod tests {
         let chat = ChatRuntime::new(history);
 
         // When requesting events with last_event_id = 42
-        let _event = chat.client().events(42).boxed().next().await;
+        let _event = chat.client().events(EventId(42)).boxed().next().await;
 
         // Then history was queried with the provided last_event_id
         let ids = spy.take_observed_last_event_ids();
-        assert_eq!(ids[0], 42);
+        assert_eq!(ids[0], EventId(42));
 
         // Cleanup
         chat.shutdown().await;
@@ -587,7 +599,7 @@ mod tests {
 
         // One of the clients has an event stream open, which already has received all messages in the
         // history so far (one in this case).
-        let mut events_stream = receiver_client.events(0).boxed();
+        let mut events_stream = receiver_client.events(EventId::before_all()).boxed();
         events_stream.next().await; // Consume initial message
 
         // When: Sender sends a burst of messages while the reader does not pull them. While we
@@ -627,7 +639,7 @@ mod tests {
     #[derive(Clone)]
     struct HistorySpy {
         recorded_messages: Arc<Mutex<Vec<Message>>>,
-        observed_last_event_ids: Arc<Mutex<Vec<u64>>>,
+        observed_last_event_ids: Arc<Mutex<Vec<EventId>>>,
     }
 
     impl HistorySpy {
@@ -642,19 +654,19 @@ mod tests {
             take(&mut *self.recorded_messages.lock().unwrap())
         }
 
-        fn take_observed_last_event_ids(&self) -> Vec<u64> {
+        fn take_observed_last_event_ids(&self) -> Vec<EventId> {
             take(&mut *self.observed_last_event_ids.lock().unwrap())
         }
     }
 
     impl Chat for HistorySpy {
-        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
+        async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
             self.observed_last_event_ids
                 .lock()
                 .unwrap()
                 .push(last_event_id);
             vec![Event::with_timestamp(
-                last_event_id + 1,
+                last_event_id.successor(),
                 Message {
                     id: Uuid::nil(),
                     sender: "dummy".to_owned(),
@@ -666,7 +678,7 @@ mod tests {
 
         async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             self.recorded_messages.lock().unwrap().push(message.clone());
-            Ok(Some(Event::new(1, message)))
+            Ok(Some(Event::new(EventId(1), message)))
         }
     }
 
@@ -681,14 +693,14 @@ mod tests {
     }
 
     impl Chat for FakeHistory {
-        async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
-            let start = (last_event_id as usize).min(self.events.len());
+        async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
+            let start = (last_event_id.0 as usize).min(self.events.len());
             self.events[start..].to_vec()
         }
 
         async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
             let event = Event::with_timestamp(
-                self.events.len() as u64 + 1,
+                EventId(self.events.len() as u64 + 1),
                 message,
                 SystemTime::UNIX_EPOCH,
             );

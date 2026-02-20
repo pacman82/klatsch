@@ -127,7 +127,7 @@ mod tests {
         time::{Duration, UNIX_EPOCH},
     };
 
-    use crate::chat::Event;
+    use crate::chat::{Event, EventId};
 
     use super::*;
     use axum::{
@@ -148,10 +148,10 @@ mod tests {
         struct ChatStub;
 
         impl SharedChat for ChatStub {
-            fn events(self, _last_event_id: u64) -> impl Stream<Item = Event> + Send {
+            fn events(self, _last_event_id: EventId) -> impl Stream<Item = Event> + Send {
                 let messages = vec![
                     Event::with_timestamp(
-                        1,
+                        EventId(1),
                         Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                             sender: "Alice".to_owned(),
@@ -160,7 +160,7 @@ mod tests {
                         UNIX_EPOCH + Duration::from_millis(1704531600000),
                     ),
                     Event::with_timestamp(
-                        2,
+                        EventId(2),
                         Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
                             sender: "Bob".to_owned(),
@@ -169,7 +169,7 @@ mod tests {
                         UNIX_EPOCH + Duration::from_millis(1704531601000),
                     ),
                     Event::with_timestamp(
-                        3,
+                        EventId(3),
                         Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
                             sender: "Alice".to_string(),
@@ -178,7 +178,7 @@ mod tests {
                         UNIX_EPOCH + Duration::from_millis(1704531602000),
                     ),
                     Event::with_timestamp(
-                        4,
+                        EventId(4),
                         Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
                             sender: "Bob".to_owned(),
@@ -314,7 +314,7 @@ mod tests {
             .unwrap();
 
         // Then: the chat should have been asked for events since id 7
-        assert_eq!(spy.take_events_record(), vec![7]);
+        assert_eq!(spy.take_events_record(), vec![EventId(7)]);
     }
 
     #[tokio::test]
@@ -323,7 +323,10 @@ mod tests {
         #[derive(Clone)]
         struct PendingChatStub;
         impl SharedChat for PendingChatStub {
-            fn events(self, _last_event_id: u64) -> impl futures_util::Stream<Item = Event> + Send {
+            fn events(
+                self,
+                _last_event_id: EventId,
+            ) -> impl futures_util::Stream<Item = Event> + Send {
                 pending()
             }
         }
@@ -393,11 +396,11 @@ mod tests {
     #[derive(Clone, Default)]
     struct ChatSpy {
         add_message_record: Arc<Mutex<Vec<Message>>>,
-        events_record: Arc<Mutex<Vec<u64>>>,
+        events_record: Arc<Mutex<Vec<EventId>>>,
     }
 
     impl SharedChat for ChatSpy {
-        fn events(self, last_event_id: u64) -> impl Stream<Item = Event> + Send {
+        fn events(self, last_event_id: EventId) -> impl Stream<Item = Event> + Send {
             self.events_record.lock().unwrap().push(last_event_id);
             tokio_stream::iter(Vec::new())
         }
@@ -415,7 +418,7 @@ mod tests {
             tmp
         }
 
-        fn take_events_record(&self) -> Vec<u64> {
+        fn take_events_record(&self) -> Vec<EventId> {
             let mut tmp = Vec::new();
             swap(&mut tmp, &mut *self.events_record.lock().unwrap());
             tmp
