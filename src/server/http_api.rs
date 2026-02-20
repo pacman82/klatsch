@@ -68,7 +68,7 @@ where
     Sse::new(events)
 }
 
-/// A message as represented by the `messages` route.
+/// A message as represented by the `events` route.
 #[derive(Serialize)]
 pub struct HttpMessage {
     /// Sender generated unique identifier for the message. It is used to recover from errors
