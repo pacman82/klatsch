@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible, time::UNIX_EPOCH};
+use std::{borrow::Cow, convert::Infallible};
 
 use axum::{
     Json, Router,
@@ -94,11 +94,8 @@ impl From<Event> for SseEvent {
                     sender,
                     content,
                 },
-            timestamp,
+            timestamp_ms,
         } = source;
-        // `u64` covers ~584 million years since epoch, so we can afford to downcast the ms from
-        // `u128` to u64 without fear.
-        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
         SseEvent::default()
             .id(event_id.to_string())
             .json_data(HttpMessage {
@@ -127,7 +124,7 @@ mod tests {
     use std::{
         mem::swap,
         sync::{Arc, Mutex},
-        time::Duration,
+        time::{Duration, UNIX_EPOCH},
     };
 
     use crate::chat::Event;
