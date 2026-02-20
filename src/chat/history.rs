@@ -49,10 +49,14 @@ pub struct Event {
 
 impl Event {
     pub fn new(id: u64, message: Message) -> Self {
+        Self::with_timestamp(id, message, SystemTime::now())
+    }
+
+    pub fn with_timestamp(id: u64, message: Message, timestamp: SystemTime) -> Self {
         Event {
             id,
             message,
-            timestamp: SystemTime::now(),
+            timestamp,
         }
     }
 }
