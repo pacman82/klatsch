@@ -44,19 +44,30 @@ pub struct Event {
     /// One based ordered identifier of the events in the chat.
     pub id: u64,
     pub message: Message,
-    pub timestamp: SystemTime,
+    /// Milliseconds since Unix epoch
+    pub timestamp_ms: u64,
 }
 
 impl Event {
     pub fn new(id: u64, message: Message) -> Self {
-        Self::with_timestamp(id, message, SystemTime::now())
-    }
-
-    pub fn with_timestamp(id: u64, message: Message, timestamp: SystemTime) -> Self {
+        // u64 covers ~584 million years since epoch, so we can afford to downcast from u128.
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
         Event {
             id,
             message,
-            timestamp,
+            timestamp_ms,
+        }
+    }
+
+    pub fn with_timestamp(id: u64, message: Message, timestamp: SystemTime) -> Self {
+        let timestamp_ms = timestamp.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        Event {
+            id,
+            message,
+            timestamp_ms,
         }
     }
 }
@@ -88,10 +99,7 @@ impl Chat for InMemoryChatHistory {
                     row.message.id.as_bytes().as_slice(),
                     row.message.sender,
                     row.message.content,
-                    row.timestamp
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64,
+                    row.timestamp_ms as i64,
                 ))?;
                 Ok(())
             })
