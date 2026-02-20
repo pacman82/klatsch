@@ -9,8 +9,8 @@ use tokio::{
 use tokio_stream::StreamExt;
 
 use super::{
-    Event,
-    history::{Chat, ChatError, Message},
+    event::{Event, Message},
+    history::{Chat, ChatError},
 };
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
