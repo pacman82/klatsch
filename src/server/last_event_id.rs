@@ -2,9 +2,11 @@ use std::convert::Infallible;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
 
+use crate::chat::EventId;
+
 /// Extractor for the `Last-Event-ID` header used by EventSource clients.
 #[derive(Clone, Copy, Debug)]
-pub struct LastEventId(pub u64);
+pub struct LastEventId(pub EventId);
 
 impl<S> FromRequestParts<S> for LastEventId
 where
@@ -17,7 +19,7 @@ where
             .headers
             .get("last-event-id")
             .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|s| s.parse::<EventId>().ok())
             .unwrap_or_default();
         Ok(LastEventId(id))
     }
@@ -40,7 +42,7 @@ mod tests {
         let extractor = LastEventId::from_request_parts(&mut parts, &())
             .await
             .unwrap();
-        assert_eq!(extractor.0, 2);
+        assert_eq!(extractor.0, EventId(2));
     }
 
     #[tokio::test]
@@ -50,6 +52,6 @@ mod tests {
         let extractor = LastEventId::from_request_parts(&mut parts, &())
             .await
             .unwrap();
-        assert_eq!(extractor.0, 0);
+        assert_eq!(extractor.0, EventId::default());
     }
 }

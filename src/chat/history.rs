@@ -1,16 +1,16 @@
-use std::{cmp::min, future::Future, time::UNIX_EPOCH};
+use std::{cmp::min, future::Future};
 
 use async_sqlite::{
     Client, ClientBuilder,
     rusqlite::{self, ffi},
 };
 
-use super::event::{Event, Message};
+use super::event::{Event, EventId, Message};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).
-    fn events_since(&self, last_event_id: u64) -> impl Future<Output = Vec<Event>> + Send;
+    fn events_since(&self, last_event_id: EventId) -> impl Future<Output = Vec<Event>> + Send;
 
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
@@ -26,13 +26,13 @@ pub enum ChatError {
 }
 
 impl Chat for InMemoryChatHistory {
-    async fn events_since(&self, last_event_id: u64) -> Vec<Event> {
-        let last_event_id = min(last_event_id as usize, self.events.len());
+    async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
+        let last_event_id = min(last_event_id.0 as usize, self.events.len());
         self.events[last_event_id..].to_owned()
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        let event = Event::new(self.events.len() as u64 + 1, message);
+        let event = Event::new(EventId(self.events.len() as u64 + 1), message);
         let row = event.clone();
         let insert_result = self
             .conn
@@ -43,7 +43,7 @@ impl Chat for InMemoryChatHistory {
                 )
                 .expect("hardcoded SQL must be valid")
                 .execute((
-                    i64::try_from(row.id).unwrap(),
+                    row.id.as_i64(),
                     row.message.id.as_bytes().as_slice(),
                     row.message.sender,
                     row.message.content,
@@ -170,7 +170,7 @@ mod tests {
         history.record_message(dummy_message(id_1)).await.unwrap();
         history.record_message(dummy_message(id_2)).await.unwrap();
         // ...and retrieving these messages after insertion
-        let events = history.events_since(0).await;
+        let events = history.events_since(EventId::before_all()).await;
 
         // Then the messages are retrieved in the order they were inserted.
         assert_eq!(events.len(), 2);
@@ -190,7 +190,7 @@ mod tests {
         }
 
         // When retrieving events since event 1
-        let events = history.events_since(1).await;
+        let events = history.events_since(EventId(1)).await;
 
         // Then only events 2 and 3 are returned
         assert_eq!(events.len(), 2);
@@ -224,7 +224,7 @@ mod tests {
 
         // Then no event is emitted and the history remains unchanged
         assert!(result.is_none());
-        assert_eq!(history.events_since(0).await.len(), 1);
+        assert_eq!(history.events_since(EventId::before_all()).await.len(), 1);
     }
 
     #[tokio::test]
@@ -266,7 +266,7 @@ mod tests {
             .unwrap();
 
         // When retrieving events since an id beyond the history
-        let events = history.events_since(2).await;
+        let events = history.events_since(EventId(2)).await;
 
         // Then no events are returned
         assert!(events.is_empty());
