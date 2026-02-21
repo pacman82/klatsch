@@ -1,6 +1,6 @@
 use std::pin::pin;
 
-use async_stream::stream;
+use async_stream::{stream, try_stream};
 use futures_util::Stream;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
@@ -26,7 +26,7 @@ pub trait SharedChat: Sized {
     ///   only receive events they have not yet seen. Use `0` to receive all events from the
     ///   beginning of the chat. Filtering of events is only applied to historic events. Future
     ///   events will always be delivered.
-    fn events(self, last_event_id: EventId) -> impl Stream<Item = Event> + Send;
+    fn events(self, last_event_id: EventId) -> impl Stream<Item = anyhow::Result<Event>> + Send;
 
     /// Add a new message to the chat.
     fn add_message(
@@ -81,8 +81,11 @@ pub struct ChatClient {
 }
 
 impl SharedChat for ChatClient {
-    fn events(self, mut last_event_id: EventId) -> impl Stream<Item = Event> + Send {
-        stream! {
+    fn events(
+        self,
+        mut last_event_id: EventId,
+    ) -> impl Stream<Item = anyhow::Result<Event>> + Send {
+        try_stream! {
             loop {
                 let (responder, response) = oneshot::channel();
                 self.sender
@@ -223,7 +226,7 @@ mod tests {
 
     use super::*;
     use double_trait::Dummy;
-    use futures_util::StreamExt;
+    use futures_util::{StreamExt, TryStreamExt};
     use std::{
         mem::take,
         sync::{Arc, Mutex},
@@ -264,12 +267,13 @@ mod tests {
         let chat = ChatRuntime::new(HistoryStub(canned.clone()));
 
         // When
-        let events = chat
+        let events: Vec<_> = chat
             .client()
             .events(EventId::before_all())
             .take(2)
-            .collect::<Vec<_>>()
-            .await;
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
 
         // Then
         assert_eq!(events, canned);
@@ -358,6 +362,7 @@ mod tests {
         let event = timeout(Duration::from_secs(1), next_event)
             .await
             .expect("timed out waiting for event")
+            .unwrap()
             .unwrap();
         assert_eq!(event.message.id, fresh_id);
 
@@ -446,7 +451,7 @@ mod tests {
 
         // When a client subscribes and consume the historic event
         let mut events_stream = chat.client().events(EventId::before_all()).boxed();
-        let historic = events_stream.next().await.unwrap();
+        let historic = events_stream.next().await.unwrap().unwrap();
 
         // and after that it waits for the next event
         let mut live = tokio_test::task::spawn(events_stream.next());
@@ -464,6 +469,7 @@ mod tests {
         let live = timeout(Duration::from_secs(1), live)
             .await
             .expect("timed out waiting for live event")
+            .unwrap()
             .unwrap();
 
         // The historic event matches the canned data
@@ -509,12 +515,13 @@ mod tests {
         let chat = ChatRuntime::new(HistoryStub);
 
         // When
-        let events = chat
+        let events: Vec<_> = chat
             .client()
             .events(EventId::before_all())
             .take(2)
-            .collect::<Vec<_>>()
-            .await;
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
 
         // Then
         assert_eq!(events[0].message.sender, "Alice");
