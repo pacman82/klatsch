@@ -12,7 +12,10 @@ use super::event::{Event, EventId, Message};
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
     /// All events since the event with the given `last_event_id` (exclusive).
-    fn events_since(&self, last_event_id: EventId) -> impl Future<Output = Vec<Event>> + Send;
+    fn events_since(
+        &self,
+        last_event_id: EventId,
+    ) -> impl Future<Output = anyhow::Result<Vec<Event>>> + Send;
 
     /// Record a message and return the corresponding event. `None` indiactes that no event should
     /// be emitted due to the message being a duplicate of an already recorded message.
@@ -36,9 +39,9 @@ pub enum ChatError {
 }
 
 impl Chat for InMemoryChatHistory {
-    async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
+    async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let last_event_id = min(last_event_id.0 as usize, self.events.len());
-        self.events[last_event_id..].to_owned()
+        Ok(self.events[last_event_id..].to_owned())
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -198,7 +201,7 @@ mod tests {
         history.record_message(dummy_message(id_1)).await.unwrap();
         history.record_message(dummy_message(id_2)).await.unwrap();
         // ...and retrieving these messages after insertion
-        let events = history.events_since(EventId::before_all()).await;
+        let events = history.events_since(EventId::before_all()).await.unwrap();
 
         // Then the messages are retrieved in the order they were inserted.
         assert_eq!(events.len(), 2);
@@ -218,7 +221,7 @@ mod tests {
         }
 
         // When retrieving events since event 1
-        let events = history.events_since(EventId(1)).await;
+        let events = history.events_since(EventId(1)).await.unwrap();
 
         // Then only events 2 and 3 are returned
         assert_eq!(events.len(), 2);
@@ -252,7 +255,14 @@ mod tests {
 
         // Then no event is emitted and the history remains unchanged
         assert!(result.is_none());
-        assert_eq!(history.events_since(EventId::before_all()).await.len(), 1);
+        assert_eq!(
+            history
+                .events_since(EventId::before_all())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -294,7 +304,7 @@ mod tests {
             .unwrap();
 
         // When retrieving events since an id beyond the history
-        let events = history.events_since(EventId(2)).await;
+        let events = history.events_since(EventId(2)).await.unwrap();
 
         // Then no events are returned
         assert!(events.is_empty());
