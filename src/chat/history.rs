@@ -1,4 +1,4 @@
-use std::{cmp::min, future::Future};
+use std::future::Future;
 
 use tracing::error;
 
@@ -6,6 +6,8 @@ use async_sqlite::{
     Client, ClientBuilder,
     rusqlite::{self, ToSql, ffi, types::ToSqlOutput},
 };
+
+use uuid::Uuid;
 
 use super::event::{Event, EventId, Message};
 
@@ -40,8 +42,49 @@ pub enum ChatError {
 
 impl Chat for InMemoryChatHistory {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        let last_event_id = min(last_event_id.0 as usize, self.events.len());
-        Ok(self.events[last_event_id..].to_owned())
+        let events = self
+            .conn
+            .conn(move |conn| {
+                let mut stmt = conn
+                    .prepare_cached(
+                        "SELECT id, message_id, sender, content, timestamp_ms
+                         FROM events WHERE id > ?1 ORDER BY id",
+                    )
+                    .expect("hardcoded SQL must be valid");
+                let events = stmt
+                    .query_map([&last_event_id], |row| {
+                        let id: i64 = row.get(0).expect("id must be a non-null INTEGER column");
+                        let message_id: Vec<u8> = row
+                            .get(1)
+                            .expect("message_id must be a non-null BLOB column");
+                        let sender: String =
+                            row.get(2).expect("sender must be a non-null TEXT column");
+                        let content: String =
+                            row.get(3).expect("content must be a non-null TEXT column");
+                        let timestamp_ms: i64 = row
+                            .get(4)
+                            .expect("timestamp_ms must be a non-null INTEGER column");
+                        let event = Event {
+                            id: EventId(id as u64),
+                            message: Message {
+                                id: Uuid::from_bytes(
+                                    message_id
+                                        .try_into()
+                                        .expect("message_id must be a 16-byte BLOB column"),
+                                ),
+                                sender,
+                                content,
+                            },
+                            timestamp_ms: timestamp_ms as u64,
+                        };
+                        Ok(event)
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(events)
+            })
+            .await
+            .inspect_err(|err| error!("Failed to read events: {err}"))?;
+        Ok(events)
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -68,7 +111,6 @@ impl Chat for InMemoryChatHistory {
             .await;
         match insert_result {
             Ok(()) => {
-                self.events.push(event.clone());
                 self.last_event_id = event_id;
                 Ok(Some(event))
             }
@@ -118,7 +160,6 @@ impl Chat for InMemoryChatHistory {
 }
 
 pub struct InMemoryChatHistory {
-    events: Vec<Event>,
     conn: Client,
     /// Identifying the event which has last been emited.
     last_event_id: EventId,
@@ -145,11 +186,11 @@ impl InMemoryChatHistory {
         })
         .await
         .inspect_err(|err| error!("Failed to create events table: {err}"))?;
-        Ok(InMemoryChatHistory {
-            events: Vec::new(),
+        let new = InMemoryChatHistory {
             conn: db,
             last_event_id: EventId::before_all(),
-        })
+        };
+        Ok(new)
     }
 }
 
