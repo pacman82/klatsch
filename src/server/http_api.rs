@@ -249,10 +249,7 @@ mod tests {
         #[derive(Clone)]
         struct ChatSaboteur;
         impl SharedChat for ChatSaboteur {
-            fn events(
-                self,
-                _: EventId,
-            ) -> impl Stream<Item = anyhow::Result<Event>> + Send {
+            fn events(self, _: EventId) -> impl Stream<Item = anyhow::Result<Event>> + Send {
                 tokio_stream::iter(vec![Err(anyhow::anyhow!("test error"))])
             }
         }
