@@ -24,8 +24,15 @@ pub trait Chat {
 
 #[derive(Debug)]
 pub enum ChatError {
+    /// The message which was attempt to record is conflicting with an already recorded message.
+    /// I.e. the message id is identical with that of an already recorded message, but the message
+    /// itself is different. This makes it different from a duplicate which can occur than retrying
+    /// a message. The message has not been recorded.
     Conflict,
-    Internal(anyhow::Error),
+    /// An error caused by the runtime, due to accidential complexity. E.g. a failing I/O operation.
+    /// The nature of the internal error is relevant for the operater. It can be assumed an error
+    /// has been logged.
+    Internal,
 }
 
 impl Chat for InMemoryChatHistory {
@@ -87,14 +94,20 @@ impl Chat for InMemoryChatHistory {
                         )
                     })
                     .await
-                    .unwrap();
+                    .map_err(|err| {
+                        error!("Failed to look up existing event: {err}");
+                        ChatError::Internal
+                    })?;
                 if existing == (event.message.sender, event.message.content) {
                     Ok(None)
                 } else {
                     Err(ChatError::Conflict)
                 }
             }
-            Err(err) => panic!("Unexpected database error: {err}"),
+            Err(err) => {
+                error!("Failed to record event: {err}");
+                Err(ChatError::Internal)
+            }
         }
     }
 }
