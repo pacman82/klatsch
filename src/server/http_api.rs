@@ -32,7 +32,7 @@ impl From<ChatError> for HttpError {
                 status_code: StatusCode::CONFLICT,
                 message: "A different message with this ID already exists".into(),
             },
-            ChatError::Internal(_) => HttpError {
+            ChatError::Internal => HttpError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "Internal server error".into(),
             },
