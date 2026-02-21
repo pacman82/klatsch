@@ -53,66 +53,17 @@ impl Chat for InMemoryChatHistory {
         let event_id = self.last_event_id.successor();
         let event = Event::new(event_id, message);
         let row = event.clone();
-        let insert_result = self
+        let result = self
             .conn
-            .conn_mut(move |conn| {
-                conn.prepare_cached(
-                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                )
-                .expect("hardcoded SQL must be valid")
-                .execute((
-                    &row.id,
-                    row.message.id.as_bytes().as_slice(),
-                    row.message.sender,
-                    row.message.content,
-                    row.timestamp_ms as i64,
-                ))?;
-                Ok(())
-            })
+            .conn_mut(move |conn| insert_event(conn, &row))
             .await;
-        match insert_result {
-            Ok(()) => {
+        match result {
+            Ok(InsertOutcome::New) => {
                 self.last_event_id = event_id;
                 Ok(Some(event))
             }
-            Err(async_sqlite::Error::Rusqlite(rusqlite::Error::SqliteFailure(
-                ffi::Error {
-                    code: ffi::ErrorCode::ConstraintViolation,
-                    extended_code: ffi::SQLITE_CONSTRAINT_UNIQUE,
-                },
-                _,
-            ))) => {
-                let message_id = event.message.id;
-                let existing = self
-                    .conn
-                    .conn(move |conn| {
-                        conn.prepare_cached(
-                            "SELECT sender, content FROM events WHERE message_id = ?1",
-                        )
-                        .expect("hardcoded SQL must be valid")
-                        .query_row(
-                            [message_id.as_bytes().as_slice()],
-                            |row| {
-                                let sender =
-                                    row.get(0).expect("sender must be a non-null TEXT column");
-                                let content =
-                                    row.get(1).expect("content must be a non-null TEXT column");
-                                Ok((sender, content))
-                            },
-                        )
-                    })
-                    .await
-                    .map_err(|err| {
-                        error!("Failed to look up existing event: {err}");
-                        ChatError::Internal
-                    })?;
-                if existing == (event.message.sender, event.message.content) {
-                    Ok(None)
-                } else {
-                    Err(ChatError::Conflict)
-                }
-            }
+            Ok(InsertOutcome::Duplicate) => Ok(None),
+            Ok(InsertOutcome::Conflict) => Err(ChatError::Conflict),
             Err(err) => {
                 error!("Failed to record event: {err}");
                 Err(ChatError::Internal)
@@ -156,6 +107,69 @@ impl InMemoryChatHistory {
     }
 }
 
+enum InsertOutcome {
+    /// The message has not been previously recorded and has been added to the record.
+    New,
+    /// Exactly the same message has been previously recorded. No change to the record
+    Duplicate,
+    /// A different message with the same id has been previously recorded. No change to the record
+    Conflict,
+}
+
+fn insert_event(
+    conn: &rusqlite::Connection,
+    event: &Event,
+) -> Result<InsertOutcome, rusqlite::Error> {
+    let Err(err) = conn
+        .prepare_cached(
+            "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .expect("hardcoded SQL must be valid")
+        .execute((
+            &event.id,
+            event.message.id.as_bytes().as_slice(),
+            &event.message.sender,
+            &event.message.content,
+            event.timestamp_ms as i64,
+        ))
+    else {
+        // Message successfully inserted, let's return.
+        return Ok(InsertOutcome::New);
+    };
+
+    // We had an error, but did something go wrong with accesing the database or is this a unique
+    // constraint violation?
+    if !matches!(
+        err,
+        rusqlite::Error::SqliteFailure(
+            ffi::Error {
+                code: ffi::ErrorCode::ConstraintViolation,
+                extended_code: ffi::SQLITE_CONSTRAINT_UNIQUE,
+            },
+            _,
+        )
+    ) {
+        // Something went wrong, lets report the error.
+        return Err(err);
+    }
+
+    // So it is a unique constraint violation, but is it a duplicate or a conflict?
+    let (sender, content) = conn
+        .prepare_cached("SELECT sender, content FROM events WHERE message_id = ?1")
+        .expect("hardcoded SQL must be valid")
+        .query_row([event.message.id.as_bytes().as_slice()], |row| {
+            let sender: String = row.get(0).expect("sender must be a non-null TEXT column");
+            let content: String = row.get(1).expect("content must be a non-null TEXT column");
+            Ok((sender, content))
+        })?;
+    if sender == event.message.sender && content == event.message.content {
+        Ok(InsertOutcome::Duplicate)
+    } else {
+        Ok(InsertOutcome::Conflict)
+    }
+}
+
 fn fetch_events_since(
     conn: &rusqlite::Connection,
     last_event_id: EventId,
@@ -176,8 +190,8 @@ fn fetch_events_since(
                 .try_into()
                 .expect("message_id must be a 16-byte BLOB column"),
         );
-        let sender: String = row.get(2).expect("sender must be a non-null TEXT column");
-        let content: String = row.get(3).expect("content must be a non-null TEXT column");
+        let sender = row.get(2).expect("sender must be a non-null TEXT column");
+        let content = row.get(3).expect("content must be a non-null TEXT column");
         let timestamp_ms: i64 = row
             .get(4)
             .expect("timestamp_ms must be a non-null INTEGER column");
