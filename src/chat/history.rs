@@ -42,49 +42,11 @@ pub enum ChatError {
 
 impl Chat for InMemoryChatHistory {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        let events = self
-            .conn
-            .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(
-                        "SELECT id, message_id, sender, content, timestamp_ms
-                         FROM events WHERE id > ?1 ORDER BY id",
-                    )
-                    .expect("hardcoded SQL must be valid");
-                let events = stmt
-                    .query_map([&last_event_id], |row| {
-                        let id: i64 = row.get(0).expect("id must be a non-null INTEGER column");
-                        let message_id: Vec<u8> = row
-                            .get(1)
-                            .expect("message_id must be a non-null BLOB column");
-                        let sender: String =
-                            row.get(2).expect("sender must be a non-null TEXT column");
-                        let content: String =
-                            row.get(3).expect("content must be a non-null TEXT column");
-                        let timestamp_ms: i64 = row
-                            .get(4)
-                            .expect("timestamp_ms must be a non-null INTEGER column");
-                        let event = Event {
-                            id: EventId(id as u64),
-                            message: Message {
-                                id: Uuid::from_bytes(
-                                    message_id
-                                        .try_into()
-                                        .expect("message_id must be a 16-byte BLOB column"),
-                                ),
-                                sender,
-                                content,
-                            },
-                            timestamp_ms: timestamp_ms as u64,
-                        };
-                        Ok(event)
-                    })?
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(events)
-            })
+        self.conn
+            .conn(move |conn| fetch_events_since(conn, last_event_id))
             .await
-            .inspect_err(|err| error!("Failed to read events: {err}"))?;
-        Ok(events)
+            .inspect_err(|err| error!("Failed to read events: {err}"))
+            .map_err(Into::into)
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -192,6 +154,46 @@ impl InMemoryChatHistory {
         };
         Ok(new)
     }
+}
+
+fn fetch_events_since(
+    conn: &rusqlite::Connection,
+    last_event_id: EventId,
+) -> Result<Vec<Event>, rusqlite::Error> {
+    let mut stmt = conn
+        .prepare_cached(
+            "SELECT id, message_id, sender, content, timestamp_ms
+             FROM events WHERE id > ?1 ORDER BY id",
+        )
+        .expect("hardcoded SQL must be valid");
+    stmt.query_map([&last_event_id], |row| {
+        let id: i64 = row.get(0).expect("id must be a non-null INTEGER column");
+        let message_id: Vec<u8> = row
+            .get(1)
+            .expect("message_id must be a non-null BLOB column");
+        let message_id = Uuid::from_bytes(
+            message_id
+                .try_into()
+                .expect("message_id must be a 16-byte BLOB column"),
+        );
+        let sender: String = row.get(2).expect("sender must be a non-null TEXT column");
+        let content: String = row.get(3).expect("content must be a non-null TEXT column");
+        let timestamp_ms: i64 = row
+            .get(4)
+            .expect("timestamp_ms must be a non-null INTEGER column");
+        let message = Message {
+            id: message_id,
+            sender,
+            content,
+        };
+        let event = Event {
+            id: EventId(id as u64),
+            message,
+            timestamp_ms: timestamp_ms as u64,
+        };
+        Ok(event)
+    })?
+    .collect()
 }
 
 impl ToSql for EventId {
