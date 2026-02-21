@@ -481,8 +481,8 @@ mod tests {
         struct HistoryStub;
         impl Chat for HistoryStub {
             async fn events_since(&self, last_event_id: EventId) -> Vec<Event> {
-                match last_event_id.0 {
-                    0 => vec![Event::with_timestamp(
+                match last_event_id {
+                    EventId(0) => vec![Event::with_timestamp(
                         EventId(1),
                         Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -491,7 +491,7 @@ mod tests {
                         },
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
                     )],
-                    1 => vec![Event::with_timestamp(
+                    EventId(1) => vec![Event::with_timestamp(
                         EventId(2),
                         Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
