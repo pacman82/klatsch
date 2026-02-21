@@ -1,4 +1,4 @@
-use std::{cmp::min, future::Future};
+ use std::{cmp::min, future::Future};
 
 use async_sqlite::{
     Client, ClientBuilder,
@@ -23,6 +23,7 @@ pub trait Chat {
 #[derive(Debug)]
 pub enum ChatError {
     Conflict,
+    Internal(anyhow::Error),
 }
 
 impl Chat for InMemoryChatHistory {
