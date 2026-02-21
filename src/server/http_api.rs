@@ -63,7 +63,7 @@ where
     let last_event_id = last_event_id.0;
     // Convert chat events into SSE events
     let events = chat.events(last_event_id).map(|chat_event| {
-        let sse_event: SseEvent = chat_event.into();
+        let sse_event: SseEvent = chat_event.unwrap().into();
         Ok(sse_event)
     });
 
@@ -152,7 +152,10 @@ mod tests {
         struct ChatStub;
 
         impl SharedChat for ChatStub {
-            fn events(self, _last_event_id: EventId) -> impl Stream<Item = Event> + Send {
+            fn events(
+                self,
+                _last_event_id: EventId,
+            ) -> impl Stream<Item = anyhow::Result<Event>> + Send {
                 let messages = vec![
                     Event::with_timestamp(
                         EventId(1),
@@ -191,7 +194,7 @@ mod tests {
                         UNIX_EPOCH + Duration::from_millis(1704531603000),
                     ),
                 ];
-                tokio_stream::iter(messages)
+                tokio_stream::iter(messages).map(Ok)
             }
         }
         let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
@@ -330,7 +333,7 @@ mod tests {
             fn events(
                 self,
                 _last_event_id: EventId,
-            ) -> impl futures_util::Stream<Item = Event> + Send {
+            ) -> impl futures_util::Stream<Item = anyhow::Result<Event>> + Send {
                 pending()
             }
         }
@@ -404,7 +407,10 @@ mod tests {
     }
 
     impl SharedChat for ChatSpy {
-        fn events(self, last_event_id: EventId) -> impl Stream<Item = Event> + Send {
+        fn events(
+            self,
+            last_event_id: EventId,
+        ) -> impl Stream<Item = anyhow::Result<Event>> + Send {
             self.events_record.lock().unwrap().push(last_event_id);
             tokio_stream::iter(Vec::new())
         }
