@@ -63,7 +63,12 @@ where
     let last_event_id = last_event_id.0;
     // Convert chat events into SSE events
     let events = chat.events(last_event_id).map(|chat_event| {
-        let sse_event: SseEvent = chat_event.unwrap().into();
+        let sse_event = match chat_event {
+            Ok(event) => event.into(),
+            Err(_) => SseEvent::default()
+                .event("error")
+                .data("Internal server error"),
+        };
         Ok(sse_event)
     });
 
@@ -234,6 +239,51 @@ mod tests {
             \n\
             id: 4\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
             \"content\":\"Four\",\"timestamp_ms\":1704531603000}\n\
+            \n";
+        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
+    }
+
+    #[tokio::test]
+    async fn events_stream_forwards_error_as_sse_error_event() {
+        // Given a chat that fails immediately
+        #[derive(Clone)]
+        struct ChatSaboteur;
+        impl SharedChat for ChatSaboteur {
+            fn events(
+                self,
+                _: EventId,
+            ) -> impl Stream<Item = anyhow::Result<Event>> + Send {
+                tokio_stream::iter(vec![Err(anyhow::anyhow!("test error"))])
+            }
+        }
+        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let app = api_router(ChatSaboteur, shutting_down);
+
+        // When requesting events
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then the response contains:
+        // - An "error" event type so the UI can distinguish it from normal events.
+        // - A generic error message, not the internal cause.
+        // - No id field — the client's Last-Event-ID must not advance past the last successful event.
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec();
+        let expected_body = "\
+            event: error\n\
+            data: Internal server error\n\
             \n";
         assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
     }
