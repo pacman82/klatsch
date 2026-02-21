@@ -92,7 +92,8 @@ impl SharedChat for ChatClient {
                     .send(ActorMsg::ReadEvents{ responder, last_event_id})
                     .await
                     .expect("Actor must outlive client.");
-                let mut events = pin!(response.await.unwrap().unwrap().into_stream());
+                let events = response.await.unwrap()?.into_stream();
+                let mut events = pin!(events);
                 while let Some(event) = events.next().await {
                     last_event_id = event.id;
                     yield event;
@@ -225,6 +226,7 @@ mod tests {
     use crate::chat::event::EventId;
 
     use super::*;
+    use anyhow::bail;
     use double_trait::Dummy;
     use futures_util::{StreamExt, TryStreamExt};
     use std::{
@@ -395,6 +397,33 @@ mod tests {
 
         // Then the error is forwarded to the client
         assert!(matches!(result, Err(ChatError::Conflict)));
+
+        // Cleanup
+        chat.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn events_stream_forwards_error_from_history() {
+        // Given a history that fails to read events
+        struct SaboteurHistory;
+        impl Chat for SaboteurHistory {
+            async fn events_since(&self, _: EventId) -> anyhow::Result<Vec<Event>> {
+                bail!("test error")
+            }
+        }
+        let chat = ChatRuntime::new(SaboteurHistory);
+
+        // When requesting events
+        let result = chat
+            .client()
+            .events(EventId::before_all())
+            .boxed()
+            .next()
+            .await
+            .unwrap();
+
+        // Then the error is forwarded through the stream
+        assert!(result.is_err());
 
         // Cleanup
         chat.shutdown().await;
