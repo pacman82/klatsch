@@ -42,7 +42,8 @@ impl Chat for InMemoryChatHistory {
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
-        let event = Event::new(EventId(self.events.len() as u64 + 1), message);
+        let event_id = self.last_event_id.successor();
+        let event = Event::new(event_id, message);
         let row = event.clone();
         let insert_result = self
             .conn
@@ -65,6 +66,7 @@ impl Chat for InMemoryChatHistory {
         match insert_result {
             Ok(()) => {
                 self.events.push(event.clone());
+                self.last_event_id = event_id;
                 Ok(Some(event))
             }
             Err(async_sqlite::Error::Rusqlite(rusqlite::Error::SqliteFailure(
@@ -115,6 +117,8 @@ impl Chat for InMemoryChatHistory {
 pub struct InMemoryChatHistory {
     events: Vec<Event>,
     conn: Client,
+    /// Identifying the event which has last been emited.
+    last_event_id: EventId,
 }
 
 impl InMemoryChatHistory {
@@ -141,6 +145,7 @@ impl InMemoryChatHistory {
         Ok(InMemoryChatHistory {
             events: Vec::new(),
             conn: db,
+            last_event_id: EventId::before_all(),
         })
     }
 }
