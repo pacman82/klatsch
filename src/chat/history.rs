@@ -4,7 +4,10 @@ use tracing::error;
 
 use async_sqlite::{
     Client, ClientBuilder,
-    rusqlite::{self, ToSql, ffi, types::ToSqlOutput},
+    rusqlite::{
+        self, ToSql, ffi,
+        types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
+    },
 };
 
 use uuid::Uuid;
@@ -181,7 +184,7 @@ fn fetch_events_since(
         )
         .expect("hardcoded SQL must be valid");
     stmt.query_map([&last_event_id], |row| {
-        let id: i64 = row.get(0).expect("id must be a non-null INTEGER column");
+        let event_id: EventId = row.get(0).expect("id must be a non-null INTEGER column");
         let message_id: Vec<u8> = row
             .get(1)
             .expect("message_id must be a non-null BLOB column");
@@ -201,7 +204,7 @@ fn fetch_events_since(
             content,
         };
         let event = Event {
-            id: EventId(id as u64),
+            id: event_id,
             message,
             timestamp_ms: timestamp_ms as u64,
         };
@@ -213,6 +216,13 @@ fn fetch_events_since(
 impl ToSql for EventId {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::from(self.0 as i64))
+    }
+}
+
+impl FromSql for EventId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let id = i64::column_result(value)?;
+        Ok(EventId(id as u64))
     }
 }
 
