@@ -64,7 +64,6 @@
 	.message-row {
 		display: flex;
 		justify-content: flex-start;
-		margin-bottom: 0.5rem;
 	}
 
 	.message-row.me {
@@ -74,6 +73,7 @@
 	.message-content {
 		display: flex;
 		flex-direction: column;
+		gap: 0.2rem;
 		align-items: flex-start;
 		max-width: 70%;
 	}
@@ -86,7 +86,6 @@
 		max-width: 100%;
 		padding: 0.5rem 1rem 0.5rem 1rem;
 		border-radius: 18px;
-		margin-bottom: 0.18rem;
 		background: #e5e7eb;
 		color: #222;
 		position: relative;
@@ -124,7 +123,6 @@
 		font-weight: 600;
 		color: #6366f1;
 		font-size: 0.97rem;
-		margin-bottom: 0.1rem;
 		text-align: left;
 		width: 100%;
 		display: block;
@@ -143,7 +141,6 @@
 	.meta {
 		font-size: 0.78rem;
 		color: #b0b0b0;
-		margin-top: 0.08rem;
 		padding: 0 0.2rem;
 		user-select: none;
 		text-align: left;
