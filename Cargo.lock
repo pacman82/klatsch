@@ -1036,9 +1036,9 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "memory-serve"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "716a3c3ddd0c59144eaf292a9447207f9ef71157d1707aa595ff23e7cf1620fb"
+checksum = "81b5bbad2035f57b1e95f66da606832edd935b47d82312e38e1ccffbcfb8a427"
 dependencies = [
  "axum",
  "brotli",
