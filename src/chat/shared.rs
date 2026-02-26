@@ -1,12 +1,15 @@
 use std::pin::pin;
 
-use async_stream::{stream, try_stream};
-use futures_util::Stream;
+use async_stream::try_stream;
+use futures_util::{Stream, future::Either};
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
-use tokio_stream::StreamExt;
+use tokio_stream::{
+    StreamExt,
+    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
+};
 
 use super::{
     event::{Event, EventId, Message},
@@ -131,32 +134,23 @@ enum Events {
 
 impl Events {
     pub fn into_stream(self) -> impl Stream<Item = Event> + Send {
-        stream! {
-            match self {
-                Events::History(history) => {
-                    for event in history {
-                        yield event;
-                    }
-                },
-                Events::Current(mut current) => {
-                    loop {
-                        match current.recv().await {
-                            Ok(event) => {
-                                yield event;
-                            },
-                            // Slow receiver. Receiver is lagging and messages have been dropped.
-                            Err(broadcast::error::RecvError::Lagged(_skipped)) => {
-                                break;
-                            },
-                            Err(broadcast::error::RecvError::Closed) => {
-                                // Runtime outlives clients
-                                unreachable!("Currently Sender must always outlive receiver.")
-                            }
-                        }
-                    }
-                }
-            }
+        match self {
+            Events::History(history) => Either::Left(Self::history_stream(history)),
+            Events::Current(current) => Either::Right(Self::live_stream(current)),
         }
+    }
+
+    fn history_stream(history: Vec<Event>) -> impl Stream<Item = Event> + Send {
+        tokio_stream::iter(history)
+    }
+
+    fn live_stream(current: broadcast::Receiver<Event>) -> impl Stream<Item = Event> + Send {
+        BroadcastStream::new(current).map_while(|result| match result {
+            Ok(event) => Some(event),
+            // Slow receiver. Receiver is lagging and messages have been dropped. Stopping the
+            // live stream allows us to recover from history.
+            Err(BroadcastStreamRecvError::Lagged(_skipped)) => None,
+        })
     }
 }
 
