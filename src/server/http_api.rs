@@ -14,6 +14,15 @@ use uuid::Uuid;
 
 use crate::chat::{ChatError, Event, Message, SharedChat};
 
+// Additional imports needed for sabatoge mode, which is only available in debug builds
+#[cfg(debug_assertions)]
+use axum::routing::put;
+#[cfg(debug_assertions)]
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 struct HttpError {
     status_code: StatusCode,
     message: Cow<'static, str>,
@@ -46,21 +55,62 @@ pub fn api_router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
 {
-    Router::new()
+    #[cfg(debug_assertions)]
+    let sabotaged = Arc::new(AtomicBool::new(false));
+
+    let events_state = EventsState {
+        chat: chat.clone(),
+        shutting_down,
+        #[cfg(debug_assertions)]
+        sabotaged: sabotaged.clone(),
+    };
+
+    let router = Router::new()
         .route("/api/v0/events", get(events::<C>))
-        .with_state((chat.clone(), shutting_down))
+        .with_state(events_state)
         .route("/api/v0/add_message", post(add_message::<C>))
-        .with_state(chat)
+        .with_state(chat);
+
+    #[cfg(debug_assertions)]
+    let router = router
+        .route("/sabotage", put(set_sabotage))
+        .with_state(sabotaged);
+
+    router
+}
+
+/// State for the events route.
+#[derive(Clone)]
+struct EventsState<C> {
+    /// The chat which provides the events we want to stream to our client
+    chat: C,
+    /// We terminate the events stream in case of a shutdown. So the request finishes cleanly for
+    /// clients. Also graceful shutdown in Axum waits for requests to finish, yet events never
+    /// finish on their own (as there could always be a new message), so graceful shutdown would use
+    /// the entire grace period if even one client is still connected.
+    shutting_down: watch::Receiver<bool>,
+    /// We insert a sabotage error and close the event stream in case sabotage mode is enabled. This
+    /// helps testing the UI in error states, without needing to cause disc i/o errors and messing
+    /// with persistence.
+    #[cfg(debug_assertions)]
+    sabotaged: Arc<AtomicBool>,
 }
 
 async fn events<C>(
-    State((chat, shutting_down)): State<(C, watch::Receiver<bool>)>,
+    state: State<EventsState<C>>,
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: SharedChat + Send + 'static,
 {
+    let EventsState {
+        chat,
+        shutting_down,
+        #[cfg(debug_assertions)]
+        sabotaged,
+    } = state.0;
     let last_event_id = last_event_id.0;
+
     // Convert chat events into SSE events
     let events = chat.events(last_event_id).map(|chat_event| {
         let sse_event = match chat_event {
@@ -71,6 +121,9 @@ where
         };
         Ok(sse_event)
     });
+
+    #[cfg(debug_assertions)]
+    let events = maybe_sabotage(sabotaged, events);
 
     let events = terminate_on_shutdown(events, shutting_down);
 
@@ -126,6 +179,32 @@ where
 {
     chat.add_message(msg).await?;
     Ok(())
+}
+
+/// Developer only endpoint. Enables or disables sabotage mode. Helps with testing the UI behavior
+/// in error states.
+#[cfg(debug_assertions)]
+async fn set_sabotage(State(sabotaged): State<Arc<AtomicBool>>, Json(enabled): Json<bool>) {
+    sabotaged.store(enabled, Ordering::Relaxed);
+}
+
+#[cfg(debug_assertions)]
+fn maybe_sabotage<S>(
+    sabotaged: Arc<AtomicBool>,
+    events: S,
+) -> impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static
+where
+    S: Stream<Item = Result<SseEvent, Infallible>> + Send + 'static,
+{
+    use futures_util::future::Either;
+
+    if sabotaged.load(Ordering::Relaxed) {
+        Either::Left(futures_util::stream::iter([Ok(SseEvent::default()
+            .event("error")
+            .data("Sabotage"))]))
+    } else {
+        Either::Right(events)
+    }
 }
 
 #[cfg(test)]
@@ -444,6 +523,50 @@ mod tests {
 
         // Then the response is 409 Conflict
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn sabotaged_events_stream_receives_error_event() {
+        // Given a server
+        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, shutting_down);
+
+        // When sabotage is enabled and events are requested
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::put("/sabotage")
+                    .header("content-type", "application/json")
+                    .body(Body::from("true"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then the stream contains an error event identifying the saboteur
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec();
+        let expected_body = "\
+            event: error\n\
+            data: Sabotage\n\
+            \n";
+        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
     }
 
     // Spy that records calls to add_message and events for later inspection
