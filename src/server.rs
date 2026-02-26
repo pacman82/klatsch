@@ -1,6 +1,6 @@
 mod http_api;
 mod last_event_id;
-mod terminate_on_shutdown;
+mod terminate_if;
 mod ui;
 
 use axum::{Router, routing::get};

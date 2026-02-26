@@ -18,10 +18,7 @@ use crate::chat::{ChatError, Event, Message, SharedChat};
 #[cfg(debug_assertions)]
 use axum::routing::put;
 #[cfg(debug_assertions)]
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 
 struct HttpError {
     status_code: StatusCode,
@@ -49,20 +46,20 @@ impl From<ChatError> for HttpError {
     }
 }
 
-use super::{last_event_id::LastEventId, terminate_on_shutdown::terminate_on_shutdown};
+use super::{last_event_id::LastEventId, terminate_if::terminate_if};
 
 pub fn api_router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
-    let sabotaged = Arc::new(AtomicBool::new(false));
+    let (sabotage_tx, sabotage_rx) = watch::channel(false);
 
     let events_state = EventsState {
         chat: chat.clone(),
         shutting_down,
         #[cfg(debug_assertions)]
-        sabotaged: sabotaged.clone(),
+        sabotaged: sabotage_rx,
     };
 
     let router = Router::new()
@@ -74,7 +71,7 @@ where
     #[cfg(debug_assertions)]
     let router = router
         .route("/sabotage", put(set_sabotage))
-        .with_state(sabotaged);
+        .with_state(Arc::new(sabotage_tx));
 
     router
 }
@@ -93,7 +90,7 @@ struct EventsState<C> {
     /// helps testing the UI in error states, without needing to cause disc i/o errors and messing
     /// with persistence.
     #[cfg(debug_assertions)]
-    sabotaged: Arc<AtomicBool>,
+    sabotaged: watch::Receiver<bool>,
 }
 
 async fn events<C>(
@@ -125,7 +122,7 @@ where
     #[cfg(debug_assertions)]
     let events = maybe_sabotage(sabotaged, events);
 
-    let events = terminate_on_shutdown(events, shutting_down);
+    let events = terminate_if(events, shutting_down);
 
     Sse::new(events)
 }
@@ -184,26 +181,32 @@ where
 /// Developer only endpoint. Enables or disables sabotage mode. Helps with testing the UI behavior
 /// in error states.
 #[cfg(debug_assertions)]
-async fn set_sabotage(State(sabotaged): State<Arc<AtomicBool>>, Json(enabled): Json<bool>) {
-    sabotaged.store(enabled, Ordering::Relaxed);
+async fn set_sabotage(
+    State(sabotaged): State<Arc<watch::Sender<bool>>>,
+    Json(enabled): Json<bool>,
+) {
+    let _ = sabotaged.send(enabled);
 }
 
 #[cfg(debug_assertions)]
 fn maybe_sabotage<S>(
-    sabotaged: Arc<AtomicBool>,
+    sabotaged: watch::Receiver<bool>,
     events: S,
 ) -> impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static
 where
     S: Stream<Item = Result<SseEvent, Infallible>> + Send + 'static,
 {
-    use futures_util::future::Either;
+    use std::pin::pin;
 
-    if sabotaged.load(Ordering::Relaxed) {
-        Either::Left(futures_util::stream::iter([Ok(SseEvent::default()
-            .event("error")
-            .data("Sabotage"))]))
-    } else {
-        Either::Right(events)
+    let events = terminate_if(events, sabotaged.clone());
+    async_stream::stream! {
+        let mut events = pin!(events);
+        while let Some(event) = futures_util::StreamExt::next(&mut events).await {
+            yield event;
+        }
+        if *sabotaged.borrow() {
+            yield Ok(SseEvent::default().event("error").data("Sabotage"));
+        }
     }
 }
 
@@ -567,6 +570,64 @@ mod tests {
             data: Sabotage\n\
             \n";
         assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn sabotage_interrupts_open_events_stream() {
+        // Given a client receiving events from a server
+        #[derive(Clone)]
+        struct OneEventThenPendingStub;
+        impl SharedChat for OneEventThenPendingStub {
+            fn events(self, _: EventId) -> impl Stream<Item = anyhow::Result<Event>> + Send {
+                tokio_stream::iter(vec![Ok(Event::with_timestamp(
+                    EventId(1),
+                    Message {
+                        id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
+                        sender: "dummy".to_owned(),
+                        content: "dummy".to_owned(),
+                    },
+                    UNIX_EPOCH,
+                ))])
+                .chain(pending())
+            }
+        }
+        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let app = api_router(OneEventThenPendingStub, shutting_down);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut body = response.into_body();
+        let _first_event = body.frame().await;
+
+        // When sabotage is enabled
+        app.oneshot(
+            Request::put("/sabotage")
+                .header("content-type", "application/json")
+                .body(Body::from("true"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        // Then the stream delivers the sabotage error
+        let frame = timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("timed out: sabotage did not interrupt the stream")
+            .unwrap()
+            .unwrap();
+        let bytes = frame.into_data().unwrap();
+        assert_eq!(
+            "event: error\ndata: Sabotage\n\n",
+            String::from_utf8(bytes.to_vec()).unwrap()
+        );
     }
 
     // Spy that records calls to add_message and events for later inspection
