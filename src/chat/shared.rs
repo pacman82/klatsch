@@ -484,7 +484,9 @@ mod tests {
 
         // and after that it waits for the next event
         let mut live = tokio_test::task::spawn(events_stream.next());
-        debug_assert!(live.poll().is_pending());
+        // Drive the task so it registers with the broadcast channel before the message is sent.
+        let poll = live.poll();
+        debug_assert!(poll.is_pending());
 
         // while the client is waiting another client sends a message.
         let live_msg = Message {
