@@ -284,7 +284,7 @@ mod tests {
                 tokio_stream::iter(messages).map(Ok)
             }
         }
-        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let (_, shutting_down) = watch::channel(false);
         let app = api_router(ChatStub, shutting_down);
 
         // When
@@ -335,7 +335,7 @@ mod tests {
                 tokio_stream::iter(vec![Err(anyhow::anyhow!("test error"))])
             }
         }
-        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let (_, shutting_down) = watch::channel(false);
         let app = api_router(ChatSaboteur, shutting_down);
 
         // When requesting events
@@ -532,7 +532,7 @@ mod tests {
     #[tokio::test]
     async fn sabotaged_events_stream_receives_error_event() {
         // Given a server
-        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let (_, shutting_down) = watch::channel(false);
         let app = api_router(Dummy, shutting_down);
 
         // When sabotage is enabled and events are requested
@@ -592,7 +592,7 @@ mod tests {
                 .chain(pending())
             }
         }
-        let (_send_shutdown_trigger, shutting_down) = watch::channel(false);
+        let (_, shutting_down) = watch::channel(false);
         let app = api_router(OneEventThenPendingStub, shutting_down);
         let response = app
             .clone()
