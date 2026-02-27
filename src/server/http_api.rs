@@ -226,7 +226,8 @@ mod tests {
         http::{Request, StatusCode},
     };
     use double_trait::Dummy;
-    use http_body_util::BodyExt as _;
+    use eventsource_stream::Eventsource as _;
+    use http_body_util::{BodyExt as _, BodyStream};
     use serde_json::json;
     use tokio::time::timeout;
     use tokio_stream::pending;
@@ -586,8 +587,8 @@ mod tests {
             )
             .await
             .unwrap();
-        let mut body = response.into_body();
-        let _first_event = body.frame().await;
+        let mut sse = body_to_sse(response.into_body());
+        let _first_event = sse.next().await;
 
         // When sabotage is enabled
         app.oneshot(
@@ -600,16 +601,28 @@ mod tests {
         .unwrap();
 
         // Then the stream delivers the sabotage error
-        let frame = timeout(Duration::from_secs(1), body.frame())
+        let event = timeout(Duration::from_secs(1), sse.next())
             .await
             .expect("timed out: sabotage did not interrupt the stream")
             .unwrap()
             .unwrap();
-        let bytes = frame.into_data().unwrap();
-        assert_eq!(
-            "event: error\ndata: Sabotage\n\n",
-            String::from_utf8(bytes.to_vec()).unwrap()
-        );
+        assert_eq!("error", event.event);
+        assert_eq!("Sabotage", event.data);
+    }
+
+    fn body_to_sse(
+        body: Body,
+    ) -> impl Stream<Item = Result<eventsource_stream::Event, eventsource_stream::EventStreamError<axum::Error>>>
+    {
+        BodyStream::new(body)
+            .map(|result| {
+                result.map(|frame| {
+                    frame
+                        .into_data()
+                        .expect("SSE responses only contain data frames, not trailers")
+                })
+            })
+            .eventsource()
     }
 
     async fn body_to_string(body: Body) -> String {
