@@ -301,13 +301,7 @@ mod tests {
         // Then
         assert_eq!(response.status(), StatusCode::OK);
 
-        let bytes = response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec();
+        let body = body_to_string(response.into_body()).await;
         let expected_body = "id: 1\n\
             data: {\"id\":\"019c0050-e4d7-7447-9d8f-81cde690f4a1\",\"sender\":\"Alice\",\
             \"content\":\"One\",\"timestamp_ms\":1704531600000}\n\
@@ -322,7 +316,7 @@ mod tests {
             id: 4\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
             \"content\":\"Four\",\"timestamp_ms\":1704531603000}\n\
             \n";
-        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
+        assert_eq!(expected_body, body);
     }
 
     #[tokio::test]
@@ -353,18 +347,12 @@ mod tests {
         // - An "error" event type so the UI can distinguish it from normal events.
         // - A generic error message, not the internal cause.
         // - No id field — the client's Last-Event-ID must not advance past the last successful event.
-        let bytes = response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec();
+        let body = body_to_string(response.into_body()).await;
         let expected_body = "\
             event: error\n\
             data: Internal server error\n\
             \n";
-        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
+        assert_eq!(expected_body, body);
     }
 
     #[tokio::test]
@@ -558,18 +546,12 @@ mod tests {
             .unwrap();
 
         // Then the stream contains an error event identifying the saboteur
-        let bytes = response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec();
+        let body = body_to_string(response.into_body()).await;
         let expected_body = "\
             event: error\n\
             data: Sabotage\n\
             \n";
-        assert_eq!(expected_body, String::from_utf8(bytes).unwrap());
+        assert_eq!(expected_body, body);
     }
 
     #[cfg(debug_assertions)]
@@ -628,6 +610,11 @@ mod tests {
             "event: error\ndata: Sabotage\n\n",
             String::from_utf8(bytes.to_vec()).unwrap()
         );
+    }
+
+    async fn body_to_string(body: Body) -> String {
+        let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
     }
 
     // Spy that records calls to add_message and events for later inspection
