@@ -213,7 +213,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::{
-        mem::swap,
+        mem::take,
         sync::{Arc, Mutex},
         time::{Duration, UNIX_EPOCH},
     };
@@ -654,15 +654,11 @@ mod tests {
 
     impl ChatSpy {
         fn take_add_message_record(&self) -> Vec<Message> {
-            let mut tmp = Vec::new();
-            swap(&mut tmp, &mut *self.add_message_record.lock().unwrap());
-            tmp
+            take(&mut *self.add_message_record.lock().unwrap())
         }
 
         fn take_events_record(&self) -> Vec<EventId> {
-            let mut tmp = Vec::new();
-            swap(&mut tmp, &mut *self.events_record.lock().unwrap());
-            tmp
+            take(&mut *self.events_record.lock().unwrap())
         }
     }
 }
