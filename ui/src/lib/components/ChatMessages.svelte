@@ -12,21 +12,22 @@
 
 	let messages: ChatMessage[] = $state([]);
 	let disconnected = $state(false);
+	let serverError: string | null = $state(null);
 
 	onMount(() => {
 		const eventSource = new EventSource('/api/v0/events');
 		eventSource.onmessage = (event) => {
-			try {
-				const msg: ChatMessage = JSON.parse(event.data);
-				messages = [...messages, msg];
-			} catch (e) {
-				console.error('Failed to parse message event', e, event.data);
-			}
+			const msg: ChatMessage = JSON.parse(event.data);
+			messages = [...messages, msg];
 		};
 		eventSource.onopen = () => {
 			disconnected = false;
+			serverError = null;
 		};
-		eventSource.onerror = () => {
+		eventSource.onerror = (e) => {
+			if (e instanceof MessageEvent) {
+				serverError = e.data;
+			}
 			disconnected = true;
 		};
 		return () => {
@@ -50,7 +51,13 @@
 		</div>
 	{/each}
 	{#if disconnected}
-		<p class="receive-error">Reconnecting...</p>
+		<p class="receive-error">
+			{#if serverError}
+				Server error: "{serverError}". Reconnecting...
+			{:else}
+				Error connecting to server. Reconnecting...
+			{/if}
+		</p>
 	{/if}
 </div>
 
