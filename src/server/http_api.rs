@@ -386,12 +386,14 @@ mod tests {
         // - An "error" event type so the UI can distinguish it from normal events.
         // - A generic error message, not the internal cause.
         // - No id field — the client's Last-Event-ID must not advance past the last successful event.
-        let body = body_to_string(response.into_body()).await;
-        let expected_body = "\
-            event: error\n\
-            data: Internal server error\n\
-            \n";
-        assert_eq!(expected_body, body);
+        let event = body_to_sse(response.into_body())
+            .next()
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.event, "error");
+        assert_eq!(event.data, "Internal server error");
+        assert!(event.id.is_empty(), "error events must not advance Last-Event-ID");
     }
 
     #[tokio::test]
