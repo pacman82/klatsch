@@ -234,7 +234,7 @@ mod tests {
     use tower::ServiceExt; // for `oneshot`
 
     #[tokio::test]
-    async fn messages_route_returns_hardcoded_messages_stream() {
+    async fn events_route_forwards_events_from_chat() {
         // Given
         #[derive(Clone)]
         struct ChatStub;
@@ -301,23 +301,61 @@ mod tests {
 
         // Then
         assert_eq!(response.status(), StatusCode::OK);
+        let actual: Vec<_> = body_to_sse(response.into_body())
+            .map(|r| r.unwrap())
+            .map(|event| {
+                (
+                    event.id.parse::<u64>().unwrap(),
+                    event.event,
+                    serde_json::from_str::<serde_json::Value>(&event.data).unwrap(),
+                )
+            })
+            .collect()
+            .await;
 
-        let body = body_to_string(response.into_body()).await;
-        let expected_body = "id: 1\n\
-            data: {\"id\":\"019c0050-e4d7-7447-9d8f-81cde690f4a1\",\"sender\":\"Alice\",\
-            \"content\":\"One\",\"timestamp_ms\":1704531600000}\n\
-            \n\
-            id: 2\n\
-            data: {\"id\":\"019c0051-c29d-7968-b953-4adc898b1360\",\"sender\":\"Bob\",\"content\":\
-            \"Two\",\"timestamp_ms\":1704531601000}\n\
-            \n\
-            id: 3\ndata: {\"id\":\"019c0051-e50d-7ea7-8a0e-f7df4176dd93\",\"sender\":\"Alice\",\
-            \"content\":\"Three\",\"timestamp_ms\":1704531602000}\n\
-            \n\
-            id: 4\ndata: {\"id\":\"019c0052-09b0-73be-a145-3767cb10cdf6\",\"sender\":\"Bob\",\
-            \"content\":\"Four\",\"timestamp_ms\":1704531603000}\n\
-            \n";
-        assert_eq!(expected_body, body);
+        let expected = [
+            (
+                1,
+                "message".to_owned(),
+                json!({
+                    "id": "019c0050-e4d7-7447-9d8f-81cde690f4a1",
+                    "sender": "Alice",
+                    "content": "One",
+                    "timestamp_ms": 1704531600000u64
+                }),
+            ),
+            (
+                2,
+                "message".to_owned(),
+                json!({
+                    "id": "019c0051-c29d-7968-b953-4adc898b1360",
+                    "sender": "Bob",
+                    "content": "Two",
+                    "timestamp_ms": 1704531601000u64
+                }),
+            ),
+            (
+                3,
+                "message".to_owned(),
+                json!({
+                    "id": "019c0051-e50d-7ea7-8a0e-f7df4176dd93",
+                    "sender": "Alice",
+                    "content": "Three",
+                    "timestamp_ms": 1704531602000u64
+                }),
+            ),
+            (
+                4,
+                "message".to_owned(),
+                json!({
+                    "id": "019c0052-09b0-73be-a145-3767cb10cdf6",
+                    "sender": "Bob",
+                    "content": "Four",
+                    "timestamp_ms": 1704531603000u64
+                }),
+            ),
+        ];
+        assert_eq!(expected.as_slice(), &actual);
     }
 
     #[tokio::test]
@@ -612,8 +650,9 @@ mod tests {
 
     fn body_to_sse(
         body: Body,
-    ) -> impl Stream<Item = Result<eventsource_stream::Event, eventsource_stream::EventStreamError<axum::Error>>>
-    {
+    ) -> impl Stream<
+        Item = Result<eventsource_stream::Event, eventsource_stream::EventStreamError<axum::Error>>,
+    > {
         BodyStream::new(body)
             .map(|result| {
                 result.map(|frame| {
