@@ -587,12 +587,13 @@ mod tests {
             .unwrap();
 
         // Then the stream contains an error event identifying the saboteur
-        let body = body_to_string(response.into_body()).await;
-        let expected_body = "\
-            event: error\n\
-            data: Sabotage\n\
-            \n";
-        assert_eq!(expected_body, body);
+        let event = body_to_sse(response.into_body())
+            .next()
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.event, "error");
+        assert_eq!(event.data, "Sabotage");
     }
 
     #[cfg(debug_assertions)]
@@ -664,11 +665,6 @@ mod tests {
                 })
             })
             .eventsource()
-    }
-
-    async fn body_to_string(body: Body) -> String {
-        let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-        String::from_utf8(bytes.to_vec()).unwrap()
     }
 
     // Spy that records calls to add_message and events for later inspection
