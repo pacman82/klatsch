@@ -1,4 +1,5 @@
 use std::{
+    path::Path,
     process::Stdio,
     time::{Duration, Instant},
 };
@@ -30,7 +31,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServer::new().await;
+    let mut child = TestServer::new(None).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -56,7 +57,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServer::new().await;
+    let mut child = TestServer::new(None).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -76,7 +77,7 @@ async fn server_boots_within_one_sec() {
     let start = Instant::now();
 
     // When measuring the time it takes to boot
-    let _child = TestServer::new().await;
+    let _child = TestServer::new(None).await;
     let end = Instant::now();
 
     // Then it should have taken less than 1 second to boot up
@@ -87,7 +88,7 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn health_check_returns_200_ok() {
     // Given a running server
-    let server = TestServer::new().await;
+    let server = TestServer::new(None).await;
 
     // When requesting the health check endpoint
     let response = server.health_check().await;
@@ -100,13 +101,19 @@ async fn health_check_returns_200_ok() {
 #[tokio::test]
 async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
-    let server = TestServer::new().await;
-    server
-        .send_message(json!({"id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "sender": "Alice", "content": "Hello"}))
-        .await;
-    server
-        .send_message(json!({"id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995", "sender": "Bob", "content": "Hi there"}))
-        .await;
+    let server = TestServer::new(None).await;
+    let msg = json!({
+        "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
+        "sender": "Alice",
+        "content": "Hello"
+    });
+    server.send_message(msg).await;
+    let msg = json!({
+        "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
+        "sender": "Bob",
+        "content": "Hi there"
+    });
+    server.send_message(msg).await;
 
     // When requesting the events stream
     let mut sse = server.events().await;
@@ -130,9 +137,56 @@ async fn sent_messages_appear_in_event_stream() {
 
 #[cfg(not(windows))]
 #[tokio::test]
+async fn persistence() {
+    // Given a server that accepted two messages
+    let db_dir = tempfile::tempdir().unwrap();
+    let db_path = db_dir.path().join("klatsch.db");
+
+    let mut server = TestServer::new(Some(&db_path)).await;
+    let msg = json!({
+        "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
+        "sender": "Alice",
+        "content": "Hello"
+    });
+    server.send_message(msg).await;
+    let msg = json!({
+        "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
+        "sender": "Bob",
+        "content": "Hi there"
+    });
+    server.send_message(msg).await;
+
+    // When restarting with the same database
+    server.send_sigterm();
+    server
+        .wait_for_termination(Duration::from_secs(5))
+        .await
+        .unwrap();
+    let server = TestServer::new(Some(&db_path)).await;
+
+    // Then the messages are still available
+    let mut sse = server.events().await;
+    let event_1 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for first event")
+        .unwrap();
+    let event_2 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for second event")
+        .unwrap();
+    let data_1: serde_json::Value = serde_json::from_str(&event_1.data).unwrap();
+    assert_eq!(data_1["sender"], "Alice");
+    assert_eq!(data_1["content"], "Hello");
+    let data_2: serde_json::Value = serde_json::from_str(&event_2.data).unwrap();
+    assert_eq!(data_2["sender"], "Bob");
+    assert_eq!(data_2["content"], "Hi there");
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServer::new().await;
+    let mut child = TestServer::new(None).await;
 
     // and a client connected to the events stream
     let _event_stream_body = child
@@ -167,13 +221,18 @@ struct TestServer {
     #[cfg_attr(windows, allow(dead_code))]
     process: ServerProcess,
     _log_observer: LogObserver,
+    // Empty working directory so the server's dotenv() doesn't pick up the developer's .env file.
+    _working_dir: tempfile::TempDir,
     port: u16,
     client: Client,
 }
 
 impl TestServer {
-    async fn new() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_klatsch"))
+    async fn new(db_path: Option<&Path>) -> Self {
+        let working_dir = tempfile::tempdir().unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_klatsch"));
+        cmd
+            .current_dir(working_dir.path())
             // Let the OS assign a free port so tests can run in parallel without clashing. The
             // actual port is learned later from the server's log output.
             .env("PORT", "0")
@@ -182,9 +241,11 @@ impl TestServer {
             // We do not want the log output of the process to clutter the output of our test
             // runner.
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        if let Some(path) = db_path {
+            cmd.env("DATABASE_PATH", path);
+        }
+        let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();
         let process = ServerProcess::new(child);
         let mut log_observer = LogObserver::new(stderr);
@@ -196,6 +257,7 @@ impl TestServer {
         Self {
             process,
             _log_observer: log_observer,
+            _working_dir: working_dir,
             port,
             client,
         }
