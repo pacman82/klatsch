@@ -4,6 +4,6 @@ mod shared;
 
 pub use self::{
     event::{Event, EventId, Message},
-    history::{ChatError, InMemoryChatHistory},
+    history::{ChatError, SqLiteChatHistory},
     shared::{ChatRuntime, SharedChat},
 };
