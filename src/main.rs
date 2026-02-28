@@ -10,7 +10,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::{
-    chat::{ChatRuntime, InMemoryChatHistory},
+    chat::{ChatRuntime, SqLiteChatHistory},
     configuration::Configuration,
     server::Server,
     shutdown::shutdown_signal,
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting");
 
     // Initialize persistence for chat
-    let history = InMemoryChatHistory::new().await?;
+    let history = SqLiteChatHistory::new().await?;
 
     // Forward messages between peers in the chat
     let chat = ChatRuntime::new(history);
