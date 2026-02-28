@@ -1,3 +1,7 @@
 .env
 
 /target
+
+klatsch.db
+klatsch.db-shm
+klatsch.db-wal

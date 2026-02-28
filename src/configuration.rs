@@ -1,5 +1,6 @@
 use std::{
     env::{self, VarError},
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -12,6 +13,8 @@ pub struct Configuration {
     port: u16,
     /// Host name or IP address to bind to.
     host: String,
+    /// Path to the SQLite database file. If not set, the database is in-memory only.
+    database_path: Option<PathBuf>,
 }
 
 impl Configuration {
@@ -19,14 +22,24 @@ impl Configuration {
     pub fn from_env() -> anyhow::Result<Self> {
         let host = extract_env_var("HOST")?.unwrap_or_else(|| "0.0.0.0".to_owned());
         let port = extract_env_var("PORT")?.unwrap_or(3000);
+        let database_path = extract_env_var("DATABASE_PATH")?;
 
-        let cfg = Configuration { host, port };
+        let cfg = Configuration {
+            host,
+            port,
+            database_path,
+        };
         Ok(cfg)
     }
 
     /// The address the server should bind to.
     pub fn socket_addr(&self) -> (&str, u16) {
         (&self.host, self.port)
+    }
+
+    /// Path to the SQLite database file, if configured.
+    pub fn database_path(&self) -> Option<&Path> {
+        self.database_path.as_deref()
     }
 }
 
