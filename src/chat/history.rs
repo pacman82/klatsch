@@ -1,9 +1,10 @@
 use std::{future::Future, path::Path};
 
-use tracing::error;
+use anyhow::bail;
+use tracing::{error, info};
 
 use async_sqlite::{
-    Client, ClientBuilder,
+    Client, ClientBuilder, JournalMode,
     rusqlite::{
         self, ToSql, ffi,
         types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
@@ -85,15 +86,17 @@ impl SqLiteChatHistory {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
         if let Some(path) = persistence {
-            builder = builder.path(path);
+            builder = builder.path(path).journal_mode(JournalMode::Wal);
         }
         let db = builder
             .open()
             .await
             .inspect_err(|err| error!("Failed to open database: {err}"))?;
-        db.conn_mut(|conn| migrate(conn))
+        let outcome = db
+            .conn_mut(|conn| migrate(conn))
             .await
             .inspect_err(|err| error!("Failed to migrate database: {err}"))?;
+        outcome.report_migration_status()?;
         let last_event_id = db
             .conn(|conn| {
                 conn.query_row("SELECT MAX(id) FROM events", [], |row| {
@@ -112,6 +115,74 @@ impl SqLiteChatHistory {
     }
 }
 
+enum MigrationOutcome {
+    /// Found an empty database and created the schema from scratch.
+    Created,
+    /// Found a recent schema. No migration was necessary.
+    NoMigration,
+    /// Found a future schema version. Aborted to prevent data loss.
+    Future { version: u32 },
+}
+
+impl MigrationOutcome {
+    fn report_migration_status(self) -> anyhow::Result<()> {
+        match self {
+            MigrationOutcome::Created => {
+                info!("New database created");
+                Ok(())
+            }
+            MigrationOutcome::NoMigration => Ok(()),
+            MigrationOutcome::Future { version } => {
+                error!(
+                    "Database schema version ({version}) is newer than supported. Aborting to \
+                    prevent data corruption."
+                );
+                bail!(
+                    "Chat History has been created by a newer version. To load it you need to \
+                    upgrade to a newer version."
+                )
+            }
+        }
+    }
+}
+
+fn migrate(conn: &mut rusqlite::Connection) -> Result<MigrationOutcome, rusqlite::Error> {
+    let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    // Version 0 is the initial version of an empty database. We regard creating a new database as a
+    // migration from version 0 to the current version.
+    let outcome = match version {
+        // New empty database. Create schema from scratch
+        0 => {
+            let tx = conn.transaction()?;
+            create_schema(&tx)?;
+            tx.pragma_update(None, "user_version", 1)?;
+            tx.commit()?;
+            MigrationOutcome::Created
+        }
+        // Current version, do nothing.
+        1 => MigrationOutcome::NoMigration,
+        // Future version. Abort and report error in order to prevent data loss.
+        future_version => MigrationOutcome::Future {
+            version: future_version,
+        },
+    };
+    Ok(outcome)
+}
+
+fn create_schema(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "CREATE TABLE events (
+            id INTEGER PRIMARY KEY,
+            message_id BLOB UNIQUE NOT NULL,
+            sender TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL
+        )",
+        (),
+    )?;
+    Ok(())
+}
+
 enum InsertOutcome {
     /// The message has not been previously recorded and has been added to the record.
     New,
@@ -119,28 +190,6 @@ enum InsertOutcome {
     Duplicate,
     /// A different message with the same id has been previously recorded. No change to the record
     Conflict,
-}
-
-fn migrate(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
-    let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    // Version 0 is the initial version of an empty database. We regard creating a new database as a
-    // migration from version 0 to the current version.
-    if version == 0 {
-        let tx = conn.transaction()?;
-        tx.execute(
-            "CREATE TABLE events (
-                id INTEGER PRIMARY KEY,
-                message_id BLOB UNIQUE NOT NULL,
-                sender TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp_ms INTEGER NOT NULL
-            )",
-            (),
-        )?;
-        tx.pragma_update(None, "user_version", 1)?;
-        tx.commit()?;
-    }
-    Ok(())
 }
 
 fn insert_event(
@@ -384,6 +433,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn last_event_id_exceeds_total_number_of_events() {
+        // Given a history with one message
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        history
+            .record_message(dummy_message(
+                "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            ))
+            .await
+            .unwrap();
+
+        // When retrieving events since an id beyond the history
+        let events = history.events_since(EventId(2)).await.unwrap();
+
+        // Then no events are returned
+        assert!(events.is_empty());
+    }
+
+    #[tokio::test]
     async fn persistence() {
         // Given a history backed by a file with two recorded messages
         let dir = tempfile::tempdir().unwrap();
@@ -417,20 +484,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn last_event_id_exceeds_total_number_of_events() {
-        // Given a history with one message
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+    async fn rejects_database_from_newer_version() {
+        // Given a database with a schema version newer than supported
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("chat.db");
+        let history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
         history
-            .record_message(dummy_message(
-                "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            ))
+            .conn
+            .conn_mut(|conn| conn.pragma_update(None, "user_version", 1_000))
             .await
             .unwrap();
+        drop(history);
 
-        // When retrieving events since an id beyond the history
-        let events = history.events_since(EventId(2)).await.unwrap();
+        // When trying to open the database
+        let result = SqLiteChatHistory::new(Some(&db_path)).await;
 
-        // Then no events are returned
-        assert!(events.is_empty());
+        // Then it fails with a clear error
+        let Err(err) = result else {
+            panic!("Must reject newer schema version");
+        };
+        assert_eq!(
+            err.to_string(),
+            "Chat History has been created by a newer version. To load it you need to upgrade to a \
+            newer version."
+        );
     }
 }
