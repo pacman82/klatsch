@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, path::Path};
 
 use tracing::error;
 
@@ -82,29 +82,31 @@ pub struct SqLiteChatHistory {
 }
 
 impl SqLiteChatHistory {
-    pub async fn new() -> anyhow::Result<Self> {
-        // Opening the database without a path creates an in-memory database.
-        let db = ClientBuilder::new()
+    pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
+        let mut builder = ClientBuilder::new();
+        if let Some(path) = persistence {
+            builder = builder.path(path);
+        }
+        let db = builder
             .open()
             .await
             .inspect_err(|err| error!("Failed to open database: {err}"))?;
-        db.conn(|conn| {
-            conn.execute(
-                "CREATE TABLE events (
-                    id INTEGER PRIMARY KEY,
-                    message_id BLOB UNIQUE NOT NULL,
-                    sender TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp_ms INTEGER NOT NULL
-                )",
-                (),
-            )
-        })
-        .await
-        .inspect_err(|err| error!("Failed to create events table: {err}"))?;
+        db.conn_mut(|conn| migrate(conn))
+            .await
+            .inspect_err(|err| error!("Failed to migrate database: {err}"))?;
+        let last_event_id = db
+            .conn(|conn| {
+                conn.query_row("SELECT MAX(id) FROM events", [], |row| {
+                    Ok(row
+                        .get::<_, Option<EventId>>(0)?
+                        .unwrap_or(EventId::before_all()))
+                })
+            })
+            .await
+            .inspect_err(|err| error!("Failed to read last event id: {err}"))?;
         let new = SqLiteChatHistory {
             conn: db,
-            last_event_id: EventId::before_all(),
+            last_event_id,
         };
         Ok(new)
     }
@@ -117,6 +119,28 @@ enum InsertOutcome {
     Duplicate,
     /// A different message with the same id has been previously recorded. No change to the record
     Conflict,
+}
+
+fn migrate(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    // Version 0 is the initial version of an empty database. We regard creating a new database as a
+    // migration from version 0 to the current version.
+    if version == 0 {
+        let tx = conn.transaction()?;
+        tx.execute(
+            "CREATE TABLE events (
+                id INTEGER PRIMARY KEY,
+                message_id BLOB UNIQUE NOT NULL,
+                sender TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp_ms INTEGER NOT NULL
+            )",
+            (),
+        )?;
+        tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()?;
+    }
+    Ok(())
 }
 
 fn insert_event(
@@ -242,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn recorded_message_is_preserved_in_event() {
         // Given a chat history
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
 
         // When recording a message ...
         let msg = Message {
@@ -260,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn messages_are_retrieved_in_insertion_order() {
         // Given an empty chat history
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
 
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -279,7 +303,7 @@ mod tests {
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three messages
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
@@ -299,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_message_id_is_not_stored() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -335,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -360,9 +384,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn persistence() {
+        // Given a history backed by a file with two recorded messages
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("chat.db");
+        let mut history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
+        history
+            .record_message(Message {
+                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+                sender: "Alice".to_owned(),
+                content: "Hello".to_owned(),
+            })
+            .await
+            .unwrap();
+        history
+            .record_message(Message {
+                id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
+                sender: "Bob".to_owned(),
+                content: "Hi there".to_owned(),
+            })
+            .await
+            .unwrap();
+        let before = history.events_since(EventId::before_all()).await.unwrap();
+
+        // When reopening the history from the same file
+        drop(history);
+        let history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
+
+        // Then all events are restored
+        let after = history.events_since(EventId::before_all()).await.unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new().await.unwrap();
+        let mut history = SqLiteChatHistory::new(None).await.unwrap();
         history
             .record_message(dummy_message(
                 "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
