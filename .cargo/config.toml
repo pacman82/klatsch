@@ -1,0 +1,5 @@
+[env]
+# Suppress the noisy build output of the memory serve crate during debug builds. Otherwise it warns
+# for every asset that it is loaded dynamically. Even if the force-embed feature is actually
+# enabled.
+MEMORY_SERVE_QUIET = "1"
