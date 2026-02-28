@@ -3,7 +3,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use eventsource_stream::Eventsource as _;
+use futures_util::StreamExt as _;
 use reqwest::Client;
+use serde_json::json;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
@@ -94,6 +97,37 @@ async fn health_check_returns_200_ok() {
     assert_eq!(response.text().await.unwrap(), "OK");
 }
 
+#[tokio::test]
+async fn sent_messages_appear_in_event_stream() {
+    // Given a server with two messages
+    let server = TestServer::new().await;
+    server
+        .send_message(json!({"id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "sender": "Alice", "content": "Hello"}))
+        .await;
+    server
+        .send_message(json!({"id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995", "sender": "Bob", "content": "Hi there"}))
+        .await;
+
+    // When requesting the events stream
+    let mut sse = server.events().await;
+
+    // Then both messages appear in order
+    let event_1 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for first event")
+        .unwrap();
+    let event_2 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for second event")
+        .unwrap();
+    let data_1: serde_json::Value = serde_json::from_str(&event_1.data).unwrap();
+    let data_2: serde_json::Value = serde_json::from_str(&event_2.data).unwrap();
+    assert_eq!(data_1["sender"], "Alice");
+    assert_eq!(data_1["content"], "Hello");
+    assert_eq!(data_2["sender"], "Bob");
+    assert_eq!(data_2["content"], "Hi there");
+}
+
 #[cfg(not(windows))]
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
@@ -175,14 +209,31 @@ impl TestServer {
             .expect("Failed to send health check request")
     }
 
-    // Supported on every platform, but so far only used in unix-specific tests.
-    #[cfg(unix)]
-    async fn request_event_stream(&mut self) -> reqwest::Response {
+    async fn request_event_stream(&self) -> reqwest::Response {
         self.client
             .get(format!("http://localhost:{}/api/v0/events", self.port))
             .send()
             .await
             .expect("Failed to connect to events stream")
+    }
+
+    async fn events(&self) -> impl futures_util::Stream<Item = eventsource_stream::Event> {
+        self.request_event_stream()
+            .await
+            .bytes_stream()
+            .eventsource()
+            .map(|r| r.expect("SSE event must be parseable"))
+    }
+
+    async fn send_message(&self, message: serde_json::Value) {
+        self.client
+            .post(format!("http://localhost:{}/api/v0/add_message", self.port))
+            .json(&message)
+            .send()
+            .await
+            .expect("Failed to send message")
+            .error_for_status()
+            .expect("Server rejected message");
     }
 
     #[cfg(unix)]
