@@ -32,7 +32,9 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .with_writer(stderr)
         .with_env_filter(
-            EnvFilter::default().add_directive("klatsch=info".parse().unwrap()),
+            EnvFilter::default()
+                .add_directive("memory_serve=off".parse().unwrap())
+                .add_directive("klatsch=info".parse().unwrap()),
         )
         .finish();
     tracing::subscriber::set_global_default(subscriber)

@@ -6,6 +6,8 @@ fn main() {
     execute_npm_command(&["install"]);
     // Build the ui
     execute_npm_command(&["run", "build"]);
+    // Make the ui part of the binary
+    memory_serve::load_directory("./ui/build");
 }
 
 #[cfg(not(windows))]
