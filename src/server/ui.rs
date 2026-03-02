@@ -8,8 +8,6 @@ pub fn ui_router() -> Router {
         .into_router()
 }
 
-// Memory serve does not work correctly with windows in debug.
-#[cfg(not(windows))]
 #[cfg(test)]
 mod tests {
     use axum::{body::Body, http::Request};
