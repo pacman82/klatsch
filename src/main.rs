@@ -2,18 +2,17 @@ mod chat;
 mod configuration;
 mod server;
 mod shutdown;
+mod tracing;
 
-use std::io::stderr;
-
+use ::tracing::info;
 use dotenv::dotenv;
-use tracing::info;
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::{
     chat::{ChatRuntime, SqLiteChatHistory},
     configuration::Configuration,
     server::Server,
     shutdown::shutdown_signal,
+    tracing::init_tracing,
 };
 
 #[tokio::main]
@@ -26,19 +25,7 @@ async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     let cfg = Configuration::from_env()?;
 
-    let subscriber = FmtSubscriber::builder()
-        // Surpress rendering of module path. We do not want to bother our operators with our
-        // internal module structure.
-        .with_target(false)
-        .with_writer(stderr)
-        .with_env_filter(
-            EnvFilter::default()
-                .add_directive("memory_serve=off".parse().unwrap())
-                .add_directive("klatsch=info".parse().unwrap()),
-        )
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Setting global default provider must not fail.");
+    init_tracing();
 
     info!("Starting");
 
