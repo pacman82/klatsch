@@ -393,7 +393,10 @@ mod tests {
             .unwrap();
         assert_eq!(event.event, "error");
         assert_eq!(event.data, "Internal server error");
-        assert!(event.id.is_empty(), "error events must not advance Last-Event-ID");
+        assert!(
+            event.id.is_empty(),
+            "error events must not advance Last-Event-ID"
+        );
     }
 
     #[tokio::test]
