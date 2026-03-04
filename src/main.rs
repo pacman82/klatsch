@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
 
     init_tracing();
 
-    info!("Starting");
+    info!(target: "app", "Starting");
 
     // Initialize persistence for chat
     let history = SqLiteChatHistory::new(cfg.database_path()).await?;
@@ -37,11 +37,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Answer incoming HTTP requests
     let server = Server::new(cfg.socket_addr(), chat.client()).await?;
-    info!("Ready");
+    info!(target: "app", "Ready");
 
     // Run our application until a shutdown signal is received
     shutdown.await;
-    info!("Shutdown signal received");
+    info!(target: "app", "Shutdown signal received");
 
     // Gracefully shutdown the http server.
     server.shutdown().await;
@@ -50,6 +50,6 @@ async fn main() -> anyhow::Result<()> {
     // relies on it.
     chat.shutdown().await;
 
-    info!("Shutdown complete");
+    info!(target: "app", "Shutdown complete");
     Ok(())
 }

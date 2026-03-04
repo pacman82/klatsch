@@ -231,8 +231,7 @@ impl TestServer {
     async fn new(db_path: Option<&Path>) -> Self {
         let working_dir = tempfile::tempdir().unwrap();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_klatsch"));
-        cmd
-            .current_dir(working_dir.path())
+        cmd.current_dir(working_dir.path())
             // Let the OS assign a free port so tests can run in parallel without clashing. The
             // actual port is learned later from the server's log output.
             .env("PORT", "0")

@@ -1,17 +1,17 @@
 use std::io::stderr;
 
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 pub fn init_tracing() {
     let subscriber = FmtSubscriber::builder()
-        // Surpress rendering of module path. We do not want to bother our operators with our
-        // internal module structure.
-        .with_target(false)
         .with_writer(stderr)
         .with_env_filter(
-            EnvFilter::default()
-                .add_directive("memory_serve=off".parse().unwrap())
-                .add_directive("klatsch=info".parse().unwrap()),
+            EnvFilter::builder()
+                .with_env_var("LOG_LEVEL")
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("memory_serve=off".parse().unwrap()),
         )
         .finish();
     tracing::subscriber::set_global_default(subscriber)

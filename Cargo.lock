@@ -989,6 +989,7 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tower",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1994,6 +1995,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

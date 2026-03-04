@@ -16,6 +16,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "rt", "signal"] }
 # `sync` feature is required for `BroadcastStream`.
 tokio-stream = { version = "0.1.18", features = ["sync"] }
+# Axum builds on top of tower. We use it directly to inject tracing middleware to gain observability
+# into http requests.
+tower-http = { version = "0.6.8", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 uuid = { version = "1.21.0", features = ["serde"] }

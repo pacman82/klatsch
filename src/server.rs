@@ -3,14 +3,21 @@ mod last_event_id;
 mod terminate_if;
 mod ui;
 
-use axum::{Router, routing::get};
+use std::time::Duration;
+
+use axum::{
+    Router,
+    http::{HeaderMap, Request, Response},
+    routing::get,
+};
 
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
     sync::watch,
     task::JoinHandle,
 };
-use tracing::info;
+use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
+use tracing::{Span, debug, debug_span, error, info};
 
 use crate::chat::SharedChat;
 
@@ -41,6 +48,7 @@ impl Server {
         // on which port the server listens. The integration tests utilize binding to port `0` in
         // order to run in parallel without clashing on ports.
         info!(
+            target: "server",
             port = listener
                 .local_addr()
                 .expect("Listener must have local address after binding")
@@ -77,8 +85,54 @@ fn router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
 {
-    Router::new()
+    let router = Router::new()
         .route("/health", get(|| async { "OK" }))
         .merge(api_router(chat, shutting_down))
-        .merge(ui_router())
+        .merge(ui_router());
+
+    add_tracing_layer(router)
+}
+
+/// Extends the router with a tracing layer. We want to log request spans as part of the http
+/// target. Function operates on `Router` as the types for Tracing layers or the constraints on
+/// Layer traits are rather verbose.
+fn add_tracing_layer(router: Router) -> Router {
+    // Mostly we want to replace targets like tower_http::trace::on_request with our own "http"
+    // target. We imagine not only developers operating klatsch. Therfore what modules and libraries
+    // we use should be an implementation detail.
+    router.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|request: &Request<_>| {
+                debug_span!(
+                    target: "http",
+                    "request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                )
+            })
+            .on_request(|_: &Request<_>, _: &Span| {
+                debug!(target: "http", "Started");
+            })
+            .on_response(|response: &Response<_>, latency: Duration, _: &Span| {
+                debug!(
+                    target: "http",
+                    status = response.status().as_u16(),
+                    latency_ms = latency.as_millis(),
+                    "Finished"
+                );
+            })
+            .on_eos(|_trailers: Option<&HeaderMap>, stream_duration: Duration, _: &Span| {
+                  debug!(target: "http", stream_duration_ms = stream_duration.as_millis(), "End of stream");
+            })
+            .on_failure(
+                |error: ServerErrorsFailureClass, latency: Duration, _: &Span| {
+                    error!(
+                        target: "http",
+                        %error,
+                        latency_ms = latency.as_millis(),
+                        "Failed"
+                    );
+                },
+            ),
+    )
 }
