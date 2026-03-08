@@ -14,8 +14,13 @@
 	let disconnected = $state(false);
 	let serverError: string | null = $state(null);
 
-	onMount(() => {
-		const eventSource = new EventSource('/api/v0/events');
+	// Keep track of the current event source. It can change during the course of the component's life.
+	// In case the server ends the event stream properly (e.g. during a graceful shutdown), the
+	// auto-reconnect of EventSource won't trigger, so we create it anew.
+	let eventSource: EventSource;
+
+	function connect() {
+		eventSource = new EventSource('/api/v0/events');
 		eventSource.onmessage = (event) => {
 			const msg: ChatMessage = JSON.parse(event.data);
 			messages = [...messages, msg];
@@ -29,7 +34,16 @@
 				serverError = e.data;
 			}
 			disconnected = true;
+			// If the server ended the stream properly it won't automatically reconnect. In this case we
+			// create a new EventSource in order to reconnect.
+			if (eventSource.readyState === EventSource.CLOSED) {
+				connect();
+			}
 		};
+	}
+
+	onMount(() => {
+		connect();
 		return () => {
 			eventSource.close();
 		};
