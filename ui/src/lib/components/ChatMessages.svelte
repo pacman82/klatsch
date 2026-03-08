@@ -10,6 +10,8 @@
 		timestamp_ms: number;
 	};
 
+	let { eventsUrl = '/api/v0/events' }: { eventsUrl?: string } = $props();
+
 	let messages: ChatMessage[] = $state([]);
 	let disconnected = $state(false);
 	let serverError: string | null = $state(null);
@@ -20,7 +22,7 @@
 	let eventSource: EventSource;
 
 	function connect() {
-		eventSource = new EventSource('/api/v0/events');
+		eventSource = new EventSource(eventsUrl);
 		eventSource.onmessage = (event) => {
 			const msg: ChatMessage = JSON.parse(event.data);
 			messages = [...messages, msg];

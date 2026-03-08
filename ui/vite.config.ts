@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 import dotenv from 'dotenv';
+import {
+	startSseServer, sendSseEvent, waitForSseClient, endSseStream, stopSseServer
+} from './src/lib/components/test-commands/sse-server';
 
 dotenv.config();
 
@@ -19,7 +22,8 @@ export default defineConfig({
 		browser: {
 			enabled: true,
 			provider: playwright(),
-			instances: [{ browser: 'chromium', headless: true }]
+			instances: [{ browser: 'chromium', headless: true }],
+			commands: { startSseServer, sendSseEvent, waitForSseClient, endSseStream, stopSseServer }
 		},
 		include: ['src/**/*.svelte.{test,spec}.{js,ts}']
 	}
