@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { v7 } from 'uuid';
-	import { user } from '$lib/stores/user';
+	import { user } from '$lib/user.svelte';
 
 	type SendMessage = {
 		id: string;
@@ -26,8 +26,8 @@
 		const content = message_content.trim();
 		if (!content) return;
 
-		const sender = $user;
-		if (!sender) return;
+		const sender = user.current;
+		if (!sender) throw new Error("SendMessage rendered without a logged-in user");
 
 		const id = is_retry ? last_attempt!.id : v7();
 		last_attempt = { id, content };

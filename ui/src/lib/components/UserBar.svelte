@@ -1,10 +1,14 @@
 <script lang="ts">
-	import { user } from '$lib/stores/user';
+	import { user } from '$lib/user.svelte';
+
+	function logout() {
+		user.logout();
+	}
 </script>
 
 <div class="user-bar">
-	<span>Logged in as <strong>{$user}</strong></span>
-	<button onclick={() => user.set(null)}>Log out</button>
+	<span>Logged in as <strong>{user.current}</strong></span>
+	<button onclick={logout}>Log out</button>
 </div>
 
 <style>
