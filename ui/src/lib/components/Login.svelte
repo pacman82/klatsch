@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { user } from '$lib/stores/user';
+	import { user } from '$lib/user.svelte';
 
 	let name = $state('');
 
 	function join(e: SubmitEvent) {
 		e.preventDefault();
 		const trimmed = name.trim();
-		if (trimmed) user.set(trimmed);
+		if (trimmed) user.login(trimmed);
 	}
 </script>
 

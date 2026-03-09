@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { user } from '$lib/stores/user';
+	import { user } from '$lib/user.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import UserBar from '$lib/components/UserBar.svelte';
 	import ChatMessages from '$lib/components/ChatMessages.svelte';
@@ -8,7 +8,7 @@
 
 <svelte:head><title>Klatsch</title></svelte:head>
 
-{#if $user}
+{#if user.current}
 	<UserBar />
 	<ChatMessages />
 	<SendMessage />

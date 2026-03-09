@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { user } from '$lib/stores/user';
+	import { user } from '$lib/user.svelte';
 
 	type ChatMessage = {
 		id: string;
@@ -52,10 +52,10 @@
 
 <div class="chat-container">
 	{#each messages as msg (msg.id)}
-		<div class="message-row {msg.sender == $user ? 'me' : 'them'}">
+		<div class="message-row {msg.sender == user.current ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !(msg.sender == $user)}
+					{#if !(msg.sender == user.current)}
 						<span class="sender">{msg.sender}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>

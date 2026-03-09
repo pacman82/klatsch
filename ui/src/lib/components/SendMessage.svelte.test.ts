@@ -1,10 +1,10 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi, beforeEach } from 'vitest';
 import SendMessage from './SendMessage.svelte';
-import { user } from '$lib/stores/user';
+import { user } from '$lib/user.svelte';
 
 beforeEach(() => {
-	user.set('TestUser');
+	user.login('TestUser');
 });
 
 test('resubmitting same text after failure is considered retry of same message', async () => {
