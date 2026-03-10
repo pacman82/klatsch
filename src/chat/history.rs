@@ -49,7 +49,7 @@ impl Chat for SqLiteChatHistory {
         self.conn
             .conn(move |conn| fetch_events_since(conn, last_event_id))
             .await
-            .inspect_err(|err| error!("Failed to read events: {err}"))
+            .inspect_err(|err| error!(target: "persistence", "Failed to read events: {err}"))
             .map_err(Into::into)
     }
 
@@ -69,7 +69,7 @@ impl Chat for SqLiteChatHistory {
             Ok(InsertOutcome::Duplicate) => Ok(None),
             Ok(InsertOutcome::Conflict) => Err(ChatError::Conflict),
             Err(err) => {
-                error!("Failed to record event: {err}");
+                error!(target: "persistence", "Failed to record event: {err}");
                 Err(ChatError::Internal)
             }
         }
@@ -91,11 +91,10 @@ impl SqLiteChatHistory {
         let db = builder
             .open()
             .await
-            .inspect_err(|err| error!("Failed to open database: {err}"))?;
-        let outcome = db
-            .conn_mut(|conn| migrate(conn))
-            .await
-            .inspect_err(|err| error!("Failed to migrate database: {err}"))?;
+            .inspect_err(|err| error!(target: "persistence", "Failed to open database: {err}"))?;
+        let outcome = db.conn_mut(|conn| migrate(conn)).await.inspect_err(
+            |err| error!(target: "persistence", "failed to migrate database: {err}"),
+        )?;
         outcome.report_migration_status()?;
         let last_event_id = db
             .conn(|conn| {
@@ -106,7 +105,9 @@ impl SqLiteChatHistory {
                 })
             })
             .await
-            .inspect_err(|err| error!("Failed to read last event id: {err}"))?;
+            .inspect_err(
+                |err| error!(target: "persistence", "Failed to read last event id: {err}"),
+            )?;
         let new = SqLiteChatHistory {
             conn: db,
             last_event_id,
@@ -128,7 +129,7 @@ impl MigrationOutcome {
     fn report_migration_status(self) -> anyhow::Result<()> {
         match self {
             MigrationOutcome::Created => {
-                info!("New database created");
+                info!(target: "persistence", "New database created");
                 Ok(())
             }
             MigrationOutcome::NoMigration => Ok(()),
