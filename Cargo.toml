@@ -12,6 +12,10 @@ dotenv = "0.15.0"
 futures-util = "0.3.32"
 http-body-util = "0.1.3"
 memory-serve = { version = "2.1.0" }
+# Used to implement log formatting. We need our own formatting in order to provide operater-friendly
+# sources in the logs. E.g. `server` instead of `axum::serve` and `http` instead of
+# `tower_http::trace::on_request`.
+nu-ansi-term = "0.50.3"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "rt", "signal"] }
 # `sync` feature is required for `BroadcastStream`.

@@ -100,6 +100,9 @@ fn add_tracing_layer(router: Router) -> Router {
     // Mostly we want to replace targets like tower_http::trace::on_request with our own "http"
     // target. We imagine not only developers operating klatsch. Therfore what modules and libraries
     // we use should be an implementation detail.
+    //
+    // We could also change the target in formatting, however I do like the terser messageing we've
+    // chosen here.
     router.layer(
         TraceLayer::new_for_http()
             .make_span_with(|request: &Request<_>| {

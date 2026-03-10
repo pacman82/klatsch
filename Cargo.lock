@@ -981,6 +981,7 @@ dependencies = [
  "http-body-util",
  "memory-serve",
  "nix",
+ "nu-ansi-term",
  "reqwest",
  "serde",
  "serde_json",
