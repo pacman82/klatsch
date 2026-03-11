@@ -139,10 +139,9 @@ async fn sent_messages_appear_in_event_stream() {
 #[tokio::test]
 async fn persistence() {
     // Given a server that accepted two messages
-    let db_dir = tempfile::tempdir().unwrap();
-    let db_path = db_dir.path().join("klatsch.db");
+    let persistence_dir = tempfile::tempdir().unwrap();
 
-    let mut server = TestServer::new(Some(&db_path)).await;
+    let mut server = TestServer::new(Some(persistence_dir.path())).await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
         "sender": "Alice",
@@ -162,7 +161,7 @@ async fn persistence() {
         .wait_for_termination(Duration::from_secs(5))
         .await
         .unwrap();
-    let server = TestServer::new(Some(&db_path)).await;
+    let server = TestServer::new(Some(persistence_dir.path())).await;
 
     // Then the messages are still available
     let mut sse = server.events().await;
@@ -242,7 +241,7 @@ impl TestServer {
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(path) = db_path {
-            cmd.env("DATABASE_PATH", path);
+            cmd.env("PERSISTENCE_DIRECTORY", path);
         }
         let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();

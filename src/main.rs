@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     info!(target: "app", "Starting");
 
     // Initialize persistence for chat
-    let history = SqLiteChatHistory::new(cfg.database_path()).await?;
+    let history = SqLiteChatHistory::new(cfg.persistence_dir()).await?;
 
     // Forward messages between peers in the chat
     let chat = ChatRuntime::new(history);

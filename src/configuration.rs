@@ -13,8 +13,8 @@ pub struct Configuration {
     port: u16,
     /// Host name or IP address to bind to.
     host: String,
-    /// Path to the SQLite database file. If not set, the database is in-memory only.
-    database_path: Option<PathBuf>,
+    /// Directory for persistent storage. If not set, the database is in-memory only.
+    persistence_dir: Option<PathBuf>,
 }
 
 impl Configuration {
@@ -22,12 +22,12 @@ impl Configuration {
     pub fn from_env() -> anyhow::Result<Self> {
         let host = extract_env_var("HOST")?.unwrap_or_else(|| "0.0.0.0".to_owned());
         let port = extract_env_var("PORT")?.unwrap_or(3000);
-        let database_path = extract_env_var("DATABASE_PATH")?;
+        let persistence_dir = extract_env_var("PERSISTENCE_DIRECTORY")?;
 
         let cfg = Configuration {
             host,
             port,
-            database_path,
+            persistence_dir,
         };
         Ok(cfg)
     }
@@ -37,9 +37,9 @@ impl Configuration {
         (&self.host, self.port)
     }
 
-    /// Path to the SQLite database file, if configured.
-    pub fn database_path(&self) -> Option<&Path> {
-        self.database_path.as_deref()
+    /// Directory for persistent storage, if configured.
+    pub fn persistence_dir(&self) -> Option<&Path> {
+        self.persistence_dir.as_deref()
     }
 }
 
