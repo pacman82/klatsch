@@ -1,7 +1,8 @@
+# Environment variables file controlling local development setup
 .env
 
+# Build targets
 /target
 
-klatsch.db
-klatsch.db-shm
-klatsch.db-wal
+# Persistence for running klatsch locally
+/data

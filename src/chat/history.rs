@@ -85,8 +85,8 @@ pub struct SqLiteChatHistory {
 impl SqLiteChatHistory {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
-        if let Some(path) = persistence {
-            builder = builder.path(path).journal_mode(JournalMode::Wal);
+        if let Some(dir) = persistence {
+            builder = builder.path(dir.join("klatsch.db")).journal_mode(JournalMode::Wal);
         }
         let db = builder
             .open()
@@ -455,8 +455,7 @@ mod tests {
     async fn persistence() {
         // Given a history backed by a file with two recorded messages
         let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("chat.db");
-        let mut history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
+        let mut history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
         history
             .record_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -475,9 +474,9 @@ mod tests {
             .unwrap();
         let before = history.events_since(EventId::before_all()).await.unwrap();
 
-        // When reopening the history from the same file
+        // When reopening the history from the same directory
         drop(history);
-        let history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
+        let history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
 
         // Then all events are restored
         let after = history.events_since(EventId::before_all()).await.unwrap();
@@ -488,8 +487,7 @@ mod tests {
     async fn rejects_database_from_newer_version() {
         // Given a database with a schema version newer than supported
         let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("chat.db");
-        let history = SqLiteChatHistory::new(Some(&db_path)).await.unwrap();
+        let history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
         history
             .conn
             .conn_mut(|conn| conn.pragma_update(None, "user_version", 1_000))
@@ -498,7 +496,7 @@ mod tests {
         drop(history);
 
         // When trying to open the database
-        let result = SqLiteChatHistory::new(Some(&db_path)).await;
+        let result = SqLiteChatHistory::new(Some(dir.path())).await;
 
         // Then it fails with a clear error
         let Err(err) = result else {
