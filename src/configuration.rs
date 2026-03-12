@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 
 /// All static configuration for the application. I.e. configuration which does not change during
 /// the runtime without a restart.
@@ -22,7 +22,12 @@ impl Configuration {
     pub fn from_env() -> anyhow::Result<Self> {
         let host = extract_env_var("HOST")?.unwrap_or_else(|| "0.0.0.0".to_owned());
         let port = extract_env_var("PORT")?.unwrap_or(3000);
-        let persistence_dir = extract_env_var("PERSISTENCE_DIRECTORY")?;
+        let persistence = extract_bool_env_var("PERSISTENCE")?.unwrap_or(true);
+        let persistence_dir = if persistence {
+            Some(extract_env_var("PERSISTENCE_DIRECTORY")?.unwrap_or_else(|| "data".into()))
+        } else {
+            None
+        };
 
         let cfg = Configuration {
             host,
@@ -62,13 +67,25 @@ where
     Ok(value)
 }
 
+fn extract_bool_env_var(var_name: &str) -> anyhow::Result<Option<bool>> {
+    let value = handle_invalid_unicode(env::var(var_name))?;
+    match value.as_deref() {
+        None => Ok(None),
+        Some(s) if s.eq_ignore_ascii_case("true") => Ok(Some(true)),
+        Some(s) if s.eq_ignore_ascii_case("false") => Ok(Some(false)),
+        Some(s) => Err(anyhow!(
+            "{var_name} must be 'true' or 'false' (case insensitive), got '{s}'"
+        )),
+    }
+}
+
 fn extract_env_var<T>(var_name: &str) -> anyhow::Result<Option<T>>
 where
     T: FromStr,
     T::Err: Into<anyhow::Error> + Send + Sync + std::error::Error + 'static,
 {
     parse_from_env_result(env::var(var_name))
-        .with_context(|| format!("Error parsing environment variable '{var_name}'"))
+        .with_context(|| format!("Invalid environment variable '{var_name}'"))
 }
 
 #[cfg(test)]

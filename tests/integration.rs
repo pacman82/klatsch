@@ -240,8 +240,9 @@ impl TestServer {
             // runner.
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
-        if let Some(path) = db_path {
-            cmd.env("PERSISTENCE_DIRECTORY", path);
+        match db_path {
+            Some(path) => { cmd.env("PERSISTENCE_DIRECTORY", path); }
+            None => { cmd.env("PERSISTENCE", "false"); }
         }
         let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();
