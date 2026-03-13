@@ -46,7 +46,8 @@ pub enum ChatError {
 
 impl Chat for SqLiteChatHistory {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        self.conn
+        self.persistence
+            .conn
             .conn(move |conn| fetch_events_since(conn, last_event_id))
             .await
             .inspect_err(|err| error!(target: "persistence", "Failed to read events: {err}"))
@@ -58,6 +59,7 @@ impl Chat for SqLiteChatHistory {
         let event = Event::new(event_id, message);
         let row = event.clone();
         let result = self
+            .persistence
             .conn
             .conn_mut(move |conn| insert_event(conn, &row))
             .await;
@@ -77,7 +79,7 @@ impl Chat for SqLiteChatHistory {
 }
 
 pub struct SqLiteChatHistory {
-    conn: Client,
+    persistence: Persistence,
     /// Identifying the event which has last been emited.
     last_event_id: EventId,
 }
@@ -86,7 +88,9 @@ impl SqLiteChatHistory {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
         if let Some(dir) = persistence {
-            builder = builder.path(dir.join("klatsch.db")).journal_mode(JournalMode::Wal);
+            builder = builder
+                .path(dir.join("klatsch.db"))
+                .journal_mode(JournalMode::Wal);
         }
         let db = builder
             .open()
@@ -108,8 +112,9 @@ impl SqLiteChatHistory {
             .inspect_err(
                 |err| error!(target: "persistence", "Failed to read last event id: {err}"),
             )?;
+        let persistence = Persistence { conn: db };
         let new = SqLiteChatHistory {
-            conn: db,
+            persistence,
             last_event_id,
         };
         Ok(new)
@@ -298,6 +303,10 @@ impl FromSql for EventId {
         let id = i64::column_result(value)?;
         Ok(EventId(id as u64))
     }
+}
+
+struct Persistence {
+    conn: Client,
 }
 
 #[cfg(test)]
@@ -489,6 +498,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
         history
+            .persistence
             .conn
             .conn_mut(|conn| conn.pragma_update(None, "user_version", 1_000))
             .await
