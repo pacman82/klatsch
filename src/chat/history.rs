@@ -3,15 +3,14 @@ use std::{future::Future, path::Path};
 use anyhow::bail;
 use tracing::{error, info};
 
-use async_sqlite::{
-    Client, ClientBuilder, JournalMode,
-    rusqlite::{
-        self, ToSql, ffi,
-        types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
-    },
+use async_sqlite::rusqlite::{
+    self, ToSql, ffi,
+    types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
 };
 
 use uuid::Uuid;
+
+use crate::persistence::Persistence;
 
 use super::event::{Event, EventId, Message};
 
@@ -86,21 +85,17 @@ pub struct SqLiteChatHistory {
 
 impl SqLiteChatHistory {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
-        let mut builder = ClientBuilder::new();
-        if let Some(dir) = persistence {
-            builder = builder
-                .path(dir.join("klatsch.db"))
-                .journal_mode(JournalMode::Wal);
-        }
-        let db = builder
-            .open()
+        let persistence = Persistence::new(persistence).await?;
+        let outcome = persistence
+            .conn
+            .conn_mut(|conn| migrate(conn))
             .await
-            .inspect_err(|err| error!(target: "persistence", "Failed to open database: {err}"))?;
-        let outcome = db.conn_mut(|conn| migrate(conn)).await.inspect_err(
-            |err| error!(target: "persistence", "failed to migrate database: {err}"),
-        )?;
+            .inspect_err(
+                |err| error!(target: "persistence", "failed to migrate database: {err}"),
+            )?;
         outcome.report_migration_status()?;
-        let last_event_id = db
+        let last_event_id = persistence
+            .conn
             .conn(|conn| {
                 conn.query_row("SELECT MAX(id) FROM events", [], |row| {
                     Ok(row
@@ -112,7 +107,6 @@ impl SqLiteChatHistory {
             .inspect_err(
                 |err| error!(target: "persistence", "Failed to read last event id: {err}"),
             )?;
-        let persistence = Persistence { conn: db };
         let new = SqLiteChatHistory {
             persistence,
             last_event_id,
@@ -303,10 +297,6 @@ impl FromSql for EventId {
         let id = i64::column_result(value)?;
         Ok(EventId(id as u64))
     }
-}
-
-struct Persistence {
-    conn: Client,
 }
 
 #[cfg(test)]
