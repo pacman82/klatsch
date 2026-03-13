@@ -4,7 +4,7 @@ use anyhow::bail;
 use tracing::{error, info};
 
 use async_sqlite::rusqlite::{
-    self, ToSql, ffi,
+    self, Row, ToSql, ffi,
     types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
 };
 
@@ -45,12 +45,39 @@ pub enum ChatError {
 
 impl Chat for SqLiteChatHistory {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        self.persistence
-            .conn
-            .conn(move |conn| fetch_events_since(conn, last_event_id))
-            .await
-            .inspect_err(|err| error!(target: "persistence", "Failed to read events: {err}"))
-            .map_err(Into::into)
+        let query = "SELECT id, message_id, sender, content, timestamp_ms \
+            FROM events \
+            WHERE id > ?1 ORDER BY id";
+
+        let map = |row: &Row<'_>| {
+            let event_id: EventId = row.get(0).expect("id must be a non-null INTEGER column");
+            let message_id: Vec<u8> = row
+                .get(1)
+                .expect("message_id must be a non-null BLOB column");
+            let message_id = Uuid::from_bytes(
+                message_id
+                    .try_into()
+                    .expect("message_id must be a 16-byte BLOB column"),
+            );
+            let sender = row.get(2).expect("sender must be a non-null TEXT column");
+            let content = row.get(3).expect("content must be a non-null TEXT column");
+            let timestamp_ms: i64 = row
+                .get(4)
+                .expect("timestamp_ms must be a non-null INTEGER column");
+            let message = Message {
+                id: message_id,
+                sender,
+                content,
+            };
+            let event = Event {
+                id: event_id,
+                message,
+                timestamp_ms: timestamp_ms as u64,
+            };
+            Ok(event)
+        };
+
+        self.persistence.rows(query, [last_event_id], map).await
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -244,46 +271,6 @@ fn insert_event(
     } else {
         Ok(InsertOutcome::Conflict)
     }
-}
-
-fn fetch_events_since(
-    conn: &rusqlite::Connection,
-    last_event_id: EventId,
-) -> Result<Vec<Event>, rusqlite::Error> {
-    let mut stmt = conn
-        .prepare_cached(
-            "SELECT id, message_id, sender, content, timestamp_ms
-             FROM events WHERE id > ?1 ORDER BY id",
-        )
-        .expect("hardcoded SQL must be valid");
-    stmt.query_map([&last_event_id], |row| {
-        let event_id: EventId = row.get(0).expect("id must be a non-null INTEGER column");
-        let message_id: Vec<u8> = row
-            .get(1)
-            .expect("message_id must be a non-null BLOB column");
-        let message_id = Uuid::from_bytes(
-            message_id
-                .try_into()
-                .expect("message_id must be a 16-byte BLOB column"),
-        );
-        let sender = row.get(2).expect("sender must be a non-null TEXT column");
-        let content = row.get(3).expect("content must be a non-null TEXT column");
-        let timestamp_ms: i64 = row
-            .get(4)
-            .expect("timestamp_ms must be a non-null INTEGER column");
-        let message = Message {
-            id: message_id,
-            sender,
-            content,
-        };
-        let event = Event {
-            id: event_id,
-            message,
-            timestamp_ms: timestamp_ms as u64,
-        };
-        Ok(event)
-    })?
-    .collect()
 }
 
 impl ToSql for EventId {
