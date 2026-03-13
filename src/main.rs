@@ -1,5 +1,6 @@
 mod chat;
 mod configuration;
+mod persistence;
 mod server;
 mod shutdown;
 mod tracing;
