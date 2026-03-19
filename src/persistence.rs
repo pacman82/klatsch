@@ -27,7 +27,49 @@ impl Persistence {
         Ok(persistence)
     }
 
-    pub async fn rows<O>(
+    pub async fn transaction<O>(
+        &self,
+        f: impl FnOnce(&rusqlite::Connection) -> Result<O, rusqlite::Error> + Send + 'static,
+    ) -> Result<O, anyhow::Error>
+    where
+        O: Send + 'static,
+    {
+        self.conn
+            .conn_mut(move |conn| {
+                let transaction = conn.transaction()?;
+                let out = f(&transaction)?;
+                transaction.commit()?;
+                Ok(out)
+            })
+            .await
+            .inspect_err(|err| error!(target: "persistence", "Transaction failed: {err}"))
+            .map_err(Into::into)
+    }
+
+    pub async fn row<O>(
+        &self,
+        query: &'static str,
+        params: impl Params + Send + 'static,
+        map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
+    ) -> anyhow::Result<O>
+    where
+        O: Send + 'static,
+    {
+        let fetch_row = |conn: &rusqlite::Connection| {
+            let mut stmt = conn
+                .prepare_cached(query)
+                .expect("hardcoded SQL must be valid");
+            stmt.query_row(params, map)
+        };
+
+        self.conn
+            .conn(move |conn| fetch_row(conn))
+            .await
+            .inspect_err(|err| error!(target: "persistence", "Failed to read row: {err}"))
+            .map_err(Into::into)
+    }
+
+    pub async fn rows_vec<O>(
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,

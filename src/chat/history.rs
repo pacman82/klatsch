@@ -77,7 +77,7 @@ impl Chat for SqLiteChatHistory {
             Ok(event)
         };
 
-        self.persistence.rows(query, [last_event_id], map).await
+        self.persistence.rows_vec(query, [last_event_id], map).await
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -86,8 +86,7 @@ impl Chat for SqLiteChatHistory {
         let row = event.clone();
         let result = self
             .persistence
-            .conn
-            .conn_mut(move |conn| insert_event(conn, &row))
+            .transaction(move |conn| insert_event(conn, &row))
             .await;
         match result {
             Ok(InsertOutcome::New) => {
@@ -96,10 +95,7 @@ impl Chat for SqLiteChatHistory {
             }
             Ok(InsertOutcome::Duplicate) => Ok(None),
             Ok(InsertOutcome::Conflict) => Err(ChatError::Conflict),
-            Err(err) => {
-                error!(target: "persistence", "Failed to record event: {err}");
-                Err(ChatError::Internal)
-            }
+            Err(_err) => Err(ChatError::Internal),
         }
     }
 }
@@ -122,18 +118,12 @@ impl SqLiteChatHistory {
             )?;
         outcome.report_migration_status()?;
         let last_event_id = persistence
-            .conn
-            .conn(|conn| {
-                conn.query_row("SELECT MAX(id) FROM events", [], |row| {
-                    Ok(row
-                        .get::<_, Option<EventId>>(0)?
-                        .unwrap_or(EventId::before_all()))
-                })
+            .row("SELECT MAX(id) FROM events", (), |row| {
+                Ok(row
+                    .get::<_, Option<EventId>>(0)?
+                    .unwrap_or(EventId::before_all()))
             })
-            .await
-            .inspect_err(
-                |err| error!(target: "persistence", "Failed to read last event id: {err}"),
-            )?;
+            .await?;
         let new = SqLiteChatHistory {
             persistence,
             last_event_id,
