@@ -1,8 +1,5 @@
 use std::{future::Future, path::Path};
 
-use anyhow::bail;
-use tracing::{error, info};
-
 use async_sqlite::rusqlite::{
     self, Row, ToSql, ffi,
     types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
@@ -108,15 +105,7 @@ pub struct SqLiteChatHistory {
 
 impl SqLiteChatHistory {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
-        let persistence = Persistence::new(persistence).await?;
-        let outcome = persistence
-            .conn
-            .conn_mut(|conn| migrate(conn))
-            .await
-            .inspect_err(
-                |err| error!(target: "persistence", "failed to migrate database: {err}"),
-            )?;
-        outcome.report_migration_status()?;
+        let persistence = Persistence::new(persistence, create_schema).await?;
         let last_event_id = persistence
             .row("SELECT MAX(id) FROM events", (), |row| {
                 Ok(row
@@ -130,60 +119,6 @@ impl SqLiteChatHistory {
         };
         Ok(new)
     }
-}
-
-enum MigrationOutcome {
-    /// Found an empty database and created the schema from scratch.
-    Created,
-    /// Found a recent schema. No migration was necessary.
-    NoMigration,
-    /// Found a future schema version. Aborted to prevent data loss.
-    Future { version: u32 },
-}
-
-impl MigrationOutcome {
-    fn report_migration_status(self) -> anyhow::Result<()> {
-        match self {
-            MigrationOutcome::Created => {
-                info!(target: "persistence", "New database created");
-                Ok(())
-            }
-            MigrationOutcome::NoMigration => Ok(()),
-            MigrationOutcome::Future { version } => {
-                error!(
-                    "Database schema version ({version}) is newer than supported. Aborting to \
-                    prevent data corruption."
-                );
-                bail!(
-                    "Chat History has been created by a newer version. To load it you need to \
-                    upgrade to a newer version."
-                )
-            }
-        }
-    }
-}
-
-fn migrate(conn: &mut rusqlite::Connection) -> Result<MigrationOutcome, rusqlite::Error> {
-    let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    // Version 0 is the initial version of an empty database. We regard creating a new database as a
-    // migration from version 0 to the current version.
-    let outcome = match version {
-        // New empty database. Create schema from scratch
-        0 => {
-            let tx = conn.transaction()?;
-            create_schema(&tx)?;
-            tx.pragma_update(None, "user_version", 1)?;
-            tx.commit()?;
-            MigrationOutcome::Created
-        }
-        // Current version, do nothing.
-        1 => MigrationOutcome::NoMigration,
-        // Future version. Abort and report error in order to prevent data loss.
-        future_version => MigrationOutcome::Future {
-            version: future_version,
-        },
-    };
-    Ok(outcome)
 }
 
 fn create_schema(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
@@ -457,32 +392,5 @@ mod tests {
         // Then all events are restored
         let after = history.events_since(EventId::before_all()).await.unwrap();
         assert_eq!(before, after);
-    }
-
-    #[tokio::test]
-    async fn rejects_database_from_newer_version() {
-        // Given a database with a schema version newer than supported
-        let dir = tempfile::tempdir().unwrap();
-        let history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
-        history
-            .persistence
-            .conn
-            .conn_mut(|conn| conn.pragma_update(None, "user_version", 1_000))
-            .await
-            .unwrap();
-        drop(history);
-
-        // When trying to open the database
-        let result = SqLiteChatHistory::new(Some(dir.path())).await;
-
-        // Then it fails with a clear error
-        let Err(err) = result else {
-            panic!("Must reject newer schema version");
-        };
-        assert_eq!(
-            err.to_string(),
-            "Chat History has been created by a newer version. To load it you need to upgrade to a \
-            newer version."
-        );
     }
 }
