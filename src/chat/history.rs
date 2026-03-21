@@ -7,7 +7,7 @@ use async_sqlite::rusqlite::{
 
 use uuid::Uuid;
 
-use crate::persistence::SqlitePersistence;
+use crate::persistence::{Persistence, SqlitePersistence};
 
 use super::event::{Event, EventId, Message};
 
