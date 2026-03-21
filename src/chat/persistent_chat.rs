@@ -40,7 +40,7 @@ pub enum ChatError {
     Internal,
 }
 
-impl Chat for PersistentChat {
+impl Chat for PersistentChat<SqlitePersistence> {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT id, message_id, sender, content, timestamp_ms \
             FROM events \
@@ -97,13 +97,13 @@ impl Chat for PersistentChat {
     }
 }
 
-pub struct PersistentChat {
-    persistence: SqlitePersistence,
+pub struct PersistentChat<P> {
+    persistence: P,
     /// Identifying the event which has last been emited.
     last_event_id: EventId,
 }
 
-impl PersistentChat {
+impl PersistentChat<SqlitePersistence> {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
         let persistence = SqlitePersistence::new(persistence, create_schema).await?;
         let last_event_id = persistence
