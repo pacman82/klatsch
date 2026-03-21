@@ -8,28 +8,28 @@ use async_sqlite::{
 use tracing::{error, info};
 
 pub trait Persistence {
-    async fn transaction<O>(
+    fn transaction<O>(
         &self,
         f: impl FnOnce(&rusqlite::Connection) -> Result<O, rusqlite::Error> + Send + 'static,
-    ) -> Result<O, anyhow::Error>
+    ) -> impl Future<Output = Result<O, anyhow::Error>> + Send
     where
         O: Send + 'static;
 
-    async fn row<O>(
+    fn row<O>(
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
-    ) -> anyhow::Result<O>
+    ) -> impl Future<Output = anyhow::Result<O>> + Send
     where
         O: Send + 'static;
 
-    async fn rows_vec<O>(
+    fn rows_vec<O>(
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
-    ) -> anyhow::Result<Vec<O>>
+    ) -> impl Future<Output = anyhow::Result<Vec<O>>> + Send
     where
         O: Send + 'static;
 }
