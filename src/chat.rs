@@ -1,9 +1,9 @@
 mod event;
-mod history;
+mod persistent_chat;
 mod shared;
 
 pub use self::{
     event::{Event, EventId, Message},
-    history::{ChatError, SqLiteChatHistory},
+    persistent_chat::{ChatError, PersistentChat},
     shared::{ChatRuntime, SharedChat},
 };

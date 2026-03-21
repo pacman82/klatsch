@@ -13,7 +13,7 @@ use tokio_stream::{
 
 use super::{
     event::{Event, EventId, Message},
-    history::{Chat, ChatError},
+    persistent_chat::{Chat, ChatError},
 };
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
