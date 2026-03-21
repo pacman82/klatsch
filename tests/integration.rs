@@ -241,8 +241,12 @@ impl TestServer {
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         match db_path {
-            Some(path) => { cmd.env("PERSISTENCE_DIRECTORY", path); }
-            None => { cmd.env("PERSISTENCE", "false"); }
+            Some(path) => {
+                cmd.env("PERSISTENCE_DIRECTORY", path);
+            }
+            None => {
+                cmd.env("PERSISTENCE", "false");
+            }
         }
         let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();

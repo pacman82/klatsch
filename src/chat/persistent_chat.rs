@@ -40,7 +40,7 @@ pub enum ChatError {
     Internal,
 }
 
-impl Chat for SqLiteChatHistory {
+impl Chat for PersistentChat {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT id, message_id, sender, content, timestamp_ms \
             FROM events \
@@ -97,13 +97,13 @@ impl Chat for SqLiteChatHistory {
     }
 }
 
-pub struct SqLiteChatHistory {
+pub struct PersistentChat {
     persistence: SqlitePersistence,
     /// Identifying the event which has last been emited.
     last_event_id: EventId,
 }
 
-impl SqLiteChatHistory {
+impl PersistentChat {
     pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
         let persistence = SqlitePersistence::new(persistence, create_schema).await?;
         let last_event_id = persistence
@@ -113,7 +113,7 @@ impl SqLiteChatHistory {
                     .unwrap_or(EventId::before_all()))
             })
             .await?;
-        let new = SqLiteChatHistory {
+        let new = PersistentChat {
             persistence,
             last_event_id,
         };
@@ -227,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn recorded_message_is_preserved_in_event() {
         // Given a chat history
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
 
         // When recording a message ...
         let msg = Message {
@@ -245,7 +245,7 @@ mod tests {
     #[tokio::test]
     async fn messages_are_retrieved_in_insertion_order() {
         // Given an empty chat history
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
 
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -264,7 +264,7 @@ mod tests {
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three messages
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
@@ -284,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_message_id_is_not_stored() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -320,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -347,7 +347,7 @@ mod tests {
     #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let mut history = SqLiteChatHistory::new(None).await.unwrap();
+        let mut history = PersistentChat::new(None).await.unwrap();
         history
             .record_message(dummy_message(
                 "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -366,7 +366,7 @@ mod tests {
     async fn persistence() {
         // Given a history backed by a file with two recorded messages
         let dir = tempfile::tempdir().unwrap();
-        let mut history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
+        let mut history = PersistentChat::new(Some(dir.path())).await.unwrap();
         history
             .record_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -387,7 +387,7 @@ mod tests {
 
         // When reopening the history from the same directory
         drop(history);
-        let history = SqLiteChatHistory::new(Some(dir.path())).await.unwrap();
+        let history = PersistentChat::new(Some(dir.path())).await.unwrap();
 
         // Then all events are restored
         let after = history.events_since(EventId::before_all()).await.unwrap();
