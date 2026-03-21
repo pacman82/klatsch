@@ -7,11 +7,11 @@ use async_sqlite::{
 };
 use tracing::{error, info};
 
-pub struct Persistence {
+pub struct SqlitePersistence {
     conn: Client,
 }
 
-impl Persistence {
+impl SqlitePersistence {
     pub async fn new(
         directory: Option<&Path>,
         create_schema: impl for<'any> FnOnce(&rusqlite::Connection) -> Result<(), rusqlite::Error>
@@ -37,7 +37,7 @@ impl Persistence {
             )?;
         outcome.report_migration_status()?;
 
-        let persistence = Persistence { conn };
+        let persistence = SqlitePersistence { conn };
         Ok(persistence)
     }
 
@@ -166,7 +166,7 @@ fn migrate(
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientBuilder, JournalMode, Persistence, rusqlite};
+    use super::{ClientBuilder, JournalMode, SqlitePersistence, rusqlite};
 
     #[tokio::test]
     async fn rejects_database_from_newer_version() {
@@ -184,7 +184,7 @@ mod tests {
         let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
 
         // When trying to open the database
-        let result = Persistence::new(Some(dir.path()), dummy_migration).await;
+        let result = SqlitePersistence::new(Some(dir.path()), dummy_migration).await;
 
         // Then it fails with a clear error
         let Err(err) = result else {
