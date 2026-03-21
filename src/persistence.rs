@@ -7,6 +7,33 @@ use async_sqlite::{
 };
 use tracing::{error, info};
 
+pub trait Persistence {
+    async fn transaction<O>(
+        &self,
+        f: impl FnOnce(&rusqlite::Connection) -> Result<O, rusqlite::Error> + Send + 'static,
+    ) -> Result<O, anyhow::Error>
+    where
+        O: Send + 'static;
+
+    async fn row<O>(
+        &self,
+        query: &'static str,
+        params: impl Params + Send + 'static,
+        map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
+    ) -> anyhow::Result<O>
+    where
+        O: Send + 'static;
+
+    async fn rows_vec<O>(
+        &self,
+        query: &'static str,
+        params: impl Params + Send + 'static,
+        map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
+    ) -> anyhow::Result<Vec<O>>
+    where
+        O: Send + 'static;
+}
+
 pub struct SqlitePersistence {
     conn: Client,
 }
@@ -40,8 +67,10 @@ impl SqlitePersistence {
         let persistence = SqlitePersistence { conn };
         Ok(persistence)
     }
+}
 
-    pub async fn transaction<O>(
+impl Persistence for SqlitePersistence {
+    async fn transaction<O>(
         &self,
         f: impl FnOnce(&rusqlite::Connection) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> Result<O, anyhow::Error>
@@ -60,7 +89,7 @@ impl SqlitePersistence {
             .map_err(Into::into)
     }
 
-    pub async fn row<O>(
+    async fn row<O>(
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
@@ -83,7 +112,7 @@ impl SqlitePersistence {
             .map_err(Into::into)
     }
 
-    pub async fn rows_vec<O>(
+    async fn rows_vec<O>(
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
