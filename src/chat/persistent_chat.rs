@@ -1,4 +1,4 @@
-use std::{future::Future, path::Path};
+use std::future::Future;
 
 use async_sqlite::rusqlite::{
     self, Row, ToSql, ffi,
@@ -107,8 +107,7 @@ pub struct PersistentChat<P> {
 }
 
 impl PersistentChat<SqlitePersistence> {
-    pub async fn new(persistence: Option<&Path>) -> anyhow::Result<Self> {
-        let persistence = SqlitePersistence::new(persistence, create_schema).await?;
+    pub async fn new(persistence: SqlitePersistence) -> anyhow::Result<Self> {
         let last_event_id = persistence
             .row("SELECT MAX(id) FROM events", (), |row| {
                 Ok(row
@@ -124,7 +123,7 @@ impl PersistentChat<SqlitePersistence> {
     }
 }
 
-fn create_schema(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+pub fn create_schema_chat(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
     conn.execute(
         "CREATE TABLE events (
             id INTEGER PRIMARY KEY,
@@ -216,7 +215,11 @@ impl FromSql for EventId {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{PersistentChat, create_schema_chat};
+    use crate::{
+        chat::{ChatError, EventId, Message, persistent_chat::Chat as _},
+        persistence::SqlitePersistence,
+    };
     use uuid::Uuid;
 
     fn dummy_message(id: Uuid) -> Message {
@@ -230,7 +233,10 @@ mod tests {
     #[tokio::test]
     async fn recorded_message_is_preserved_in_event() {
         // Given a chat history
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
 
         // When recording a message ...
         let msg = Message {
@@ -248,7 +254,10 @@ mod tests {
     #[tokio::test]
     async fn messages_are_retrieved_in_insertion_order() {
         // Given an empty chat history
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
 
         // When recording two messages after each other...
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
@@ -267,7 +276,10 @@ mod tests {
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three messages
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
         let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
@@ -287,7 +299,10 @@ mod tests {
     #[tokio::test]
     async fn duplicate_message_id_is_not_stored() {
         // Given a history with one message
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -323,7 +338,10 @@ mod tests {
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
         // Given a history with one message
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
         let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         history
             .record_message(Message {
@@ -350,7 +368,10 @@ mod tests {
     #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let mut history = PersistentChat::new(None).await.unwrap();
+        let persistence = SqlitePersistence::new(None, create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
         history
             .record_message(dummy_message(
                 "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -369,7 +390,10 @@ mod tests {
     async fn persistence() {
         // Given a history backed by a file with two recorded messages
         let dir = tempfile::tempdir().unwrap();
-        let mut history = PersistentChat::new(Some(dir.path())).await.unwrap();
+        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
         history
             .record_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
@@ -390,7 +414,10 @@ mod tests {
 
         // When reopening the history from the same directory
         drop(history);
-        let history = PersistentChat::new(Some(dir.path())).await.unwrap();
+        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
+            .await
+            .unwrap();
+        let history = PersistentChat::new(persistence).await.unwrap();
 
         // Then all events are restored
         let after = history.events_since(EventId::before_all()).await.unwrap();
