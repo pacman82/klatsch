@@ -9,8 +9,9 @@ use ::tracing::info;
 use dotenv::dotenv;
 
 use crate::{
-    chat::{ChatRuntime, PersistentChat},
+    chat::{ChatRuntime, PersistentChat, create_schema_chat},
     configuration::Configuration,
+    persistence::SqlitePersistence,
     server::Server,
     shutdown::shutdown_signal,
     tracing::init_tracing,
@@ -31,7 +32,8 @@ async fn main() -> anyhow::Result<()> {
     info!(target: "app", "Starting");
 
     // Initialize persistence for chat
-    let history = PersistentChat::new(cfg.persistence_dir()).await?;
+    let persistence = SqlitePersistence::new(cfg.persistence_dir(), create_schema_chat).await?;
+    let history = PersistentChat::new(persistence).await?;
 
     // Forward messages between peers in the chat
     let chat = ChatRuntime::new(history);
