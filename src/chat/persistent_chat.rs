@@ -42,7 +42,7 @@ pub enum ChatError {
 
 impl<P> Chat for PersistentChat<P>
 where
-    P: Persistence<Error = rusqlite::Error> + Sync + Send,
+    P: Persistence + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT id, message_id, sender, content, timestamp_ms \

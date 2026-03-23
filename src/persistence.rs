@@ -14,7 +14,7 @@ pub trait Persistence {
 
     fn transaction<O>(
         &self,
-        f: impl FnOnce(&rusqlite::Connection) -> Result<O, Self::Error> + Send + 'static,
+        f: impl FnOnce(&Self::Connection) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = Result<O, anyhow::Error>> + Send
     where
         O: Send + 'static;
