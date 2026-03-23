@@ -32,7 +32,7 @@ pub trait Persistence {
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
-        map: impl Fn(&Row<'_>) -> Result<O, Self::Error> + Send + 'static,
+        map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = anyhow::Result<Vec<O>>> + Send
     where
         O: Send + 'static;
