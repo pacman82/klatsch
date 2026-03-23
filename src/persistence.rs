@@ -9,8 +9,8 @@ use tracing::{error, info};
 
 pub trait Persistence {
     type Row<'a>: FieldAccess;
-    type Connection: ExecuteSql;
     type Error: PersistenceError;
+    type Connection: ExecuteSql<Error = Self::Error>;
 
     fn transaction<O>(
         &self,
@@ -40,10 +40,21 @@ pub trait Persistence {
 
 pub trait FieldAccess {
     fn get_i64_opt(&self, index: usize) -> Option<i64>;
+    fn get_string(&self, index: usize) -> String;
 }
 
 pub trait ExecuteSql {
-    type Error;
+    type Row<'a>: FieldAccess;
+    type Error: PersistenceError;
+
+    fn execute(&self, query: &str, params: impl Params) -> Result<(), Self::Error>;
+
+    fn row<O>(
+        &self,
+        query: &'static str,
+        params: impl Params,
+        map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
+    ) -> Result<O, Self::Error>;
 }
 
 pub trait PersistenceError {
@@ -160,10 +171,32 @@ impl FieldAccess for rusqlite::Row<'_> {
     fn get_i64_opt(&self, index: usize) -> Option<i64> {
         self.get(index).unwrap()
     }
+
+    fn get_string(&self, index: usize) -> String {
+        self.get(index).unwrap()
+    }
 }
 
 impl ExecuteSql for rusqlite::Connection {
+    type Row<'a> = rusqlite::Row<'a>;
     type Error = rusqlite::Error;
+
+    fn execute(&self, query: &str, params: impl Params) -> Result<(), Self::Error> {
+        let mut stmt = self.prepare_cached(query).expect("SQL must be valid");
+        stmt.execute(params)?;
+        Ok(())
+    }
+
+    fn row<O>(
+        &self,
+        query: &str,
+        params: impl Params,
+        map: impl Fn(&rusqlite::Row<'_>) -> Result<O, rusqlite::Error>,
+    ) -> Result<O, rusqlite::Error> {
+        self.prepare_cached(query)
+            .expect("SQL must be valid")
+            .query_row(params, map)
+    }
 }
 
 impl PersistenceError for rusqlite::Error {
