@@ -3,13 +3,14 @@ use std::path::Path;
 use anyhow::bail;
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
-    rusqlite::{self, Params, Row},
+    rusqlite::{self, Params, Row, ffi},
 };
 use tracing::{error, info};
 
 pub trait Persistence {
     type Row<'a>: FieldAccess;
-    type Error;
+    type Connection: ExecuteSql;
+    type Error: PersistenceError;
 
     fn transaction<O>(
         &self,
@@ -39,6 +40,14 @@ pub trait Persistence {
 
 pub trait FieldAccess {
     fn get_i64_opt(&self, index: usize) -> Option<i64>;
+}
+
+pub trait ExecuteSql {
+    type Error;
+}
+
+pub trait PersistenceError {
+    fn is_unique_constraint_violation(&self) -> bool;
 }
 
 pub struct SqlitePersistence {
@@ -78,6 +87,7 @@ impl SqlitePersistence {
 
 impl Persistence for SqlitePersistence {
     type Row<'a> = rusqlite::Row<'a>;
+    type Connection = rusqlite::Connection;
     type Error = rusqlite::Error;
 
     async fn transaction<O>(
@@ -149,6 +159,25 @@ impl Persistence for SqlitePersistence {
 impl FieldAccess for rusqlite::Row<'_> {
     fn get_i64_opt(&self, index: usize) -> Option<i64> {
         self.get(index).unwrap()
+    }
+}
+
+impl ExecuteSql for rusqlite::Connection {
+    type Error = rusqlite::Error;
+}
+
+impl PersistenceError for rusqlite::Error {
+    fn is_unique_constraint_violation(&self) -> bool {
+        !matches!(
+            self,
+            rusqlite::Error::SqliteFailure(
+                ffi::Error {
+                    code: ffi::ErrorCode::ConstraintViolation,
+                    extended_code: ffi::SQLITE_CONSTRAINT_UNIQUE,
+                },
+                _,
+            )
+        )
     }
 }
 
