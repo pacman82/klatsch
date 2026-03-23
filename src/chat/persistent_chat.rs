@@ -1,9 +1,6 @@
 use std::future::Future;
 
-use async_sqlite::rusqlite::{
-    self, Row, ToSql,
-    types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
-};
+use async_sqlite::rusqlite::{self, ToSql, types::ToSqlOutput};
 
 use uuid::Uuid;
 
@@ -42,28 +39,26 @@ pub enum ChatError {
 
 impl<P> Chat for PersistentChat<P>
 where
-    P: for<'a> Persistence<Row<'a> = rusqlite::Row<'a>> + Sync + Send,
+    P: Persistence + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT id, message_id, sender, content, timestamp_ms \
             FROM events \
             WHERE id > ?1 ORDER BY id";
 
-        let map = |row: &Row<'_>| {
-            let event_id: EventId = row.get(0).expect("id must be a non-null INTEGER column");
-            let message_id: Vec<u8> = row
-                .get(1)
-                .expect("message_id must be a non-null BLOB column");
+        let map = |row: &P::Row<'_>| {
+            let event_id = row.get_i64(0);
+            let event_id = EventId(event_id.try_into().unwrap());
+            let message_id = row.get_blob(1);
             let message_id = Uuid::from_bytes(
                 message_id
                     .try_into()
                     .expect("message_id must be a 16-byte BLOB column"),
             );
-            let sender = row.get(2).expect("sender must be a non-null TEXT column");
-            let content = row.get(3).expect("content must be a non-null TEXT column");
-            let timestamp_ms: i64 = row
-                .get(4)
-                .expect("timestamp_ms must be a non-null INTEGER column");
+            let sender = row.get_text(2);
+            let content = row.get_text(3);
+            let timestamp_ms = row.get_i64(4);
+            let timestamp_ms: u64 = timestamp_ms.try_into().unwrap();
             let message = Message {
                 id: message_id,
                 sender,
@@ -72,7 +67,7 @@ where
             let event = Event {
                 id: event_id,
                 message,
-                timestamp_ms: timestamp_ms as u64,
+                timestamp_ms,
             };
             Ok(event)
         };
@@ -185,8 +180,8 @@ where
         "SELECT sender, content FROM events WHERE message_id = ?1",
         [event.message.id.as_bytes().as_slice()],
         |row| {
-            let sender = row.get_string(0);
-            let content = row.get_string(1);
+            let sender = row.get_text(0);
+            let content = row.get_text(1);
             Ok((sender, content))
         },
     )?;
@@ -200,13 +195,6 @@ where
 impl ToSql for EventId {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::from(self.0 as i64))
-    }
-}
-
-impl FromSql for EventId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let id = i64::column_result(value)?;
-        Ok(EventId(id as u64))
     }
 }
 
