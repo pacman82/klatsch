@@ -7,7 +7,7 @@ use async_sqlite::rusqlite::{
 
 use uuid::Uuid;
 
-use crate::persistence::{FieldAccess, Persistence, PersistenceError};
+use crate::persistence::{ExecuteSql, FieldAccess, Persistence, PersistenceError};
 
 use super::event::{Event, EventId, Message};
 
@@ -151,24 +151,21 @@ enum InsertOutcome {
     Conflict,
 }
 
-fn insert_event(
-    conn: &rusqlite::Connection,
-    event: &Event,
-) -> Result<InsertOutcome, rusqlite::Error> {
-    let Err(err) = conn
-        .prepare_cached(
-            "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-        )
-        .expect("hardcoded SQL must be valid")
-        .execute((
+fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
+where
+    C: ExecuteSql,
+{
+    let Err(err) = conn.execute(
+        "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
+        VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
             &event.id,
             event.message.id.as_bytes().as_slice(),
             &event.message.sender,
             &event.message.content,
             event.timestamp_ms as i64,
-        ))
-    else {
+        ),
+    ) else {
         // Message successfully inserted, let's return.
         return Ok(InsertOutcome::New);
     };
@@ -181,14 +178,15 @@ fn insert_event(
     }
 
     // So it is a unique constraint violation, but is it a duplicate or a conflict?
-    let (sender, content) = conn
-        .prepare_cached("SELECT sender, content FROM events WHERE message_id = ?1")
-        .expect("hardcoded SQL must be valid")
-        .query_row([event.message.id.as_bytes().as_slice()], |row| {
-            let sender: String = row.get(0).expect("sender must be a non-null TEXT column");
-            let content: String = row.get(1).expect("content must be a non-null TEXT column");
+    let (sender, content) = conn.row(
+        "SELECT sender, content FROM events WHERE message_id = ?1",
+        [event.message.id.as_bytes().as_slice()],
+        |row| {
+            let sender = row.get_string(0);
+            let content = row.get_string(1);
             Ok((sender, content))
-        })?;
+        },
+    )?;
     if sender == event.message.sender && content == event.message.content {
         Ok(InsertOutcome::Duplicate)
     } else {
