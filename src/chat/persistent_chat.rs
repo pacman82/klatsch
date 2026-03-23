@@ -7,7 +7,7 @@ use async_sqlite::rusqlite::{
 
 use uuid::Uuid;
 
-use crate::persistence::Persistence;
+use crate::persistence::{Persistence, SqlitePersistence};
 
 use super::event::{Event, EventId, Message};
 
@@ -106,11 +106,8 @@ pub struct PersistentChat<P> {
     last_event_id: EventId,
 }
 
-impl<P> PersistentChat<P>
-where
-    P: Persistence,
-{
-    pub async fn new(persistence: P) -> anyhow::Result<Self> {
+impl PersistentChat<SqlitePersistence> {
+    pub async fn new(persistence: SqlitePersistence) -> anyhow::Result<Self> {
         let last_event_id = persistence
             .row("SELECT MAX(id) FROM events", (), |row| {
                 Ok(row
