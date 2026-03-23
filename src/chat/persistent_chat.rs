@@ -1,13 +1,13 @@
 use std::future::Future;
 
 use async_sqlite::rusqlite::{
-    self, Row, ToSql, ffi,
+    self, Row, ToSql,
     types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
 };
 
 use uuid::Uuid;
 
-use crate::persistence::{FieldAccess, Persistence};
+use crate::persistence::{FieldAccess, Persistence, PersistenceError};
 
 use super::event::{Event, EventId, Message};
 
@@ -173,18 +173,9 @@ fn insert_event(
         return Ok(InsertOutcome::New);
     };
 
-    // We had an error, but did something go wrong with accesing the database or is this a unique
-    // constraint violation?
-    if !matches!(
-        err,
-        rusqlite::Error::SqliteFailure(
-            ffi::Error {
-                code: ffi::ErrorCode::ConstraintViolation,
-                extended_code: ffi::SQLITE_CONSTRAINT_UNIQUE,
-            },
-            _,
-        )
-    ) {
+    // We had an error, but did something go wrong with accesing the database or is due to a message
+    // id being already present?
+    if err.is_unique_constraint_violation() {
         // Something went wrong, lets report the error.
         return Err(err);
     }
