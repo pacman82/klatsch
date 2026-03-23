@@ -8,7 +8,7 @@ use async_sqlite::{
 use tracing::{error, info};
 
 pub trait Persistence {
-    type Row<'a>;
+    type Row<'a>: FieldAccess;
 
     fn transaction<O>(
         &self,
@@ -34,6 +34,10 @@ pub trait Persistence {
     ) -> impl Future<Output = anyhow::Result<Vec<O>>> + Send
     where
         O: Send + 'static;
+}
+
+pub trait FieldAccess {
+    fn get_i64_opt(&self, index: usize) -> Option<i64>;
 }
 
 pub struct SqlitePersistence {
@@ -137,6 +141,12 @@ impl Persistence for SqlitePersistence {
             .await
             .inspect_err(|err| error!(target: "persistence", "Failed to read rows: {err}"))
             .map_err(Into::into)
+    }
+}
+
+impl FieldAccess for rusqlite::Row<'_> {
+    fn get_i64_opt(&self, index: usize) -> Option<i64> {
+        self.get(index).unwrap()
     }
 }
 
