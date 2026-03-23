@@ -9,10 +9,11 @@ use tracing::{error, info};
 
 pub trait Persistence {
     type Row<'a>: FieldAccess;
+    type Error;
 
     fn transaction<O>(
         &self,
-        f: impl FnOnce(&rusqlite::Connection) -> Result<O, rusqlite::Error> + Send + 'static,
+        f: impl FnOnce(&rusqlite::Connection) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = Result<O, anyhow::Error>> + Send
     where
         O: Send + 'static;
@@ -21,7 +22,7 @@ pub trait Persistence {
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
-        map: impl Fn(&Self::Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
+        map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = anyhow::Result<O>> + Send
     where
         O: Send + 'static;
@@ -30,7 +31,7 @@ pub trait Persistence {
         &self,
         query: &'static str,
         params: impl Params + Send + 'static,
-        map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
+        map: impl Fn(&Row<'_>) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = anyhow::Result<Vec<O>>> + Send
     where
         O: Send + 'static;
@@ -77,6 +78,7 @@ impl SqlitePersistence {
 
 impl Persistence for SqlitePersistence {
     type Row<'a> = rusqlite::Row<'a>;
+    type Error = rusqlite::Error;
 
     async fn transaction<O>(
         &self,
