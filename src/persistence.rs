@@ -39,8 +39,10 @@ pub trait Persistence {
 }
 
 pub trait FieldAccess {
+    fn get_blob(&self, index: usize) -> Vec<u8>;
+    fn get_i64(&self, index: usize) -> i64;
     fn get_i64_opt(&self, index: usize) -> Option<i64>;
-    fn get_string(&self, index: usize) -> String;
+    fn get_text(&self, index: usize) -> String;
 }
 
 pub trait ExecuteSql {
@@ -168,11 +170,19 @@ impl Persistence for SqlitePersistence {
 }
 
 impl FieldAccess for rusqlite::Row<'_> {
+    fn get_blob(&self, index: usize) -> Vec<u8> {
+        self.get(index).unwrap()
+    }
+
+    fn get_i64(&self, index: usize) -> i64 {
+        self.get(index).unwrap()
+    }
+
     fn get_i64_opt(&self, index: usize) -> Option<i64> {
         self.get(index).unwrap()
     }
 
-    fn get_string(&self, index: usize) -> String {
+    fn get_text(&self, index: usize) -> String {
         self.get(index).unwrap()
     }
 }
