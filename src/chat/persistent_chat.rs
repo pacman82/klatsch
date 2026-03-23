@@ -42,7 +42,7 @@ pub enum ChatError {
 
 impl<P> Chat for PersistentChat<P>
 where
-    P: Persistence + Sync + Send,
+    P: for<'a> Persistence<Row<'a> = rusqlite::Row<'a>> + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT id, message_id, sender, content, timestamp_ms \
@@ -128,7 +128,10 @@ where
     }
 }
 
-pub fn create_schema_chat(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+pub fn create_schema_chat<C>(conn: &C) -> Result<(), C::Error>
+where
+    C: ExecuteSql,
+{
     conn.execute(
         "CREATE TABLE events (
             id INTEGER PRIMARY KEY,
