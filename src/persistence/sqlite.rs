@@ -1,8 +1,10 @@
-use super::{ExecuteSql, FieldAccess, Persistence, PersistenceError};
+use crate::persistence::ParameterTuple;
+
+use super::{ExecuteSql, FieldAccess, Parameter, Persistence, PersistenceError};
 use anyhow::bail;
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
-    rusqlite::{self, Params, Row, ffi},
+    rusqlite::{self, Params, Row, ToSql, ffi, params_from_iter, types::ToSqlOutput},
 };
 use std::path::Path;
 use tracing::{error, info};
@@ -69,16 +71,17 @@ impl Persistence for SqlitePersistence {
     async fn row<O>(
         &self,
         query: &'static str,
-        params: impl Params + Send + 'static,
+        params: impl ParameterTuple + Send + Sync + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<O>
     where
         O: Send + 'static,
     {
-        let fetch_row = |conn: &rusqlite::Connection| {
+        let fetch_row = move |conn: &rusqlite::Connection| {
             let mut stmt = conn
                 .prepare_cached(query)
                 .expect("hardcoded SQL must be valid");
+            let params = rusqlite_params(&params);
             stmt.query_row(params, map)
         };
 
@@ -92,7 +95,7 @@ impl Persistence for SqlitePersistence {
     async fn rows_vec<O>(
         &self,
         query: &'static str,
-        params: impl Params + Send + 'static,
+        params: impl IntoIterator<Item = Parameter<'static>> + Send + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<Vec<O>>
     where
@@ -102,6 +105,7 @@ impl Persistence for SqlitePersistence {
             let mut stmt = conn
                 .prepare_cached(query)
                 .expect("hardcoded SQL must be valid");
+            let params = params_from_iter(params);
             stmt.query_map(params, map)?.collect()
         };
 
@@ -111,6 +115,11 @@ impl Persistence for SqlitePersistence {
             .inspect_err(|err| error!(target: "persistence", "Failed to read rows: {err}"))
             .map_err(Into::into)
     }
+}
+
+fn rusqlite_params<'a>(params: &'a impl ParameterTuple) -> impl Params {
+    let it = (0..params.len()).map(|index| params.get(index));
+    params_from_iter(it)
 }
 
 impl FieldAccess for rusqlite::Row<'_> {
@@ -223,6 +232,16 @@ fn migrate(
         },
     };
     Ok(outcome)
+}
+
+impl ToSql for Parameter<'_> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        match self {
+            Parameter::I64(i) => i.to_sql(),
+            Parameter::Text(s) => s.to_sql(),
+            Parameter::Blob(b) => b.to_sql(),
+        }
+    }
 }
 
 #[cfg(test)]
