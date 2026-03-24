@@ -1,12 +1,7 @@
-use std::future::Future;
-
-use async_sqlite::rusqlite::{self, ToSql, types::ToSqlOutput};
-
-use uuid::Uuid;
-
-use crate::persistence::{ExecuteSql, FieldAccess, Persistence, PersistenceError};
-
 use super::event::{Event, EventId, Message};
+use crate::persistence::{ExecuteSql, FieldAccess, Persistence, PersistenceError};
+use std::future::Future;
+use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Chat {
@@ -72,7 +67,10 @@ where
             Ok(event)
         };
 
-        self.persistence.rows_vec(query, [last_event_id], map).await
+        let last_event_id: i64 = last_event_id.0.try_into().unwrap();
+        self.persistence
+            .rows_vec(query, (last_event_id,), map)
+            .await
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -153,11 +151,12 @@ fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
 where
     C: ExecuteSql,
 {
+    let event_id: i64 = event.id.0.try_into().unwrap();
     let Err(err) = conn.execute(
         "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
         VALUES (?1, ?2, ?3, ?4, ?5)",
         (
-            &event.id,
+            event_id,
             event.message.id.as_bytes().as_slice(),
             &event.message.sender,
             &event.message.content,
@@ -189,12 +188,6 @@ where
         Ok(InsertOutcome::Duplicate)
     } else {
         Ok(InsertOutcome::Conflict)
-    }
-}
-
-impl ToSql for EventId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(self.0 as i64))
     }
 }
 
