@@ -1,5 +1,5 @@
 use super::event::{Event, EventId, Message};
-use crate::persistence::{ExecuteSql, FieldAccess, Parameter, Persistence, PersistenceError};
+use crate::persistence::{ExecuteSql, FieldAccess, Persistence, PersistenceError};
 use std::future::Future;
 use uuid::Uuid;
 
@@ -67,8 +67,8 @@ where
             Ok(event)
         };
 
-        let last_event_id = Parameter::I64(last_event_id.0.try_into().unwrap());
-        self.persistence.rows_vec(query, [last_event_id], map).await
+        let last_event_id: i64 = last_event_id.0.try_into().unwrap();
+        self.persistence.rows_vec(query, last_event_id, map).await
     }
 
     async fn record_message(&mut self, message: Message) -> Result<Option<Event>, ChatError> {
@@ -175,7 +175,7 @@ where
     // So it is a unique constraint violation, but is it a duplicate or a conflict?
     let (sender, content) = conn.row(
         "SELECT sender, content FROM events WHERE message_id = ?1",
-        [event.message.id.as_bytes().as_slice()],
+        event.message.id.as_bytes().as_slice(),
         |row| {
             let sender = row.get_text(0);
             let content = row.get_text(1);
