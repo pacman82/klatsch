@@ -25,7 +25,7 @@ tokio-stream = { version = "0.1.18", features = ["sync"] }
 tower-http = { version = "0.6.8", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.22.0", features = ["serde"] }
+uuid = { version = "1.23.0", features = ["serde"] }
 
 [dev-dependencies]
 double-trait = { version = "0.2.9", features = ["stream"] }
@@ -36,7 +36,7 @@ tempfile = "3.27.0"
 tokio = { version = "1.50.0", features = ["process", "time"] }
 tokio-test = "0.4.5"
 tower = { version = "0.5.3", features = ["util"] }
-uuid = { version = "1.22.0", features = ["serde", "v7"] }
+uuid = { version = "1.23.0", features = ["serde", "v7"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.31.1", features = ["process", "signal"] }
