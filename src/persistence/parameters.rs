@@ -64,12 +64,6 @@ impl Parameters
     }
 }
 
-impl From<i64> for Parameter<'static> {
-    fn from(value: i64) -> Self {
-        Parameter::I64(value)
-    }
-}
-
 impl AsParameters for i64 {
     fn as_params(&self) -> impl Parameters {
         Parameter::I64(*self)
