@@ -1,6 +1,4 @@
-use super::{
-    AsParameters, ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError,
-};
+use super::{ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError};
 use anyhow::bail;
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
@@ -71,7 +69,7 @@ impl Persistence for SqlitePersistence {
     async fn row<O>(
         &self,
         query: &'static str,
-        params: impl AsParameters + Send + Sync + 'static,
+        params: impl Parameters + Send + Sync + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<O>
     where
@@ -81,7 +79,6 @@ impl Persistence for SqlitePersistence {
             let mut stmt = conn
                 .prepare_cached(query)
                 .expect("hardcoded SQL must be valid");
-            let params = params.as_params();
             let params = to_rusqlite_params(&params);
             stmt.query_row(params, map)
         };
@@ -96,7 +93,7 @@ impl Persistence for SqlitePersistence {
     async fn rows_vec<O>(
         &self,
         query: &'static str,
-        params: impl AsParameters + Send + Sync + 'static,
+        params: impl Parameters + Send + Sync + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<Vec<O>>
     where
@@ -106,7 +103,6 @@ impl Persistence for SqlitePersistence {
             let mut stmt = conn
                 .prepare_cached(query)
                 .expect("hardcoded SQL must be valid");
-            let params = params.as_params();
             let params = to_rusqlite_params(&params);
             stmt.query_map(params, map)?.collect()
         };
@@ -146,10 +142,9 @@ impl ExecuteSql for rusqlite::Connection {
     type Row<'a> = rusqlite::Row<'a>;
     type Error = rusqlite::Error;
 
-    fn execute(&self, query: &str, params: impl AsParameters) -> Result<(), Self::Error> {
+    fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
         let mut stmt = self.prepare_cached(query).expect("SQL must be valid");
 
-        let params = params.as_params();
         let params = to_rusqlite_params(&params);
         stmt.execute(params)?;
         Ok(())
@@ -158,10 +153,9 @@ impl ExecuteSql for rusqlite::Connection {
     fn row<O>(
         &self,
         query: &str,
-        params: impl AsParameters,
+        params: impl Parameters,
         map: impl Fn(&rusqlite::Row<'_>) -> Result<O, rusqlite::Error>,
     ) -> Result<O, rusqlite::Error> {
-        let params = params.as_params();
         let params = to_rusqlite_params(&params);
         self.prepare_cached(query)
             .expect("SQL must be valid")

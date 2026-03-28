@@ -2,7 +2,7 @@ mod parameters;
 mod sqlite;
 
 pub use self::{
-    parameters::{AsParameters, Parameter, Parameters},
+    parameters::{Parameter, Parameters},
     sqlite::SqlitePersistence,
 };
 
@@ -21,7 +21,7 @@ pub trait Persistence {
     fn row<O>(
         &self,
         query: &'static str,
-        params: impl AsParameters + Send + Sync + 'static,
+        params: impl Parameters + Send + Sync + 'static,
         map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = anyhow::Result<O>> + Send
     where
@@ -30,7 +30,7 @@ pub trait Persistence {
     fn rows_vec<O>(
         &self,
         query: &'static str,
-        params: impl AsParameters + Send + Sync + 'static,
+        params: impl Parameters + Send + Sync + 'static,
         map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
     ) -> impl Future<Output = anyhow::Result<Vec<O>>> + Send
     where
@@ -48,12 +48,12 @@ pub trait ExecuteSql {
     type Row<'a>: FieldAccess;
     type Error: PersistenceError;
 
-    fn execute(&self, query: &str, params: impl AsParameters) -> Result<(), Self::Error>;
+    fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error>;
 
     fn row<O>(
         &self,
         query: &'static str,
-        params: impl AsParameters,
+        params: impl Parameters,
         map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
     ) -> Result<O, Self::Error>;
 }
