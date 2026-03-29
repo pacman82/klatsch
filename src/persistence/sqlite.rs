@@ -247,6 +247,8 @@ impl ToSql for Parameter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::persistence::{FieldAccess, Persistence};
+
     use super::{ClientBuilder, JournalMode, SqlitePersistence, rusqlite};
 
     #[tokio::test]
@@ -275,5 +277,49 @@ mod tests {
             err.to_string(),
             "Found Database created by a newer version. Update to a newer version to load it."
         );
+    }
+
+    #[tokio::test]
+    async fn persistence() {
+        // Given a directory
+        let dir = tempfile::tempdir().unwrap();
+
+        // When the directory is configured and database with data is created
+        let create_schema = |connection: &rusqlite::Connection| {
+            connection.execute(
+                "CREATE TABLE my_table (
+                id INTEGER PRIMARY KEY,
+                data TEXT)",
+                (),
+            )?;
+            Ok(())
+        };
+        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema)
+            .await
+            .unwrap();
+        persistence
+            .transaction(|conn| {
+                conn.execute(
+                    "INSERT INTO my_table (id, data) VALUES (1, 'Hello, World!')",
+                    (),
+                )
+            })
+            .await
+            .unwrap();
+        drop(persistence);
+
+        // Then reopening the database from the same directory the data previously inserted can be
+        // queried.
+        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema)
+            .await
+            .unwrap();
+
+        let after = persistence
+            .rows_vec("SELECT id, data FROM my_table", (), |row| {
+                Ok((row.get_i64(0), row.get_text(1)))
+            })
+            .await
+            .unwrap();
+        assert_eq!([(1i64, "Hello, World!".to_owned())].as_slice(), &after);
     }
 }

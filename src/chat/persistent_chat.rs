@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recorded_message_is_preserved_in_event() {
+    async fn recorded_message_is_broadcasted_in_event() {
         // Given a chat history
         let persistence = SqlitePersistence::new(None, create_schema_chat)
             .await
@@ -360,43 +360,5 @@ mod tests {
 
         // Then no events are returned
         assert!(events.is_empty());
-    }
-
-    #[tokio::test]
-    async fn persistence() {
-        // Given a history backed by a file with two recorded messages
-        let dir = tempfile::tempdir().unwrap();
-        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
-            .await
-            .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        history
-            .record_message(Message {
-                id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                sender: "Alice".to_owned(),
-                content: "Hello".to_owned(),
-            })
-            .await
-            .unwrap();
-        history
-            .record_message(Message {
-                id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-                sender: "Bob".to_owned(),
-                content: "Hi there".to_owned(),
-            })
-            .await
-            .unwrap();
-        let before = history.events_since(EventId::before_all()).await.unwrap();
-
-        // When reopening the history from the same directory
-        drop(history);
-        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
-            .await
-            .unwrap();
-        let history = PersistentChat::new(persistence).await.unwrap();
-
-        // Then all events are restored
-        let after = history.events_since(EventId::before_all()).await.unwrap();
-        assert_eq!(before, after);
     }
 }
