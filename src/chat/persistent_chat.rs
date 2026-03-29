@@ -151,7 +151,7 @@ where
 {
     let event_id: i64 = event.id.0.try_into().unwrap();
     let Err(err) = conn.execute(
-        "INSERT INTO events (id, message_id, sender, content, timestamp_ms)
+        "INSERT INTO events (id, message_id, sender, content, timestamp_ms) \
         VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             event_id,
@@ -191,11 +191,19 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
     use super::{Chat as _, PersistentChat, create_schema_chat};
     use crate::{
         chat::{ChatError, EventId, Message},
-        persistence::SqlitePersistence,
+        persistence::{
+            ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, SqlitePersistence,
+        },
     };
+    use double_trait::Dummy;
     use uuid::Uuid;
 
     fn dummy_message(id: Uuid) -> Message {
@@ -360,5 +368,174 @@ mod tests {
 
         // Then no events are returned
         assert!(events.is_empty());
+    }
+
+    /// Interaction with persistence during inserting a new row
+    #[tokio::test]
+    async fn insert_new_record() {
+        // Given
+        let message = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_owned(),
+            content: "Hi".to_owned(),
+        };
+        let persistence = PersistenceMock::new(vec![
+            ExpectedQuery {
+                sql: "SELECT MAX(id) FROM events",
+                parameters: vec![],
+                result: vec![StubField::I64(42)],
+            },
+            ExpectedQuery {
+                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
+                (?1, ?2, ?3, ?4, ?5)",
+                parameters: vec![
+                    43.into(),
+                    message.id.as_bytes().to_vec().into(),
+                    "Alice".into(),
+                    "Hi".into(),
+                    ParameterExpectation::recent_timestamp_ms(),
+                ],
+                result: vec![],
+            },
+        ]);
+
+        // When
+        let mut chat = PersistentChat::new(persistence).await.unwrap();
+        let maybe_event = chat.record_message(message.clone()).await.unwrap();
+
+        // Then
+        let event = maybe_event.expect("An event has been emitted");
+        assert_eq!(event.id, EventId(43));
+        assert_eq!(event.message, message);
+    }
+
+    struct PersistenceMock(Arc<Mutex<Vec<ExpectedQuery>>>);
+
+    impl PersistenceMock {
+        fn new(mut expectations: Vec<ExpectedQuery>) -> Self {
+            expectations.reverse();
+            PersistenceMock(Arc::new(Mutex::new(expectations)))
+        }
+    }
+
+    impl Persistence for PersistenceMock {
+        type Row<'a> = Vec<StubField>;
+        type Connection = MockConnection;
+        type Error = Dummy;
+
+        async fn row<O>(
+            &self,
+            query: &'static str,
+            params: impl Parameters + Send + Sync + 'static,
+            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
+        ) -> anyhow::Result<O>
+        where
+            O: Send + 'static,
+        {
+            let expected = self.0.lock().unwrap().pop().unwrap();
+            let row = expected.invoke(query, params);
+            let row = map(&row).unwrap();
+            Ok(row)
+        }
+
+        async fn transaction<O>(
+            &self,
+            execute: impl FnOnce(&Self::Connection) -> Result<O, Self::Error> + Send + 'static,
+        ) -> anyhow::Result<O> {
+            let connection = MockConnection(self.0.clone());
+            let value = execute(&connection).unwrap();
+            Ok(value)
+        }
+    }
+
+    enum StubField {
+        I64(i64),
+    }
+
+    impl FieldAccess for Vec<StubField> {
+        fn get_i64_opt(&self, index: usize) -> Option<i64> {
+            match self[index] {
+                StubField::I64(value) => Some(value),
+            }
+        }
+    }
+
+    struct ExpectedQuery {
+        sql: &'static str,
+        parameters: Vec<ParameterExpectation>,
+        result: Vec<StubField>,
+    }
+
+    impl ExpectedQuery {
+        fn invoke(self, query: &str, params: impl Parameters) -> Vec<StubField> {
+            assert_eq!(self.sql, query);
+            assert_eq!(self.parameters.len(), params.len());
+            for (index, expectation) in self.parameters.into_iter().enumerate() {
+                (expectation.0)(params.get(index));
+            }
+            self.result
+        }
+    }
+
+    struct ParameterExpectation(Box<dyn FnOnce(Parameter<'_>) + Send>);
+
+    impl ParameterExpectation {
+        fn recent_timestamp_ms() -> Self {
+            let before = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            ParameterExpectation(Box::new(move |param| {
+                let Parameter::I64(actual) = param else {
+                    panic!("expected I64 parameter for timestamp, got {param:?}");
+                };
+                let after = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+                assert!(
+                    actual >= before && actual <= after,
+                    "timestamp {actual} not in expected range [{before}, {after}]"
+                );
+            }))
+        }
+    }
+
+    impl From<i64> for ParameterExpectation {
+        fn from(expected: i64) -> Self {
+            ParameterExpectation(Box::new(move |actual| {
+                assert_eq!(Parameter::I64(expected), actual);
+            }))
+        }
+    }
+
+    impl From<&str> for ParameterExpectation {
+        fn from(expected: &str) -> Self {
+            let expected = expected.to_owned();
+            ParameterExpectation(Box::new(move |actual| {
+                assert_eq!(Parameter::Text(expected.into()), actual);
+            }))
+        }
+    }
+
+    impl From<Vec<u8>> for ParameterExpectation {
+        fn from(expected: Vec<u8>) -> Self {
+            ParameterExpectation(Box::new(move |actual| {
+                assert_eq!(Parameter::Blob(expected.into()), actual);
+            }))
+        }
+    }
+
+    struct MockConnection(Arc<Mutex<Vec<ExpectedQuery>>>);
+
+    impl ExecuteSql for MockConnection {
+        type Row<'a> = Vec<StubField>;
+        type Error = Dummy;
+
+        fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
+            let expected = self.0.lock().unwrap().pop().unwrap();
+            let _ = expected.invoke(query, params);
+            Ok(())
+        }
     }
 }
