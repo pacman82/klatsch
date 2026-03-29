@@ -6,6 +6,7 @@ pub use self::{
     sqlite::SqlitePersistence,
 };
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait Persistence {
     type Row<'a>: FieldAccess;
     type Error: PersistenceError;
@@ -37,6 +38,7 @@ pub trait Persistence {
         O: Send + 'static;
 }
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait FieldAccess {
     fn get_blob(&self, index: usize) -> Vec<u8>;
     fn get_i64(&self, index: usize) -> i64;
@@ -44,6 +46,7 @@ pub trait FieldAccess {
     fn get_text(&self, index: usize) -> String;
 }
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait ExecuteSql {
     type Row<'a>: FieldAccess;
     type Error: PersistenceError;
@@ -58,6 +61,7 @@ pub trait ExecuteSql {
     ) -> Result<O, Self::Error>;
 }
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait PersistenceError {
     fn is_unique_constraint_violation(&self) -> bool;
 }

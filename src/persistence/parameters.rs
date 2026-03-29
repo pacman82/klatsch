@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Parameter<'a> {
     I64(i64),
     Text(Cow<'a, str>),
