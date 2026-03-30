@@ -167,7 +167,7 @@ where
 
     // We had an error, but did something go wrong with accesing the database or is due to a message
     // id being already present?
-    if err.is_unique_constraint_violation() {
+    if !err.is_unique_constraint_violation() {
         // Something went wrong, lets report the error.
         return Err(err);
     }
