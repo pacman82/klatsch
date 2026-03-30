@@ -165,7 +165,7 @@ impl ExecuteSql for rusqlite::Connection {
 
 impl PersistenceError for rusqlite::Error {
     fn is_unique_constraint_violation(&self) -> bool {
-        !matches!(
+        matches!(
             self,
             rusqlite::Error::SqliteFailure(
                 ffi::Error {
