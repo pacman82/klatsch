@@ -352,16 +352,21 @@ mod tests {
     #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        history
-            .record_message(dummy_message(
-                "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            ))
-            .await
-            .unwrap();
+        let persistence = PersistenceMock::new(vec![
+            ExpectedQuery {
+                sql: "SELECT MAX(id) FROM events",
+                parameters: vec![],
+                result: vec![vec![StubField::I64(1)]],
+            },
+            ExpectedQuery {
+                sql: "SELECT id, message_id, sender, content, timestamp_ms \
+                    FROM events \
+                    WHERE id > ?1 ORDER BY id",
+                parameters: vec![2i64.into()],
+                result: vec![],
+            },
+        ]);
+        let history = PersistentChat::new(persistence).await.unwrap();
 
         // When retrieving events since an id beyond the history
         let events = history.events_since(EventId(2)).await.unwrap();
@@ -383,7 +388,7 @@ mod tests {
             ExpectedQuery {
                 sql: "SELECT MAX(id) FROM events",
                 parameters: vec![],
-                result: vec![StubField::I64(42)],
+                result: vec![vec![StubField::I64(42)]],
             },
             ExpectedQuery {
                 sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
@@ -433,9 +438,24 @@ mod tests {
             O: Send + 'static,
         {
             let expected = self.0.lock().unwrap().pop().unwrap();
-            let row = expected.invoke(query, params);
-            let row = map(&row).unwrap();
+            let rows = expected.invoke(query, params);
+            let row = map(&rows[0]).unwrap();
             Ok(row)
+        }
+
+        async fn rows_vec<O>(
+            &self,
+            query: &'static str,
+            params: impl Parameters + Send + Sync + 'static,
+            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
+        ) -> anyhow::Result<Vec<O>>
+        where
+            O: Send + 'static,
+        {
+            let expected = self.0.lock().unwrap().pop().unwrap();
+            let rows = expected.invoke(query, params);
+            let result = rows.iter().map(|row| map(row).unwrap()).collect();
+            Ok(result)
         }
 
         async fn transaction<O>(
@@ -463,11 +483,11 @@ mod tests {
     struct ExpectedQuery {
         sql: &'static str,
         parameters: Vec<ParameterExpectation>,
-        result: Vec<StubField>,
+        result: Vec<Vec<StubField>>,
     }
 
     impl ExpectedQuery {
-        fn invoke(self, query: &str, params: impl Parameters) -> Vec<StubField> {
+        fn invoke(self, query: &str, params: impl Parameters) -> Vec<Vec<StubField>> {
             assert_eq!(self.sql, query);
             assert_eq!(self.parameters.len(), params.len());
             for (index, expectation) in self.parameters.into_iter().enumerate() {
