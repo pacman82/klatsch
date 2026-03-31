@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn duplicate_message_id_is_not_stored() {
+    async fn idempotency_for_duplicate_messages() {
         // Given a history with one message
         let persistence = SqlitePersistence::new(None, create_schema_chat)
             .await
