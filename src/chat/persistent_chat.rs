@@ -200,10 +200,10 @@ mod tests {
     use crate::{
         chat::{ChatError, EventId, Message},
         persistence::{
-            ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, SqlitePersistence,
+            ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError,
+            SqlitePersistence,
         },
     };
-    use double_trait::Dummy;
     use uuid::Uuid;
 
     fn dummy_message(id: Uuid) -> Message {
@@ -321,22 +321,40 @@ mod tests {
 
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
-        // Given a history with one message
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
+        // Given a message id that already exists with different content
+        let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let persistence = PersistenceMock::new(vec![
+            ExpectedQuery {
+                sql: "SELECT MAX(id) FROM events",
+                parameters: vec![],
+                result: Ok(vec![vec![StubField::I64(1)]]),
+            },
+            ExpectedQuery {
+                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
+                (?1, ?2, ?3, ?4, ?5)",
+                parameters: vec![
+                    2i64.into(),
+                    id.as_bytes().to_vec().into(),
+                    "Alice".into(),
+                    "Goodbye".into(),
+                    ParameterExpectation::recent_timestamp_ms(),
+                ],
+                // When we get a unique constraint violation
+                result: Err(StubError::UniqueConstraintViolation),
+            },
+            // and see a message with the same id but different content
+            ExpectedQuery {
+                sql: "SELECT sender, content FROM events WHERE message_id = ?1",
+                parameters: vec![id.as_bytes().to_vec().into()],
+                result: Ok(vec![vec![
+                    StubField::Text("Alice".to_owned()),
+                    StubField::Text("Hello".to_owned()),
+                ]]),
+            },
+        ]);
         let mut history = PersistentChat::new(persistence).await.unwrap();
-        let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        history
-            .record_message(Message {
-                id,
-                sender: "Alice".to_owned(),
-                content: "Hello".to_owned(),
-            })
-            .await
-            .unwrap();
 
-        // When recording a different message with the same id
+        // When recording a message whose id already exists with different content
         let result = history
             .record_message(Message {
                 id,
@@ -356,14 +374,14 @@ mod tests {
             ExpectedQuery {
                 sql: "SELECT MAX(id) FROM events",
                 parameters: vec![],
-                result: vec![vec![StubField::I64(1)]],
+                result: Ok(vec![vec![StubField::I64(1)]]),
             },
             ExpectedQuery {
                 sql: "SELECT id, message_id, sender, content, timestamp_ms \
                     FROM events \
                     WHERE id > ?1 ORDER BY id",
                 parameters: vec![2i64.into()],
-                result: vec![],
+                result: Ok(vec![]),
             },
         ]);
         let history = PersistentChat::new(persistence).await.unwrap();
@@ -388,7 +406,7 @@ mod tests {
             ExpectedQuery {
                 sql: "SELECT MAX(id) FROM events",
                 parameters: vec![],
-                result: vec![vec![StubField::I64(42)]],
+                result: Ok(vec![vec![StubField::I64(42)]]),
             },
             ExpectedQuery {
                 sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
@@ -400,7 +418,7 @@ mod tests {
                     "Hi".into(),
                     ParameterExpectation::recent_timestamp_ms(),
                 ],
-                result: vec![],
+                result: Ok(vec![]),
             },
         ]);
 
@@ -426,7 +444,7 @@ mod tests {
     impl Persistence for PersistenceMock {
         type Row<'a> = Vec<StubField>;
         type Connection = MockConnection;
-        type Error = Dummy;
+        type Error = StubError;
 
         async fn row<O>(
             &self,
@@ -438,7 +456,7 @@ mod tests {
             O: Send + 'static,
         {
             let expected = self.0.lock().unwrap().pop().unwrap();
-            let rows = expected.invoke(query, params);
+            let rows = expected.invoke(query, params).unwrap();
             let row = map(&rows[0]).unwrap();
             Ok(row)
         }
@@ -453,7 +471,7 @@ mod tests {
             O: Send + 'static,
         {
             let expected = self.0.lock().unwrap().pop().unwrap();
-            let rows = expected.invoke(query, params);
+            let rows = expected.invoke(query, params).unwrap();
             let result = rows.iter().map(|row| map(row).unwrap()).collect();
             Ok(result)
         }
@@ -468,14 +486,37 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     enum StubField {
         I64(i64),
+        Text(String),
     }
 
     impl FieldAccess for Vec<StubField> {
         fn get_i64_opt(&self, index: usize) -> Option<i64> {
-            match self[index] {
-                StubField::I64(value) => Some(value),
+            match &self[index] {
+                StubField::I64(value) => Some(*value),
+                other => panic!("expected I64 at index {index}, got {other:?}"),
+            }
+        }
+
+        fn get_text(&self, index: usize) -> String {
+            match &self[index] {
+                StubField::Text(value) => value.clone(),
+                other => panic!("expected Text at index {index}, got {other:?}"),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    enum StubError {
+        UniqueConstraintViolation,
+    }
+
+    impl PersistenceError for StubError {
+        fn is_unique_constraint_violation(&self) -> bool {
+            match self {
+                StubError::UniqueConstraintViolation => true,
             }
         }
     }
@@ -483,11 +524,15 @@ mod tests {
     struct ExpectedQuery {
         sql: &'static str,
         parameters: Vec<ParameterExpectation>,
-        result: Vec<Vec<StubField>>,
+        result: Result<Vec<Vec<StubField>>, StubError>,
     }
 
     impl ExpectedQuery {
-        fn invoke(self, query: &str, params: impl Parameters) -> Vec<Vec<StubField>> {
+        fn invoke(
+            self,
+            query: &str,
+            params: impl Parameters,
+        ) -> Result<Vec<Vec<StubField>>, StubError> {
             assert_eq!(self.sql, query);
             assert_eq!(self.parameters.len(), params.len());
             for (index, expectation) in self.parameters.into_iter().enumerate() {
@@ -550,12 +595,23 @@ mod tests {
 
     impl ExecuteSql for MockConnection {
         type Row<'a> = Vec<StubField>;
-        type Error = Dummy;
+        type Error = StubError;
 
         fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
             let expected = self.0.lock().unwrap().pop().unwrap();
-            let _ = expected.invoke(query, params);
+            expected.invoke(query, params)?;
             Ok(())
+        }
+
+        fn row<O>(
+            &self,
+            query: &'static str,
+            params: impl Parameters,
+            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
+        ) -> Result<O, Self::Error> {
+            let expected = self.0.lock().unwrap().pop().unwrap();
+            let rows = expected.invoke(query, params)?;
+            map(&rows[0])
         }
     }
 }
