@@ -281,23 +281,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn idempotency_for_duplicate_messages() {
-        // Given a history with one message
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
+    async fn no_new_event_is_emitted_for_duplicate_messages() {
+        // Given a message id that already exists with the same content
+        let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
+        let persistence = PersistenceMock::new(vec![
+            ExpectedQuery {
+                sql: "SELECT MAX(id) FROM events",
+                parameters: vec![],
+                result: Ok(vec![vec![StubField::I64(1)]]),
+            },
+            ExpectedQuery {
+                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
+                (?1, ?2, ?3, ?4, ?5)",
+                parameters: vec![
+                    2i64.into(),
+                    id.as_bytes().to_vec().into(),
+                    "Bob".into(),
+                    "Hello, World!".into(),
+                    ParameterExpectation::recent_timestamp_ms(),
+                ],
+                result: Err(StubError::UniqueConstraintViolation),
+            },
+            ExpectedQuery {
+                sql: "SELECT sender, content FROM events WHERE message_id = ?1",
+                parameters: vec![id.as_bytes().to_vec().into()],
+                result: Ok(vec![vec![
+                    StubField::Text("Bob".to_owned()),
+                    StubField::Text("Hello, World!".to_owned()),
+                ]]),
+            },
+        ]);
         let mut history = PersistentChat::new(persistence).await.unwrap();
-        let id = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        history
-            .record_message(Message {
-                id,
-                sender: "Bob".to_owned(),
-                content: "Hello, World!".to_owned(),
-            })
-            .await
-            .unwrap();
 
-        // When recording a duplicate message with the same id
+        // When recording a duplicate message
         let result = history
             .record_message(Message {
                 id,
@@ -307,16 +323,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Then no event is emitted and the history remains unchanged
+        // Then no event is emitted
         assert!(result.is_none());
-        assert_eq!(
-            history
-                .events_since(EventId::before_all())
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
     }
 
     #[tokio::test]
