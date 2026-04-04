@@ -440,19 +440,44 @@ mod tests {
         assert_eq!(event.message, message);
     }
 
-    struct PersistenceMock(Arc<Mutex<Vec<ExpectedQuery>>>);
+    trait PersistenceStub {
+        fn query(
+            &self,
+            query: &str,
+            params: impl Parameters,
+        ) -> Result<Vec<Vec<StubField>>, StubError>;
+    }
 
-    impl PersistenceMock {
-        fn new(mut expectations: Vec<ExpectedQuery>) -> Self {
-            expectations.reverse();
-            PersistenceMock(Arc::new(Mutex::new(expectations)))
+    impl<T> ExecuteSql for T
+    where
+        T: PersistenceStub,
+    {
+        type Row<'a> = Vec<StubField>;
+        type Error = StubError;
+
+        fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
+            self.query(query, params)?;
+            Ok(())
+        }
+
+        fn row<O>(
+            &self,
+            query: &'static str,
+            params: impl Parameters,
+            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
+        ) -> Result<O, Self::Error> {
+            let rows = self.query(query, params)?;
+            map(&rows[0])
         }
     }
 
-    impl Persistence for PersistenceMock {
+    impl<T> Persistence for T
+    where
+        T: PersistenceStub + Sync,
+    {
         type Row<'a> = Vec<StubField>;
-        type Connection = MockConnection;
         type Error = StubError;
+        type Connection = Self;
 
         async fn row<O>(
             &self,
@@ -463,8 +488,7 @@ mod tests {
         where
             O: Send + 'static,
         {
-            let expected = self.0.lock().unwrap().pop().unwrap();
-            let rows = expected.invoke(query, params).unwrap();
+            let rows = self.query(query, params)?;
             let row = map(&rows[0]).unwrap();
             Ok(row)
         }
@@ -478,8 +502,7 @@ mod tests {
         where
             O: Send + 'static,
         {
-            let expected = self.0.lock().unwrap().pop().unwrap();
-            let rows = expected.invoke(query, params).unwrap();
+            let rows = self.query(query, params)?;
             let result = rows.iter().map(|row| map(row).unwrap()).collect();
             Ok(result)
         }
@@ -488,14 +511,33 @@ mod tests {
             &self,
             execute: impl FnOnce(&Self::Connection) -> Result<O, Self::Error> + Send + 'static,
         ) -> anyhow::Result<O> {
-            let connection = MockConnection(self.0.clone());
-            let value = execute(&connection).unwrap();
+            let value = execute(&self).unwrap();
             Ok(value)
         }
     }
 
+    struct PersistenceMock(Arc<Mutex<Vec<ExpectedQuery>>>);
+
+    impl PersistenceMock {
+        fn new(mut expectations: Vec<ExpectedQuery>) -> Self {
+            expectations.reverse();
+            PersistenceMock(Arc::new(Mutex::new(expectations)))
+        }
+    }
+
+    impl PersistenceStub for PersistenceMock {
+        fn query(
+            &self,
+            query: &str,
+            params: impl Parameters,
+        ) -> Result<Vec<Vec<StubField>>, StubError> {
+            let expected = self.0.lock().unwrap().pop().unwrap();
+            expected.invoke(query, params)
+        }
+    }
+
     #[derive(Debug)]
-    enum StubField {
+    pub enum StubField {
         I64(i64),
         Text(String),
     }
@@ -516,8 +558,9 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    enum StubError {
+    #[derive(Debug, thiserror::Error)]
+    pub enum StubError {
+        #[error("test unique constraint violation")]
         UniqueConstraintViolation,
     }
 
@@ -596,30 +639,6 @@ mod tests {
             ParameterExpectation(Box::new(move |actual| {
                 assert_eq!(Parameter::Blob(expected.into()), actual);
             }))
-        }
-    }
-
-    struct MockConnection(Arc<Mutex<Vec<ExpectedQuery>>>);
-
-    impl ExecuteSql for MockConnection {
-        type Row<'a> = Vec<StubField>;
-        type Error = StubError;
-
-        fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
-            let expected = self.0.lock().unwrap().pop().unwrap();
-            expected.invoke(query, params)?;
-            Ok(())
-        }
-
-        fn row<O>(
-            &self,
-            query: &'static str,
-            params: impl Parameters,
-            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
-        ) -> Result<O, Self::Error> {
-            let expected = self.0.lock().unwrap().pop().unwrap();
-            let rows = expected.invoke(query, params)?;
-            map(&rows[0])
         }
     }
 }
