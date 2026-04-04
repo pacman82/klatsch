@@ -257,19 +257,43 @@ mod tests {
         assert_eq!(events[1].message.id, id_2);
     }
 
+    /// This tests confirms we use the correct WHERE clause when interacting with persistence and
+    /// forward the results.
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
-        // Given a history with three messages
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        let id_3 = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
-        for id in [id_1, id_2, id_3] {
-            history.record_message(dummy_message(id)).await.unwrap();
-        }
+        // Given a history with three events
+        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
+        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
+        let persistence = PersistenceMock::new(vec![
+            ExpectedQuery {
+                sql: "SELECT MAX(id) FROM events",
+                parameters: vec![],
+                result: Ok(vec![vec![StubField::I64(3)]]),
+            },
+            ExpectedQuery {
+                sql: "SELECT id, message_id, sender, content, timestamp_ms \
+                    FROM events \
+                    WHERE id > ?1 ORDER BY id",
+                parameters: vec![1i64.into()],
+                result: Ok(vec![
+                    vec![
+                        StubField::I64(2),
+                        StubField::Blob(id_2.as_bytes().to_vec()),
+                        StubField::Text("dummy".to_owned()),
+                        StubField::Text("dummy".to_owned()),
+                        StubField::I64(1000),
+                    ],
+                    vec![
+                        StubField::I64(3),
+                        StubField::Blob(id_3.as_bytes().to_vec()),
+                        StubField::Text("dummy".to_owned()),
+                        StubField::Text("dummy".to_owned()),
+                        StubField::I64(2000),
+                    ],
+                ]),
+            },
+        ]);
+        let history = PersistentChat::new(persistence).await.unwrap();
 
         // When retrieving events since event 1
         let events = history.events_since(EventId(1)).await.unwrap();
@@ -524,11 +548,26 @@ mod tests {
 
     #[derive(Debug)]
     pub enum StubField {
+        Blob(Vec<u8>),
         I64(i64),
         Text(String),
     }
 
     impl FieldAccess for Vec<StubField> {
+        fn get_blob(&self, index: usize) -> Vec<u8> {
+            match &self[index] {
+                StubField::Blob(value) => value.clone(),
+                other => panic!("expected Blob at index {index}, got {other:?}"),
+            }
+        }
+
+        fn get_i64(&self, index: usize) -> i64 {
+            match &self[index] {
+                StubField::I64(value) => *value,
+                other => panic!("expected I64 at index {index}, got {other:?}"),
+            }
+        }
+
         fn get_i64_opt(&self, index: usize) -> Option<i64> {
             match &self[index] {
                 StubField::I64(value) => Some(*value),
