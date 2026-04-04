@@ -330,37 +330,28 @@ mod tests {
     #[tokio::test]
     async fn different_message_with_same_id_is_a_conflict() {
         // Given a message id that already exists with different content
+        struct Stub;
+        impl PersistenceStub for Stub {
+            fn query(
+                &self,
+                query: &str,
+                _: impl Parameters,
+            ) -> Result<Vec<Vec<StubField>>, StubError> {
+                match query {
+                    "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
+                    // Inserting triggers constraint violation
+                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
+                    (?1, ?2, ?3, ?4, ?5)" => Err(StubError::UniqueConstraintViolation),
+                    "SELECT sender, content FROM events WHERE message_id = ?1" => Ok(vec![vec![
+                        StubField::Text("Alice".to_owned()),
+                        StubField::Text("Hello".to_owned()),
+                    ]]),
+                    _ => unimplemented!(),
+                }
+            }
+        }
         let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let persistence = PersistenceMock::new(vec![
-            ExpectedQuery {
-                sql: "SELECT MAX(id) FROM events",
-                parameters: vec![],
-                result: Ok(vec![vec![StubField::I64(1)]]),
-            },
-            ExpectedQuery {
-                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
-                (?1, ?2, ?3, ?4, ?5)",
-                parameters: vec![
-                    2i64.into(),
-                    id.as_bytes().to_vec().into(),
-                    "Alice".into(),
-                    "Goodbye".into(),
-                    ParameterExpectation::recent_timestamp_ms(),
-                ],
-                // When we get a unique constraint violation
-                result: Err(StubError::UniqueConstraintViolation),
-            },
-            // and see a message with the same id but different content
-            ExpectedQuery {
-                sql: "SELECT sender, content FROM events WHERE message_id = ?1",
-                parameters: vec![id.as_bytes().to_vec().into()],
-                result: Ok(vec![vec![
-                    StubField::Text("Alice".to_owned()),
-                    StubField::Text("Hello".to_owned()),
-                ]]),
-            },
-        ]);
-        let mut history = PersistentChat::new(persistence).await.unwrap();
+        let mut history = PersistentChat::new(Stub).await.unwrap();
 
         // When recording a message whose id already exists with different content
         let result = history
@@ -384,6 +375,7 @@ mod tests {
                 parameters: vec![],
                 result: Ok(vec![vec![StubField::I64(1)]]),
             },
+            // Then
             ExpectedQuery {
                 sql: "SELECT id, message_id, sender, content, timestamp_ms \
                     FROM events \
@@ -416,6 +408,7 @@ mod tests {
                 parameters: vec![],
                 result: Ok(vec![vec![StubField::I64(42)]]),
             },
+            // Then
             ExpectedQuery {
                 sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
                 (?1, ?2, ?3, ?4, ?5)",
