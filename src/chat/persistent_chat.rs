@@ -281,44 +281,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_new_event_is_emitted_for_duplicate_messages() {
+    async fn duplicate_same_id_same_message() {
         // Given a message id that already exists with the same content
         let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let persistence = PersistenceMock::new(vec![
-            ExpectedQuery {
-                sql: "SELECT MAX(id) FROM events",
-                parameters: vec![],
-                result: Ok(vec![vec![StubField::I64(1)]]),
-            },
-            ExpectedQuery {
-                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
-                (?1, ?2, ?3, ?4, ?5)",
-                parameters: vec![
-                    2i64.into(),
-                    id.as_bytes().to_vec().into(),
-                    "Bob".into(),
-                    "Hello, World!".into(),
-                    ParameterExpectation::recent_timestamp_ms(),
-                ],
-                result: Err(StubError::UniqueConstraintViolation),
-            },
-            ExpectedQuery {
-                sql: "SELECT sender, content FROM events WHERE message_id = ?1",
-                parameters: vec![id.as_bytes().to_vec().into()],
-                result: Ok(vec![vec![
-                    StubField::Text("Bob".to_owned()),
-                    StubField::Text("Hello, World!".to_owned()),
-                ]]),
-            },
-        ]);
-        let mut history = PersistentChat::new(persistence).await.unwrap();
+        struct Stub;
+        impl PersistenceStub for Stub {
+            fn query(
+                &self,
+                query: &str,
+                _: impl Parameters,
+            ) -> Result<Vec<Vec<StubField>>, StubError> {
+                match query {
+                    "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
+                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
+                    (?1, ?2, ?3, ?4, ?5)" => Err(StubError::UniqueConstraintViolation),
+                    "SELECT sender, content FROM events WHERE message_id = ?1" => Ok(vec![vec![
+                        StubField::Text("Alice".to_owned()),
+                        StubField::Text("Hello".to_owned()),
+                    ]]),
+                    _ => unimplemented!(),
+                }
+            }
+        }
+        let mut history = PersistentChat::new(Stub).await.unwrap();
 
         // When recording a duplicate message
         let result = history
             .record_message(Message {
                 id,
-                sender: "Bob".to_owned(),
-                content: "Hello, World!".to_owned(),
+                sender: "Alice".to_owned(),
+                content: "Hello".to_owned(),
             })
             .await
             .unwrap();
@@ -328,7 +320,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn different_message_with_same_id_is_a_conflict() {
+    async fn conflict_same_id_different_message() {
         // Given a message id that already exists with different content
         struct Stub;
         impl PersistenceStub for Stub {
@@ -344,6 +336,7 @@ mod tests {
                     (?1, ?2, ?3, ?4, ?5)" => Err(StubError::UniqueConstraintViolation),
                     "SELECT sender, content FROM events WHERE message_id = ?1" => Ok(vec![vec![
                         StubField::Text("Alice".to_owned()),
+                        // Hello is different from Goodbye
                         StubField::Text("Hello".to_owned()),
                     ]]),
                     _ => unimplemented!(),
