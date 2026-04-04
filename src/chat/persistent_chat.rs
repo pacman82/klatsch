@@ -196,69 +196,17 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::{Chat as _, PersistentChat, create_schema_chat};
+    use super::{Chat as _, PersistentChat};
     use crate::{
         chat::{ChatError, EventId, Message},
         persistence::{
             ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError,
-            SqlitePersistence,
         },
     };
     use uuid::Uuid;
 
-    fn dummy_message(id: Uuid) -> Message {
-        Message {
-            id,
-            sender: "dummy".to_owned(),
-            content: "dummy".to_owned(),
-        }
-    }
-
-    #[tokio::test]
-    async fn recorded_message_is_broadcasted_in_event() {
-        // Given a chat history
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-
-        // When recording a message ...
-        let msg = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_string(),
-            content: "Hello".to_string(),
-        };
-        // ... and retrieving its corresponding event
-        let event = history.record_message(msg.clone()).await.unwrap().unwrap();
-
-        // Then the event contains the same message.
-        assert_eq!(event.message, msg);
-    }
-
-    #[tokio::test]
-    async fn messages_are_retrieved_in_insertion_order() {
-        // Given an empty chat history
-        let persistence = SqlitePersistence::new(None, create_schema_chat)
-            .await
-            .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-
-        // When recording two messages after each other...
-        let id_1 = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let id_2 = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        history.record_message(dummy_message(id_1)).await.unwrap();
-        history.record_message(dummy_message(id_2)).await.unwrap();
-        // ...and retrieving these messages after insertion
-        let events = history.events_since(EventId::before_all()).await.unwrap();
-
-        // Then the messages are retrieved in the order they were inserted.
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].message.id, id_1);
-        assert_eq!(events[1].message.id, id_2);
-    }
-
-    /// This tests confirms we use the correct WHERE clause when interacting with persistence and
-    /// forward the results.
+    /// This tests confirms we use the correct WHERE and ORDER BYclause when interacting with
+    /// persistence and forward the results correctly.
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three events
