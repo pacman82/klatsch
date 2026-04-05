@@ -1,15 +1,18 @@
 use super::{ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError};
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
     rusqlite::{self, Params, Row, ToSql, ffi, params_from_iter, types::ToSqlOutput},
 };
-use std::path::Path;
+use fs2::{FileExt as _, lock_contended_error};
+use std::{fs::File, path::Path};
 use tokio::fs::create_dir_all;
 use tracing::{error, info};
 
 pub struct SqlitePersistence {
     conn: Client,
+    /// Held for the lifetime of the struct to prevent concurrent instances on the same directory.
+    _lock_file: Option<File>,
 }
 
 impl SqlitePersistence {
@@ -20,10 +23,12 @@ impl SqlitePersistence {
         + 'static,
     ) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
+        let mut lock = None;
         if let Some(dir) = directory {
             create_dir_all(dir).await.inspect_err(
                 |err| error!(target: "persistence", "Failed to create database directory: {err}"),
             )?;
+            lock = Some(acquire_lock(dir)?);
             builder = builder
                 .path(dir.join("klatsch.db"))
                 .journal_mode(JournalMode::Wal);
@@ -41,7 +46,10 @@ impl SqlitePersistence {
             )?;
         outcome.report_migration_status()?;
 
-        let persistence = SqlitePersistence { conn };
+        let persistence = SqlitePersistence {
+            conn,
+            _lock_file: lock,
+        };
         Ok(persistence)
     }
 }
@@ -213,6 +221,17 @@ impl MigrationOutcome {
     }
 }
 
+fn acquire_lock(dir: &Path) -> anyhow::Result<File> {
+    let lock_file = File::create(dir.join("klatsch.lock"))?;
+    match lock_file.try_lock_exclusive() {
+        Ok(()) => Ok(lock_file),
+        Err(err) if err.raw_os_error() == lock_contended_error().raw_os_error() => Err(anyhow!(
+            "Another instance is already using this persistence directory"
+        )),
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn migrate(
     conn: &mut rusqlite::Connection,
     create_schema: impl FnOnce(&rusqlite::Connection) -> Result<(), rusqlite::Error>,
@@ -257,15 +276,41 @@ mod tests {
 
     #[tokio::test]
     async fn creates_missing_persistence_directory() {
+        // Given that the directory does not exist yet
         let parent = tempfile::tempdir().unwrap();
         let missing_dir = parent.path().join("does-not-exist");
         let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
 
+        // When a persistence instance is created with the missing directory
         SqlitePersistence::new(Some(&missing_dir), dummy_migration)
             .await
             .unwrap();
 
+        // Then the directory is created and the database file exists
         assert!(missing_dir.join("klatsch.db").exists());
+    }
+
+    #[tokio::test]
+    async fn second_instance_on_same_directory_is_rejected() {
+        // Given a persistence instance backed by a directory in the file system
+        let dir = tempfile::tempdir().unwrap();
+        let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
+        let _first = SqlitePersistence::new(Some(dir.path()), dummy_migration)
+            .await
+            .unwrap();
+
+        let result = SqlitePersistence::new(Some(dir.path()), dummy_migration).await;
+
+        // When a second persistence instance is created in the same directory
+        let Err(err) = result else {
+            panic!("Must reject second instance on same directory");
+        };
+
+        // Then an error is returned indicating the directory is already in use
+        assert_eq!(
+            err.to_string(),
+            "Another instance is already using the same persistence directory"
+        );
     }
 
     #[tokio::test]
@@ -304,9 +349,7 @@ mod tests {
         // When the directory is configured and database with data is created
         let create_schema = |connection: &rusqlite::Connection| {
             connection.execute(
-                "CREATE TABLE my_table (
-                id INTEGER PRIMARY KEY,
-                data TEXT)",
+                "CREATE TABLE my_table (id INTEGER PRIMARY KEY, data TEXT)",
                 (),
             )?;
             Ok(())
