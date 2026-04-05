@@ -5,6 +5,7 @@ use async_sqlite::{
     rusqlite::{self, Params, Row, ToSql, ffi, params_from_iter, types::ToSqlOutput},
 };
 use std::path::Path;
+use tokio::fs::create_dir_all;
 use tracing::{error, info};
 
 pub struct SqlitePersistence {
@@ -20,6 +21,9 @@ impl SqlitePersistence {
     ) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
         if let Some(dir) = directory {
+            create_dir_all(dir).await.inspect_err(
+                |err| error!(target: "persistence", "Failed to create database directory: {err}"),
+            )?;
             builder = builder
                 .path(dir.join("klatsch.db"))
                 .journal_mode(JournalMode::Wal);
@@ -250,6 +254,19 @@ mod tests {
     use crate::persistence::{FieldAccess, Persistence};
 
     use super::{ClientBuilder, JournalMode, SqlitePersistence, rusqlite};
+
+    #[tokio::test]
+    async fn creates_missing_persistence_directory() {
+        let parent = tempfile::tempdir().unwrap();
+        let missing_dir = parent.path().join("does-not-exist");
+        let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
+
+        SqlitePersistence::new(Some(&missing_dir), dummy_migration)
+            .await
+            .unwrap();
+
+        assert!(missing_dir.join("klatsch.db").exists());
+    }
 
     #[tokio::test]
     async fn rejects_database_from_newer_version() {
