@@ -8,7 +8,7 @@ anyhow = "1.0.102"
 async-sqlite = "0.5.7"
 async-stream = "0.3.6"
 axum = { version = "0.8.8", features = ["macros"] }
-dotenv = "0.15.0"
+dotenvy = "0.15.7"
 fs2 = "0.4.3"
 futures-util = "0.3.32"
 http-body-util = "0.1.3"

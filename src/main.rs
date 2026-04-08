@@ -6,7 +6,7 @@ mod shutdown;
 mod tracing;
 
 use ::tracing::info;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 
 use crate::{
     chat::{ChatRuntime, PersistentChat, create_schema_chat},
