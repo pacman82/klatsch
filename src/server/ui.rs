@@ -1,11 +1,17 @@
 //! Module for statically hosting the UI assets
 
 use axum::Router;
+use static_serve::embed_assets;
 
 pub fn ui_router() -> Router {
-    memory_serve::load!()
-        .index_file(Some("/index.html"))
-        .into_router()
+    embed_assets!(
+        "./ui/build",
+        // Match `/index.html to `/`
+        strip_html_ext = true,
+        compress = true,
+        cache_busted_paths = ["_app/immutable"]
+    );
+    static_router()
 }
 
 #[cfg(test)]
