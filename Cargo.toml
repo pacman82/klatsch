@@ -43,11 +43,6 @@ uuid = { version = "1.23.0", features = ["serde", "v7"] }
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.31.1", features = ["process", "signal"] }
 
-[build-dependencies]
-# Used to serve the ui statically. Dynamic loading is broken under windows. Force embed makes our
-# UI work under windows, too. We use the node dev server for hot reload anyway for UI development.
-memory-serve = { version = "2.1.0", features = ["force-embed"] }
-
 [profile.release]
 panic = "abort"
 lto = true
