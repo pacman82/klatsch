@@ -26,23 +26,22 @@ impl SqlitePersistence {
         let mut lock = None;
         if let Some(dir) = directory {
             create_dir_all(dir).await.inspect_err(
-                |err| error!(target: "persistence", "Failed to create database directory: {err}"),
+                |err| error!(target: "persistence", error=%err, "Failed to create database directory"),
             )?;
             lock = Some(acquire_lock(dir)?);
             builder = builder
                 .path(dir.join("klatsch.db"))
                 .journal_mode(JournalMode::Wal);
         }
-        let conn = builder
-            .open()
-            .await
-            .inspect_err(|err| error!(target: "persistence", "Failed to open database: {err}"))?;
+        let conn = builder.open().await.inspect_err(
+            |err| error!(target: "persistence", error=%err, "Failed to open database"),
+        )?;
 
         let outcome = conn
             .conn_mut(move |conn| migrate(conn, create_schema))
             .await
             .inspect_err(
-                |err| error!(target: "persistence", "failed to migrate database: {err}"),
+                |err| error!(target: "persistence", error=%err, "failed to migrate database"),
             )?;
         outcome.report_migration_status()?;
 
@@ -74,7 +73,7 @@ impl Persistence for SqlitePersistence {
                 Ok(out)
             })
             .await
-            .inspect_err(|err| error!(target: "persistence", "Transaction failed: {err}"))
+            .inspect_err(|err| error!(target: "persistence", error=%err, "Transaction failed"))
             .map_err(Into::into)
     }
 
@@ -98,7 +97,7 @@ impl Persistence for SqlitePersistence {
         self.conn
             .conn(move |conn| fetch_row(conn))
             .await
-            .inspect_err(|err| error!(target: "persistence", "Failed to read row: {err}"))
+            .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read row"))
             .map_err(Into::into)
     }
 
@@ -122,7 +121,7 @@ impl Persistence for SqlitePersistence {
         self.conn
             .conn(move |conn| fetch_rows(conn))
             .await
-            .inspect_err(|err| error!(target: "persistence", "Failed to read rows: {err}"))
+            .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read rows"))
             .map_err(Into::into)
     }
 }
