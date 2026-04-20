@@ -1,8 +1,15 @@
 # Klatsch
 
+
+A self hosted chat server which is painless to operate. Main motivation for this project is for me to dabble gain some experience with Svelte. To learn about writing complete web applications which ship as a single self contained binary.
+
 work in progress
 
-A self hosted chat server which is painless to operate. Main motivation for this project is for me to dabble gain some experience with Svelte. To learn about writing complet web applications which ship as a single self contained binary.
+- [x] Web Frontend
+- [x] Send and Receive messages
+- [x] Persistence: Remember conversation state after reboot.
+- [ ] Authentication
+
 
 ## Installation
 
@@ -14,7 +21,9 @@ cargo build --release
 
 ## Operation
 
-Klatsch has backend, frontend and persistence all in one binary. In order for it to persist the Chat history the `DATABASE_PATH` environment variable needs to be set, or sepcified in a `.env` file.
+I am assuming klatsch has zero production Users. If you intend to use klatsch for anything, please let me know in an issue. I would than start versioned releases and provide migrations for persistence.
+
+Klatsch has backend, frontend and persistence all in one binary. Klatsch boots with sensible options by default. You can configure it using environment variables or by providing a `.env` file. You can look at `.env.example` to learn what options are available.
 
 ## Development
 
@@ -38,6 +47,16 @@ To run the tests for the frontend navigate to the `ui` subdirectory and run:
 ```shell
 npm test
 ```
+
+### Local execution
+
+To run the klatsch server locally for development I recommend to make a local copy of `.env.example` as `.env` which is ignored by git.
+
+```shell
+cp .env.example .env
+```
+
+Klatsch will boot fine with the default options, but binding to `127.0.0.1` is more secure for development then you do not expect any external traffic anyway.
 
 ### UI development server
 
