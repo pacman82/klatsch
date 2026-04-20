@@ -25,7 +25,7 @@
 		"@types/uuid": "^11.0.0",
 		"@vitest/browser-playwright": "^4.1.4",
 		"dotenv": "^17.4.2",
-		"eslint": "^10.2.0",
+		"eslint": "^10.2.1",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.17.0",
 		"globals": "^17.5.0",
@@ -41,6 +41,6 @@
 		"vitest-browser-svelte": "^2.1.1"
 	},
 	"dependencies": {
-		"uuid": "^13.0.0"
+		"uuid": "^14.0.0"
 	}
 }
