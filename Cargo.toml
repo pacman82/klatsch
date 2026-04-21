@@ -2,8 +2,10 @@
 name = "klatsch"
 version = "0.1.0"
 edition = "2024"
-# Klatsch is a self-hosted binary; it is not published to crates.io.
-publish = false
+# Klatsch is a binary and currently not intended to be published at crates.io. Publishing is
+# disabled via `publish = false` in release-plz.toml instead — setting it here would make
+# release-plz skip the crate entirely, producing no release PR or GitHub release.
+# publish = false
 
 [dependencies]
 anyhow = "1.0.102"
