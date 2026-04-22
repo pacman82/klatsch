@@ -19,14 +19,16 @@ body = """
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | striptags | trim | upper_first }}
-    {% for commit in commits %}
+
+    {% for commit in commits -%}
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
             {% if commit.breaking %}[**breaking**] {% endif %}\
-            {{ commit.message | upper_first }}\
-        {% if commit.body %}
-            {{ commit.body | trim | indent(prefix="  ", first=true) }}
-        {% endif %}
-    {% endfor %}
+            {{ commit.message | upper_first }}
+{% if commit.body %}
+{{ commit.body | trim | indent(prefix="  ", first=true) }}
+
+{% endif %}
+    {%- endfor %}
 {% endfor %}
 """
 trim = true
