@@ -22,14 +22,20 @@ jobs:
           # release-plz parses the full commit history to determine the bump.
           fetch-depth: 0
 
-      # Needed because release-plz runs `cargo package`, which triggers build.rs,
-      # which shells out to npm to build the embedded UI.
+      # release-plz runs `cargo package`; the tarball needs to include a pre-built `ui/build/` so
+      # verification can skip npm.
       - name: Install Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: lts/*
           cache: npm
           cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -57,14 +63,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Needed because release-plz runs `cargo package`, which triggers build.rs,
-      # which shells out to npm to build the embedded UI.
+      # release-plz runs `cargo package`; the tarball needs to include a pre-built `ui/build/` so
+      # verification can skip npm.
       - name: Install Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: lts/*
           cache: npm
           cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
