@@ -3,6 +3,7 @@
 # unpublishable, and skips it entirely — no release PR, no git tag, no GitHub release. Setting
 # it here explicitly keeps the git-release flow on while still skipping `cargo publish`.
 publish = false
+git_only = true
 
 # The [changelog] table configures git-cliff, which release-plz uses under the hood.
 # Docs: https://git-cliff.org/docs/configuration/changelog
