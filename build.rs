@@ -1,75 +1,52 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    env,
+    fs::{copy, create_dir_all, read, read_to_string, remove_dir_all, write},
+    path::PathBuf,
+    process::Command,
+};
 
-use walkdir::WalkDir;
-
-/// File/directory names excluded from the UI fingerprint walk. `.fingerprint` itself is excluded
-/// to avoid a self-reference (writing it would otherwise change the hash). `build/` is *not*
-/// excluded: we want the fingerprint to include the build output so that tampering with it (or a
-/// botched previous build) forces a rebuild.
-
-/// Directories that are generated during the build need not be hashed as inputs. The fingerprint
-/// must be reproducible with the contents from `cargo package`. We do not skip `build` because we
-/// want to rebuild in case something messed with the output.
-const SKIP_PATHS: &[&str] = &["node_modules", ".svelte-kit", ".fingerprint"];
+use walkdir::{DirEntry, WalkDir};
 
 fn main() {
-    // No `rerun-if-changed` directives — this build script runs every time. It performs its own
-    // staleness check to avoid spawning npm when nothing changed.
+    // No `rerun-if-changed` directives. We perform our own staleness check using fingerprint below.
 
     let current_fingerprint = compute_fingerprint();
-    let stored_fingerprint = load_fingerprint();
-    let ui_build_present = PathBuf::from("ui").join("build").is_dir();
+    let previous_fingerprint = load_fingerprint();
 
-    if ui_build_present && current_fingerprint == stored_fingerprint {
-        return;
-    }
-
-    // Trust an externally-produced build (e.g. from a CI pre-build step): if `ui/build` is present
-    // but no fingerprint has been stored yet, record the current source fingerprint and avoid
-    // running npm again. The crate tarball then ships the fingerprint alongside the build so that
-    // verification reproduces a skip instead of trying to rebuild.
-    if ui_build_present && stored_fingerprint.is_empty() {
-        save_fingerprint(current_fingerprint);
+    if current_fingerprint == previous_fingerprint {
         return;
     }
 
     build_ui();
+
     save_fingerprint(compute_fingerprint());
 }
 
 fn build_ui() {
+    stage_ui_sources();
     execute_npm_command(&["install"]);
     execute_npm_command(&["run", "build"]);
 }
 
 fn save_fingerprint(fingerprint: String) {
-    fs::write(fingerprint_path(), fingerprint).expect("failed to write UI fingerprint")
+    write(fingerprint_path(), fingerprint).expect("failed to write UI fingerprint")
 }
 
 fn load_fingerprint() -> String {
-    fs::read_to_string(fingerprint_path()).unwrap_or_default()
+    read_to_string(fingerprint_path()).unwrap_or_default()
 }
 
 fn fingerprint_path() -> PathBuf {
-    PathBuf::from("ui").join(".fingerprint")
+    PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set")).join("ui.fingerprint")
 }
 
-/// Produces a single hash covering all `ui/` source files. Any change to source files or config
-/// produces a different fingerprint; build outputs and the fingerprint file itself are excluded so
-/// the hash represents source state only.
 fn compute_fingerprint() -> String {
     let mut hasher = blake3::Hasher::new();
 
-    for entry in WalkDir::new("ui")
-        .sort_by_file_name()
-        .into_iter()
-        .filter_entry(|e| !SKIP_PATHS.contains(&e.file_name().to_string_lossy().as_ref()))
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
+    for entry in walk_ui_source_files() {
         let path = entry.path();
         hasher.update(path.to_string_lossy().as_bytes());
-        if let Ok(contents) = fs::read(path) {
+        if let Ok(contents) = read(path) {
             hasher.update(&contents);
         }
     }
@@ -77,11 +54,60 @@ fn compute_fingerprint() -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+/// Copy UI sources into target
+///
+/// npm modifies its working directory. E.g. to install dependencies in `node_modules/`. In order to
+/// be compatible with `cargo package` we must not pollute the source tree outside of `target/`.
+fn stage_ui_sources() {
+    let dest = staging_dir();
+    if dest.exists() {
+        remove_dir_all(&dest).expect("failed to clean UI staging directory");
+    }
+
+    for entry in walk_ui_source_files() {
+        let src = entry.path();
+        let rel = src
+            .strip_prefix("ui")
+            .expect("walked path always has the `ui` prefix");
+        let dst = dest.join(rel);
+
+        if src.is_dir() {
+            create_dir_all(&dst).expect("failed to create staging subdir");
+        } else {
+            if let Some(parent) = dst.parent() {
+                create_dir_all(parent).expect("failed to create staging parent dir");
+            }
+            copy(src, &dst).expect("failed to copy source into staging");
+        }
+    }
+}
+
+/// Staging directory under cargo's `target/`. Relative path — resolves against CWD, which cargo
+/// sets to `CARGO_MANIFEST_DIR` during build.rs execution.
+fn staging_dir() -> PathBuf {
+    PathBuf::from("target").join("ui")
+}
+
+fn walk_ui_source_files() -> impl Iterator<Item = DirEntry> {
+    /// File/directory names excluded from the UI source fingerprint walk.
+    const SKIP_PATHS: &[&str] = &["node_modules", ".svelte-kit", "build"];
+
+    WalkDir::new("ui")
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| {
+            !e.file_type().is_dir()
+                || !SKIP_PATHS.contains(&e.file_name().to_string_lossy().as_ref())
+        })
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+}
+
 #[cfg(not(windows))]
 fn execute_npm_command(args: &[&str]) {
     let output = Command::new("npm")
         .args(args)
-        .current_dir("./ui")
+        .current_dir(staging_dir())
         .output()
         .expect("Failed to run npm");
     if !output.status.success() {
@@ -99,7 +125,7 @@ fn execute_npm_command(args: &[&str]) {
     let command = String::from("npm ") + &args.join(" ");
     let output = Command::new("powershell")
         .args(&["-Command", &command])
-        .current_dir("./ui")
+        .current_dir(staging_dir())
         .output()
         .expect("Failed to run npm");
     if !output.status.success() {

@@ -8,28 +8,6 @@ license = "MIT"
 # release-plz skip the crate entirely, producing no release PR or GitHub release.
 # publish = false
 
-# We need to include `ui/build/` and `ui/.fingerprint` so the pre-built UI is included in the
-# package. While `cargo build` triggers the UI build, it must build the UI in source in order for
-# static_serve to find it. This means the cargo package differs from the source tree, but on the
-# upside does not require npm to build.
-#
-# The below list captures the relevant `ui/build/` and `ui/.fingerprint` implicitly via `ui/**`.
-include = [
-    "/.cargo/config.toml",
-    "/.gitignore",
-    "/CHANGELOG.md",
-    "/Cargo.lock",
-    "/Cargo.toml",
-    "/LICENSE",
-    "/README.md",
-    "/build.rs",
-    "/src/**",
-    "/tests/**",
-    "/ui/**",
-    "!/ui/node_modules/**",
-    "!/ui/.svelte-kit/**",
-]
-
 [dependencies]
 anyhow = "1.0.102"
 async-sqlite = "0.5.7"
