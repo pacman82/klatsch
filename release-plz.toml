@@ -7,8 +7,10 @@ publish = false
 # The [changelog] table configures git-cliff, which release-plz uses under the hood.
 # Docs: https://git-cliff.org/docs/configuration/changelog
 [changelog]
-# git-cliff's default template: emoji-prefixed section headings, inline `[**breaking**]` marker,
-# HTML-comment prefixes for stable group ordering.
+# We prefer to use a template closer to git-cliff's default, as oppossed to the one from
+# release-plz. This means we do not addhere to keep a changelog categories. The difference to
+# git-cliff's default is that we include the body of the commit, too. This way we have more
+# information if we curate the changelog on release.
 body = """
 {% if version %}\
     ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -21,6 +23,9 @@ body = """
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
             {% if commit.breaking %}[**breaking**] {% endif %}\
             {{ commit.message | upper_first }}\
+        {% if commit.body %}
+            {{ commit.body | trim | indent(prefix="  ", first=true) }}
+        {% endif %}
     {% endfor %}
 {% endfor %}
 """
