@@ -7,6 +7,8 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
+# Hash of `ui/` sources and build output. Created by cargo build.
+/.fingerprint
 
 # OS
 .DS_Store
