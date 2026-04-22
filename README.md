@@ -13,7 +13,25 @@ work in progress
 
 ## Installation
 
-Klatsch is not released yet. You can build it from this source executing:
+### Binary release
+
+Check the Github release for prebuild binaries. Klatsch is self contained, just unpack the archive and run the executable.
+
+### Docker
+
+You can also run it in a docker container.
+
+```shell
+docker run -d --name klatsch \
+  -p 3000:3000 \
+  # Conversation is stored in klatsch-data on host
+  -v klatsch-data:/data \
+  ghcr.io/pacman82/klatsch:latest
+```
+
+### Building from source
+
+Check out this repository. With `npm` and `cargo` installed run. You finde the executable in the `target/release` subfolder.
 
 ```shell
 cargo build --release
