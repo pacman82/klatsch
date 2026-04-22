@@ -22,8 +22,9 @@ jobs:
           # release-plz parses the full commit history to determine the bump.
           fetch-depth: 0
 
-      # release-plz runs `cargo package`; the tarball needs to include a pre-built `ui/build/` so
-      # verification can skip npm.
+      # npm must be on PATH: release-plz runs `cargo package`, whose verification step invokes
+      # build.rs to build the UI. build.rs stages `ui/` into `target/ui/` and runs npm there, so
+      # the build stays inside cargo's own directory and doesn't trigger verification errors.
       - name: Install Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
@@ -31,20 +32,8 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      - name: Build UI
-        working-directory: ui
-        run: |
-          npm ci
-          npm run build
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      # Runs `build.rs`, which writes `ui/.fingerprint`. Needed in the working tree so
-      # release-plz's `cargo package` captures it — otherwise verification's build.rs would write
-      # it inside the extracted tarball and cargo would flag that as a source-tree modification.
-      - name: Create UI fingerprint
-        run: cargo check
 
       - name: Create Release
         uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
@@ -69,8 +58,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # release-plz runs `cargo package`; the tarball needs to include a pre-built `ui/build/` so
-      # verification can skip npm.
+      # npm must be on PATH: release-plz runs `cargo package`, whose verification step invokes
+      # build.rs to build the UI. build.rs stages `ui/` into `target/ui/` and runs npm there, so
+      # the build stays inside cargo's own directory and doesn't trigger verification errors.
       - name: Install Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
@@ -78,20 +68,8 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      - name: Build UI
-        working-directory: ui
-        run: |
-          npm ci
-          npm run build
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      # Runs `build.rs`, which writes `ui/.fingerprint`. Needed in the working tree so
-      # release-plz's `cargo package` captures it — otherwise verification's build.rs would write
-      # it inside the extracted tarball and cargo would flag that as a source-tree modification.
-      - name: Create UI fingerprint
-        run: cargo check
 
       - name: Create Release PR
         uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
