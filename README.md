@@ -25,6 +25,15 @@ I am assuming klatsch has zero production Users. If you intend to use klatsch fo
 
 Klatsch has backend, frontend and persistence all in one binary. Klatsch boots with sensible options by default. You can configure it using environment variables or by providing a `.env` file. You can look at `.env.example` to learn what options are available.
 
+### Logging
+
+Klatsch logs to standard error. The log level can be controlled via the `LOG_LEVEL` environment variable. It can be set to ERROR, WARN, INFO, DEBUG and TRACE. INFO is the default. You can set separate log levels for individial targets. Special instructions override global ones. E.g. "warn,server=info". The log targets are:
+
+- **`app`**
+- **`server`**
+- **`http`**
+- **`persistence`**
+
 ## Development
 
 ### Prerequisites
