@@ -3,6 +3,18 @@
 `Klatsch` adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-04-23
+
+### 🚀 Features
+
+- Release binaries to GitHub
+
+### 📚 Documentation
+
+- Document different log targets
+- Mention released artifacts in Readme
+
 ## [0.1.0] - 2026-04-22
 
 ### 🚀 Features

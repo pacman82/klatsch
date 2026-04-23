@@ -1,6 +1,6 @@
 [package]
 name = "klatsch"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 # Klatsch is a binary and currently not intended to be published at crates.io. Publishing is
