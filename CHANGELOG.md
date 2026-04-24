@@ -4,7 +4,7 @@
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-04-23
+## [0.1.1](https://github.com/pacman82/klatsch/compare/v0.1.0...v0.1.1) - 2026-04-23
 
 ### 🚀 Features
 
@@ -15,7 +15,7 @@
 - Document different log targets
 - Mention released artifacts in Readme
 
-## [0.1.0] - 2026-04-22
+## 0.1.0 - 2026-04-22
 
 ### 🚀 Features
 
