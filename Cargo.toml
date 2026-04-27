@@ -55,6 +55,6 @@ lto = true
 [build-dependencies]
 # Used to compute an aggregated has of all the sources and build artifacts of the UI, in order to
 # detect change and trigger rebuilds.
-blake3 = "1.8.4"
+blake3 = "1.8.5"
 # Used to walk all the sources and build artifacts of the UI.
 walkdir = "2.5.0"
