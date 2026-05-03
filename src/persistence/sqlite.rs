@@ -1,4 +1,4 @@
-use super::{ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError};
+use super::{Argument, Arguments, ExecuteSql, FieldAccess, Persistence, PersistenceError};
 use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
@@ -80,7 +80,7 @@ impl Persistence for SqlitePersistence {
     async fn row<O>(
         &self,
         query: &'static str,
-        params: impl Parameters + Send + Sync + 'static,
+        params: impl Arguments + Send + Sync + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<O>
     where
@@ -104,7 +104,7 @@ impl Persistence for SqlitePersistence {
     async fn rows_vec<O>(
         &self,
         query: &'static str,
-        params: impl Parameters + Send + Sync + 'static,
+        params: impl Arguments + Send + Sync + 'static,
         map: impl Fn(&Row<'_>) -> Result<O, rusqlite::Error> + Send + 'static,
     ) -> anyhow::Result<Vec<O>>
     where
@@ -126,7 +126,7 @@ impl Persistence for SqlitePersistence {
     }
 }
 
-fn to_rusqlite_params<'a>(params: &'a impl Parameters) -> impl Params {
+fn to_rusqlite_params<'a>(params: &'a impl Arguments) -> impl Params {
     let it = (0..params.len()).map(|index| params.get(index));
     params_from_iter(it)
 }
@@ -153,7 +153,7 @@ impl ExecuteSql for rusqlite::Connection {
     type Row<'a> = rusqlite::Row<'a>;
     type Error = rusqlite::Error;
 
-    fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
+    fn execute(&self, query: &str, params: impl Arguments) -> Result<(), Self::Error> {
         let mut stmt = self.prepare_cached(query).expect("SQL must be valid");
 
         let params = to_rusqlite_params(&params);
@@ -164,7 +164,7 @@ impl ExecuteSql for rusqlite::Connection {
     fn row<O>(
         &self,
         query: &str,
-        params: impl Parameters,
+        params: impl Arguments,
         map: impl Fn(&rusqlite::Row<'_>) -> Result<O, rusqlite::Error>,
     ) -> Result<O, rusqlite::Error> {
         let params = to_rusqlite_params(&params);
@@ -257,12 +257,12 @@ fn migrate(
     Ok(outcome)
 }
 
-impl ToSql for Parameter<'_> {
+impl ToSql for Argument<'_> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         match self {
-            Parameter::I64(i) => i.to_sql(),
-            Parameter::Text(s) => s.to_sql(),
-            Parameter::Blob(b) => b.to_sql(),
+            Argument::I64(i) => i.to_sql(),
+            Argument::Text(s) => s.to_sql(),
+            Argument::Blob(b) => b.to_sql(),
         }
     }
 }

@@ -1,37 +1,37 @@
 use std::borrow::Cow;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Parameter<'a> {
+pub enum Argument<'a> {
     I64(i64),
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
 }
 
-impl<'a> From<&'a i64> for Parameter<'static> {
+impl<'a> From<&'a i64> for Argument<'static> {
     fn from(value: &'a i64) -> Self {
-        Parameter::I64(*value)
+        Argument::I64(*value)
     }
 }
 
-impl<'a> From<&'a [u8]> for Parameter<'a> {
+impl<'a> From<&'a [u8]> for Argument<'a> {
     fn from(value: &'a [u8]) -> Self {
-        Parameter::Blob(Cow::Borrowed(value))
+        Argument::Blob(Cow::Borrowed(value))
     }
 }
 
-impl<'a> From<&'a String> for Parameter<'a> {
+impl<'a> From<&'a String> for Argument<'a> {
     fn from(value: &'a String) -> Self {
-        Parameter::Text(Cow::Borrowed(value.as_str()))
+        Argument::Text(Cow::Borrowed(value.as_str()))
     }
 }
 
-pub trait Parameters {
-    fn get(&self, index: usize) -> Parameter<'_>;
+pub trait Arguments {
+    fn get(&self, index: usize) -> Argument<'_>;
     fn len(&self) -> usize;
 }
 
-impl Parameters for (i64, &[u8], &String, &String, i64) {
-    fn get(&self, index: usize) -> Parameter<'_> {
+impl Arguments for (i64, &[u8], &String, &String, i64) {
+    fn get(&self, index: usize) -> Argument<'_> {
         match index {
             0 => (&self.0).into(),
             1 => self.1.into(),
@@ -47,10 +47,10 @@ impl Parameters for (i64, &[u8], &String, &String, i64) {
     }
 }
 
-impl Parameters for i64 {
-    fn get(&self, index: usize) -> Parameter<'_> {
+impl Arguments for i64 {
+    fn get(&self, index: usize) -> Argument<'_> {
         match index {
-            0 => Parameter::I64(*self),
+            0 => Argument::I64(*self),
             _ => panic!("Index out of bounds"),
         }
     }
@@ -60,10 +60,10 @@ impl Parameters for i64 {
     }
 }
 
-impl Parameters for &'_ [u8] {
-    fn get(&self, index: usize) -> Parameter<'_> {
+impl Arguments for &'_ [u8] {
+    fn get(&self, index: usize) -> Argument<'_> {
         match index {
-            0 => Parameter::Blob(Cow::Borrowed(*self)),
+            0 => Argument::Blob(Cow::Borrowed(*self)),
             _ => panic!("Index out of bounds"),
         }
     }
@@ -73,8 +73,8 @@ impl Parameters for &'_ [u8] {
     }
 }
 
-impl Parameters for () {
-    fn get(&self, _index: usize) -> Parameter<'_> {
+impl Arguments for () {
+    fn get(&self, _index: usize) -> Argument<'_> {
         panic!("Index out of bounds")
     }
 

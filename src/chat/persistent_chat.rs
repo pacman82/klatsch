@@ -200,7 +200,7 @@ mod tests {
     use crate::{
         chat::{ChatError, EventId, Message},
         persistence::{
-            ExecuteSql, FieldAccess, Parameter, Parameters, Persistence, PersistenceError,
+            Argument, Arguments, ExecuteSql, FieldAccess, Persistence, PersistenceError,
         },
     };
     use uuid::Uuid;
@@ -261,7 +261,7 @@ mod tests {
             fn query(
                 &self,
                 query: &str,
-                _: impl Parameters,
+                _: impl Arguments,
             ) -> Result<Vec<Vec<StubField>>, StubError> {
                 match query {
                     "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
@@ -299,7 +299,7 @@ mod tests {
             fn query(
                 &self,
                 query: &str,
-                _: impl Parameters,
+                _: impl Arguments,
             ) -> Result<Vec<Vec<StubField>>, StubError> {
                 match query {
                     "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
@@ -402,7 +402,7 @@ mod tests {
         fn query(
             &self,
             query: &str,
-            params: impl Parameters,
+            args: impl Arguments,
         ) -> Result<Vec<Vec<StubField>>, StubError>;
     }
 
@@ -413,7 +413,7 @@ mod tests {
         type Row<'a> = Vec<StubField>;
         type Error = StubError;
 
-        fn execute(&self, query: &str, params: impl Parameters) -> Result<(), Self::Error> {
+        fn execute(&self, query: &str, params: impl Arguments) -> Result<(), Self::Error> {
             self.query(query, params)?;
             Ok(())
         }
@@ -421,7 +421,7 @@ mod tests {
         fn row<O>(
             &self,
             query: &'static str,
-            params: impl Parameters,
+            params: impl Arguments,
             map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
         ) -> Result<O, Self::Error> {
             let rows = self.query(query, params)?;
@@ -440,7 +440,7 @@ mod tests {
         async fn row<O>(
             &self,
             query: &'static str,
-            params: impl Parameters + Send + Sync + 'static,
+            params: impl Arguments + Send + Sync + 'static,
             map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
         ) -> anyhow::Result<O>
         where
@@ -454,7 +454,7 @@ mod tests {
         async fn rows_vec<O>(
             &self,
             query: &'static str,
-            params: impl Parameters + Send + Sync + 'static,
+            params: impl Arguments + Send + Sync + 'static,
             map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
         ) -> anyhow::Result<Vec<O>>
         where
@@ -487,7 +487,7 @@ mod tests {
         fn query(
             &self,
             query: &str,
-            params: impl Parameters,
+            params: impl Arguments,
         ) -> Result<Vec<Vec<StubField>>, StubError> {
             let expected = self.0.lock().unwrap().pop().unwrap();
             expected.invoke(query, params)
@@ -555,7 +555,7 @@ mod tests {
         fn invoke(
             self,
             query: &str,
-            params: impl Parameters,
+            params: impl Arguments,
         ) -> Result<Vec<Vec<StubField>>, StubError> {
             assert_eq!(self.sql, query);
             assert_eq!(self.parameters.len(), params.len());
@@ -566,7 +566,7 @@ mod tests {
         }
     }
 
-    struct ParameterExpectation(Box<dyn FnOnce(Parameter<'_>) + Send>);
+    struct ParameterExpectation(Box<dyn FnOnce(Argument<'_>) + Send>);
 
     impl ParameterExpectation {
         fn recent_timestamp_ms() -> Self {
@@ -575,7 +575,7 @@ mod tests {
                 .unwrap()
                 .as_millis() as i64;
             ParameterExpectation(Box::new(move |param| {
-                let Parameter::I64(actual) = param else {
+                let Argument::I64(actual) = param else {
                     panic!("expected I64 parameter for timestamp, got {param:?}");
                 };
                 let after = SystemTime::now()
@@ -593,7 +593,7 @@ mod tests {
     impl From<i64> for ParameterExpectation {
         fn from(expected: i64) -> Self {
             ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Parameter::I64(expected), actual);
+                assert_eq!(Argument::I64(expected), actual);
             }))
         }
     }
@@ -602,7 +602,7 @@ mod tests {
         fn from(expected: &str) -> Self {
             let expected = expected.to_owned();
             ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Parameter::Text(expected.into()), actual);
+                assert_eq!(Argument::Text(expected.into()), actual);
             }))
         }
     }
@@ -610,7 +610,7 @@ mod tests {
     impl From<Vec<u8>> for ParameterExpectation {
         fn from(expected: Vec<u8>) -> Self {
             ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Parameter::Blob(expected.into()), actual);
+                assert_eq!(Argument::Blob(expected.into()), actual);
             }))
         }
     }
