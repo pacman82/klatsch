@@ -13,9 +13,9 @@ pub enum Argument<'a> {
     Blob(Cow<'a, [u8]>),
 }
 
-impl<'a> From<&'a i64> for Argument<'static> {
-    fn from(value: &'a i64) -> Self {
-        Argument::I64(*value)
+impl From<i64> for Argument<'static> {
+    fn from(value: i64) -> Self {
+        Argument::I64(value)
     }
 }
 
@@ -42,11 +42,11 @@ pub trait Arguments {
 impl Arguments for (i64, &[u8], &String, &String, i64) {
     fn get(&self, index: usize) -> Argument<'_> {
         match index {
-            0 => (&self.0).into(),
+            0 => self.0.into(),
             1 => self.1.into(),
             2 => self.2.into(),
             3 => self.3.into(),
-            4 => (&self.4).into(),
+            4 => self.4.into(),
             _ => panic!("Index out of bounds"),
         }
     }
