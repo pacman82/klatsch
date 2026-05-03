@@ -13,21 +13,27 @@ pub enum Argument<'a> {
     Blob(Cow<'a, [u8]>),
 }
 
-impl From<i64> for Argument<'static> {
-    fn from(value: i64) -> Self {
-        Argument::I64(value)
+/// Borrow `self` as an [`Argument`]. The produced [`Argument`] borrows from `self` for the
+/// lifetime of the borrow, which is what callers in the [`Arguments`] trait need.
+pub trait AsArgument {
+    fn as_argument(&self) -> Argument<'_>;
+}
+
+impl AsArgument for i64 {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::I64(*self)
     }
 }
 
-impl<'a> From<&'a [u8]> for Argument<'a> {
-    fn from(value: &'a [u8]) -> Self {
-        Argument::Blob(Cow::Borrowed(value))
+impl AsArgument for &[u8] {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::Blob(Cow::Borrowed(*self))
     }
 }
 
-impl<'a> From<&'a String> for Argument<'a> {
-    fn from(value: &'a String) -> Self {
-        Argument::Text(Cow::Borrowed(value.as_str()))
+impl AsArgument for &String {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::Text(Cow::Borrowed(self.as_str()))
     }
 }
 
@@ -39,14 +45,21 @@ pub trait Arguments {
     fn len(&self) -> usize;
 }
 
-impl Arguments for (i64, &[u8], &String, &String, i64) {
+impl<A, B, C, D, E> Arguments for (A, B, C, D, E)
+where
+    A: AsArgument,
+    B: AsArgument,
+    C: AsArgument,
+    D: AsArgument,
+    E: AsArgument,
+{
     fn get(&self, index: usize) -> Argument<'_> {
         match index {
-            0 => self.0.into(),
-            1 => self.1.into(),
-            2 => self.2.into(),
-            3 => self.3.into(),
-            4 => self.4.into(),
+            0 => self.0.as_argument(),
+            1 => self.1.as_argument(),
+            2 => self.2.as_argument(),
+            3 => self.3.as_argument(),
+            4 => self.4.as_argument(),
             _ => panic!("Index out of bounds"),
         }
     }
