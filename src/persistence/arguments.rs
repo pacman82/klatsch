@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+/// An argument passed to a query over the [`Persistence`] trait.
+///
+/// The persistence implementation has no knowledge about the nature of the query at compile time.
+/// In particulary it does not know anything about the parameter types of the queries. Therfore we
+/// represent [`Argument`] is an enumeration so it contains runtime information about the type of
+/// the argument in addition to its value.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Argument<'a> {
     I64(i64),
@@ -25,6 +31,9 @@ impl<'a> From<&'a String> for Argument<'a> {
     }
 }
 
+/// A collection of arguments. We use a generic trait, rather than a `Vec` or similar in order to
+/// be able to implement it directly for structs and pass them without having the need to allocate
+/// an intermediate representation.
 pub trait Arguments {
     fn get(&self, index: usize) -> Argument<'_>;
     fn len(&self) -> usize;
