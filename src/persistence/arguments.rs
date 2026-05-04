@@ -45,30 +45,6 @@ pub trait Arguments {
     fn len(&self) -> usize;
 }
 
-impl<A, B, C, D, E> Arguments for (A, B, C, D, E)
-where
-    A: AsArgument,
-    B: AsArgument,
-    C: AsArgument,
-    D: AsArgument,
-    E: AsArgument,
-{
-    fn get(&self, index: usize) -> Argument<'_> {
-        match index {
-            0 => self.0.as_argument(),
-            1 => self.1.as_argument(),
-            2 => self.2.as_argument(),
-            3 => self.3.as_argument(),
-            4 => self.4.as_argument(),
-            _ => panic!("Index out of bounds"),
-        }
-    }
-
-    fn len(&self) -> usize {
-        5
-    }
-}
-
 impl Arguments for i64 {
     fn get(&self, index: usize) -> Argument<'_> {
         match index {
@@ -95,12 +71,73 @@ impl Arguments for &'_ [u8] {
     }
 }
 
-impl Arguments for () {
-    fn get(&self, _index: usize) -> Argument<'_> {
-        panic!("Index out of bounds")
+macro_rules! impl_arguments_for_tuple {
+    () => {
+        impl Arguments for () {
+            fn get(&self, _index: usize) -> Argument<'_> {
+                panic!("Index out of bounds")
+            }
+
+            fn len(&self) -> usize {
+                0
+            }
+        }
+    };
+    ($($T:ident)+) => {
+        impl<$($T,)+> Arguments for ($($T,)+)
+        where
+            $($T: AsArgument,)+
+        {
+            #[allow(non_snake_case, unused_assignments)]
+            fn get(&self, index: usize) -> Argument<'_> {
+                let ($($T,)+) = self;
+                let mut i: usize = 0;
+                $(
+                    if index == i { return $T.as_argument(); }
+                    i += 1;
+                )+
+                panic!("Index out of bounds")
+            }
+
+            #[allow(non_snake_case)]
+            fn len(&self) -> usize {
+                let ($($T,)+) = self;
+                let mut i: usize = 0;
+                $(
+                    let _ = $T;
+                    i += 1;
+                )+
+                i
+            }
+        }
+    };
+}
+
+impl_arguments_for_tuple! {}
+impl_arguments_for_tuple! { A }
+impl_arguments_for_tuple! { A B }
+impl_arguments_for_tuple! { A B C }
+impl_arguments_for_tuple! { A B C D }
+impl_arguments_for_tuple! { A B C D E }
+
+#[cfg(test)]
+mod tests {
+
+    use super::{Argument, Arguments};
+
+    #[test]
+    fn unit_type_is_empty_arguments() {
+        assert_eq!(().len(), 0);
     }
 
-    fn len(&self) -> usize {
-        0
+    #[test]
+    fn tuple_element_access() {
+        let args = (1, 2, 3, 4, 5);
+        assert_eq!(args.len(), 5);
+        assert_eq!(Argument::I64(1), args.get(0));
+        assert_eq!(Argument::I64(2), args.get(1));
+        assert_eq!(Argument::I64(3), args.get(2));
+        assert_eq!(Argument::I64(4), args.get(3));
+        assert_eq!(Argument::I64(5), args.get(4));
     }
 }
