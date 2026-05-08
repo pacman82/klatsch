@@ -18,7 +18,7 @@ pub struct SqlitePersistence {
 impl SqlitePersistence {
     pub async fn new(
         directory: Option<&Path>,
-        create_schema: impl for<'any> FnOnce(&rusqlite::Connection) -> Result<(), rusqlite::Error>
+        migrate: impl for<'any> FnOnce(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>
         + Send
         + 'static,
     ) -> anyhow::Result<Self> {
@@ -38,7 +38,7 @@ impl SqlitePersistence {
         )?;
 
         let outcome = conn
-            .conn_mut(move |conn| migrate(conn, create_schema))
+            .conn_mut(move |conn| migrate_to_current(conn, migrate))
             .await
             .inspect_err(
                 |err| error!(target: "persistence", error=%err, "failed to migrate database"),
@@ -231,9 +231,9 @@ fn acquire_lock(dir: &Path) -> anyhow::Result<File> {
     }
 }
 
-fn migrate(
+fn migrate_to_current(
     conn: &mut rusqlite::Connection,
-    create_schema: impl FnOnce(&rusqlite::Connection) -> Result<(), rusqlite::Error>,
+    migrate: impl FnOnce(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>,
 ) -> Result<MigrationOutcome, rusqlite::Error> {
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     // Version 0 is the initial version of an empty database. We regard creating a new database as a
@@ -242,7 +242,7 @@ fn migrate(
         // New empty database. Create schema from scratch
         0 => {
             let tx = conn.transaction()?;
-            create_schema(&tx)?;
+            migrate(&tx, 0)?;
             tx.pragma_update(None, "user_version", 1)?;
             tx.commit()?;
             MigrationOutcome::Created
@@ -278,7 +278,7 @@ mod tests {
         // Given that the directory does not exist yet
         let parent = tempfile::tempdir().unwrap();
         let missing_dir = parent.path().join("does-not-exist");
-        let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
+        let dummy_migration = |_conn: &rusqlite::Connection, _from_version: u32| Ok(());
 
         // When a persistence instance is created with the missing directory
         SqlitePersistence::new(Some(&missing_dir), dummy_migration)
@@ -293,7 +293,7 @@ mod tests {
     async fn second_instance_on_same_directory_is_rejected() {
         // Given a persistence instance backed by a directory in the file system
         let dir = tempfile::tempdir().unwrap();
-        let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
+        let dummy_migration = |_conn: &rusqlite::Connection, _from_version: u32| Ok(());
         let _first = SqlitePersistence::new(Some(dir.path()), dummy_migration)
             .await
             .unwrap();
@@ -325,7 +325,7 @@ mod tests {
             .conn_mut(|conn| conn.pragma_update(None, "user_version", 1_000))
             .await
             .unwrap();
-        let dummy_migration = |_conn: &rusqlite::Connection| Ok(());
+        let dummy_migration = |_conn: &rusqlite::Connection, _from_version: u32| Ok(());
 
         // When trying to open the database
         let result = SqlitePersistence::new(Some(dir.path()), dummy_migration).await;
@@ -346,7 +346,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         // When the directory is configured and database with data is created
-        let create_schema = |connection: &rusqlite::Connection| {
+        let create_schema = |connection: &rusqlite::Connection, _from_version: u32| {
             connection.execute(
                 "CREATE TABLE my_table (id INTEGER PRIMARY KEY, data TEXT)",
                 (),
