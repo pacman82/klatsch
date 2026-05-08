@@ -69,6 +69,7 @@ pub trait PersistenceError {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
+    use tokio::fs;
 
     use super::{Persistence as _, SqlitePersistence};
     use crate::chat::create_schema_chat;
@@ -77,6 +78,44 @@ mod tests {
     async fn create_scheam_from_scratch() {
         // Given an empty persistence directory
         let dir = tempdir().unwrap();
+
+        // When starting persistence in this directory
+        let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
+            .await
+            .unwrap();
+
+        // Then the schema should be created
+        let expected_sql = vec![
+            "CREATE TABLE events (\n                    \
+            id INTEGER PRIMARY KEY,\n                    \
+            message_id BLOB UNIQUE NOT NULL,\n                    \
+            sender TEXT NOT NULL,\n                    \
+            content TEXT NOT NULL,\n                    \
+            timestamp_ms INTEGER NOT NULL\n                \
+            )",
+        ];
+
+        let sql = persistence
+            .rows_vec(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+                (),
+                |row| {
+                    let sql: Option<String> = row.get(0).unwrap();
+                    Ok(sql.unwrap())
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(expected_sql.as_slice(), &sql);
+    }
+
+    #[tokio::test]
+    async fn schema_from_v1() {
+        // Given an persistence directory with an existing v1 database
+        let dir = tempdir().unwrap();
+        fs::copy("src/persistence/tests/v1.db", dir.path().join("klatsch.db"))
+            .await
+            .unwrap();
 
         // When starting persistence in this directory
         let persistence = SqlitePersistence::new(Some(dir.path()), create_schema_chat)
