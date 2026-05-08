@@ -119,20 +119,26 @@ where
     }
 }
 
-pub fn create_schema_chat<C>(conn: &C) -> Result<(), C::Error>
+pub fn create_schema_chat<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
     C: ExecuteSql,
 {
-    conn.execute(
-        "CREATE TABLE events (
-            id INTEGER PRIMARY KEY,
-            message_id BLOB UNIQUE NOT NULL,
-            sender TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp_ms INTEGER NOT NULL
-        )",
-        (),
-    )?;
+    match from_version {
+        // No prior database found create current schema from scratch
+        0 => {
+            conn.execute(
+                "CREATE TABLE events (
+                    id INTEGER PRIMARY KEY,
+                    message_id BLOB UNIQUE NOT NULL,
+                    sender TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                )",
+                (),
+            )?;
+        }
+        _ => (),
+    }
     Ok(())
 }
 
