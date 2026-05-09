@@ -8,6 +8,9 @@ use fs2::{FileExt as _, lock_contended_error};
 use std::{fs::File, path::Path};
 use tokio::fs::create_dir_all;
 use tracing::{error, info};
+use uuid::Uuid;
+
+const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 pub struct SqlitePersistence {
     conn: Client,
@@ -18,7 +21,7 @@ pub struct SqlitePersistence {
 impl SqlitePersistence {
     pub async fn new(
         directory: Option<&Path>,
-        migrate: impl for<'any> FnOnce(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>
+        migrate: impl for<'any> Fn(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>
         + Send
         + 'static,
     ) -> anyhow::Result<Self> {
@@ -132,10 +135,6 @@ fn to_rusqlite_params<'a>(params: &'a impl Arguments) -> impl Params {
 }
 
 impl FieldAccess for rusqlite::Row<'_> {
-    fn get_blob(&self, index: usize) -> Vec<u8> {
-        self.get(index).unwrap()
-    }
-
     fn get_i64(&self, index: usize) -> i64 {
         self.get(index).unwrap()
     }
@@ -146,6 +145,11 @@ impl FieldAccess for rusqlite::Row<'_> {
 
     fn get_text(&self, index: usize) -> String {
         self.get(index).unwrap()
+    }
+
+    fn get_uuid(&self, index: usize) -> Uuid {
+        let bytes = self.get(index).unwrap();
+        Uuid::from_bytes(bytes)
     }
 }
 
@@ -164,13 +168,25 @@ impl ExecuteSql for rusqlite::Connection {
     fn row<O>(
         &self,
         query: &str,
-        params: impl Arguments,
+        args: impl Arguments,
         map: impl Fn(&rusqlite::Row<'_>) -> Result<O, rusqlite::Error>,
     ) -> Result<O, rusqlite::Error> {
-        let params = to_rusqlite_params(&params);
+        let params = to_rusqlite_params(&args);
         self.prepare_cached(query)
             .expect("SQL must be valid")
             .query_row(params, map)
+    }
+
+    fn rows_vec<O>(
+        &self,
+        query: &str,
+        args: impl Arguments,
+        map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
+    ) -> Result<Vec<O>, Self::Error> {
+        let params = to_rusqlite_params(&args);
+        let mut query = self.prepare_cached(query).expect("SQL must be valid");
+        let it = query.query_map(params, map)?;
+        it.collect()
     }
 }
 
@@ -192,6 +208,8 @@ impl PersistenceError for rusqlite::Error {
 enum MigrationOutcome {
     /// Found an empty database and created the schema from scratch.
     Created,
+    /// Found an old schema and migrated it to the current version.
+    Migrated,
     /// Found a recent schema. No migration was necessary.
     NoMigration,
     /// Found a future schema version. Aborted to prevent data loss.
@@ -205,11 +223,16 @@ impl MigrationOutcome {
                 info!(target: "persistence", "New database created");
                 Ok(())
             }
+            MigrationOutcome::Migrated => {
+                info!(target: "persistence", "Database migrated");
+                Ok(())
+            }
             MigrationOutcome::NoMigration => Ok(()),
             MigrationOutcome::Future { version } => {
                 error!(
-                    "Database schema version ({version}) is newer than supported. Aborting to \
-                    prevent data corruption."
+                    target: "persistence",
+                    version = version,
+                    "Database schema is newer than supported. Aborting to prevent data corruption.",
                 );
                 bail!(
                     "Found Database created by a newer version. Update to a newer version to load \
@@ -233,7 +256,7 @@ fn acquire_lock(dir: &Path) -> anyhow::Result<File> {
 
 fn migrate_to_current(
     conn: &mut rusqlite::Connection,
-    migrate: impl FnOnce(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>,
+    migrate: impl Fn(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>,
 ) -> Result<MigrationOutcome, rusqlite::Error> {
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     // Version 0 is the initial version of an empty database. We regard creating a new database as a
@@ -243,12 +266,21 @@ fn migrate_to_current(
         0 => {
             let tx = conn.transaction()?;
             migrate(&tx, 0)?;
-            tx.pragma_update(None, "user_version", 1)?;
+            tx.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
             tx.commit()?;
             MigrationOutcome::Created
         }
+        found_version @ (1..CURRENT_SCHEMA_VERSION) => {
+            for from in found_version..CURRENT_SCHEMA_VERSION {
+                let tx = conn.transaction()?;
+                migrate(&tx, from)?;
+                tx.pragma_update(None, "user_version", from + 1)?;
+                tx.commit()?;
+            }
+            MigrationOutcome::Migrated
+        }
         // Current version, do nothing.
-        1 => MigrationOutcome::NoMigration,
+        CURRENT_SCHEMA_VERSION => MigrationOutcome::NoMigration,
         // Future version. Abort and report error in order to prevent data loss.
         future_version => MigrationOutcome::Future {
             version: future_version,
@@ -269,9 +301,14 @@ impl ToSql for Argument<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::persistence::{FieldAccess, Persistence};
+    use super::{
+        ClientBuilder, FieldAccess, JournalMode, Persistence, SqlitePersistence, rusqlite,
+    };
 
-    use super::{ClientBuilder, JournalMode, SqlitePersistence, rusqlite};
+    use tempfile::tempdir;
+    use tokio::fs;
+
+    use crate::chat::migrate_chat_persistence;
 
     #[tokio::test]
     async fn creates_missing_persistence_directory() {
@@ -380,5 +417,45 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([(1i64, "Hello, World!".to_owned())].as_slice(), &after);
+    }
+
+    #[tokio::test]
+    async fn schema_from_v1() {
+        // Given an persistence directory with an existing v1 database
+        let dir = tempdir().unwrap();
+        fs::copy("tests/v1.db", dir.path().join("klatsch.db"))
+            .await
+            .unwrap();
+
+        // When starting persistence in this directory
+        let persistence = SqlitePersistence::new(Some(dir.path()), migrate_chat_persistence)
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(sql_schema_from_scratch().await, schema(&persistence).await)
+    }
+
+    async fn schema(persistence: &SqlitePersistence) -> Vec<String> {
+        persistence
+            .rows_vec(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+                (),
+                |row| {
+                    let sql: Option<String> = row.get(0).unwrap();
+                    Ok(sql.unwrap())
+                },
+            )
+            .await
+            .unwrap()
+    }
+
+    /// SQL creating the the persistence schema from scratch, then no migration takes place.
+    async fn sql_schema_from_scratch() -> Vec<String> {
+        let persistence = SqlitePersistence::new(None, migrate_chat_persistence)
+            .await
+            .unwrap();
+
+        schema(&persistence).await
     }
 }
