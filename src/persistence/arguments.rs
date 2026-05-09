@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use uuid::Uuid;
+
 /// An argument passed to a query over the [`Persistence`] trait.
 ///
 /// The persistence implementation has no knowledge about the nature of the query at compile time.
@@ -37,6 +39,13 @@ impl AsArgument for &String {
     }
 }
 
+impl AsArgument for &Uuid {
+    fn as_argument(&self) -> Argument<'_> {
+        let bytes = self.as_bytes().as_slice();
+        Argument::Blob(Cow::Borrowed(bytes))
+    }
+}
+
 /// A collection of arguments. We use a generic trait, rather than a `Vec` or similar in order to
 /// be able to implement it directly for structs and pass them without having the need to allocate
 /// an intermediate representation.
@@ -45,23 +54,13 @@ pub trait Arguments {
     fn len(&self) -> usize;
 }
 
-impl Arguments for i64 {
+impl<T> Arguments for T
+where
+    T: AsArgument,
+{
     fn get(&self, index: usize) -> Argument<'_> {
         match index {
-            0 => Argument::I64(*self),
-            _ => panic!("Index out of bounds"),
-        }
-    }
-
-    fn len(&self) -> usize {
-        1
-    }
-}
-
-impl Arguments for &'_ [u8] {
-    fn get(&self, index: usize) -> Argument<'_> {
-        match index {
-            0 => Argument::Blob(Cow::Borrowed(*self)),
+            0 => self.as_argument(),
             _ => panic!("Index out of bounds"),
         }
     }

@@ -4,6 +4,6 @@ mod shared;
 
 pub use self::{
     event::{Event, EventId, Message},
-    persistent_chat::{ChatError, PersistentChat, create_schema_chat},
+    persistent_chat::{ChatError, PersistentChat, migrate_chat_persistence},
     shared::{ChatRuntime, SharedChat},
 };

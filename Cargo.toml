@@ -31,7 +31,8 @@ tokio-stream = { version = "0.1.18", features = ["sync"] }
 tower-http = { version = "0.6.10", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.23.1", features = ["serde"] }
+# Client creates UUIDs for messages. However we generate v4 UUIDs in migrations.
+uuid = { version = "1.23.1", features = ["serde", "v4"] }
 
 [dev-dependencies]
 double-trait = { version = "0.2.9", features = ["stream"] }

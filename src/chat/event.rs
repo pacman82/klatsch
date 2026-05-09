@@ -48,8 +48,12 @@ pub struct Message {
     /// Sender generated unique identifier for the message. It is used to recover from errors
     /// sending messages. It also a key for the UI to efficiently update data structures then
     /// rendering messages.
+    ///
+    /// UUID v7, because we care about newer messages more than older ones in the database.
     pub id: Uuid,
     /// Author of the message
+    ///
+    /// User ID of the sender.
     pub sender: String,
     /// Text content of the message. I.e. the actual message
     pub content: String,

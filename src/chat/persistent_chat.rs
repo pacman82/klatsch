@@ -37,19 +37,14 @@ where
     P: Persistence + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        let query = "SELECT id, message_id, sender, content, timestamp_ms \
-            FROM events \
-            WHERE id > ?1 ORDER BY id";
+        let query = "SELECT events.id, message_id, users.name, content, timestamp_ms \
+            FROM events JOIN users ON events.sender = users.id \
+            WHERE events.id > ?1 ORDER BY events.id";
 
         let map = |row: &P::Row<'_>| {
             let event_id = row.get_i64(0);
             let event_id = EventId(event_id.try_into().unwrap());
-            let message_id = row.get_blob(1);
-            let message_id = Uuid::from_bytes(
-                message_id
-                    .try_into()
-                    .expect("message_id must be a 16-byte BLOB column"),
-            );
+            let message_id = row.get_uuid(1);
             let sender = row.get_text(2);
             let content = row.get_text(3);
             let timestamp_ms = row.get_i64(4);
@@ -119,26 +114,87 @@ where
     }
 }
 
-pub fn create_schema_chat<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
+pub fn migrate_chat_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
     C: ExecuteSql,
 {
     match from_version {
         // No prior database found create current schema from scratch
         0 => {
-            conn.execute(
-                "CREATE TABLE events (
-                    id INTEGER PRIMARY KEY,
-                    message_id BLOB UNIQUE NOT NULL,
-                    sender TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp_ms INTEGER NOT NULL
-                )",
-                (),
-            )?;
+            create_schema_from_scratch(conn)?;
+        }
+        1 => {
+            migrate_v1_to_v2(conn)?;
         }
         _ => (),
     }
+    Ok(())
+}
+
+fn migrate_v1_to_v2<C>(conn: &C) -> Result<(), C::Error>
+where
+    C: ExecuteSql,
+{
+    conn.execute(
+        "CREATE TABLE users (
+            id BLOB PRIMARY KEY,
+            name TEXT NOT NULL
+        )",
+        (),
+    )?;
+    let senders = conn.rows_vec("SELECT DISTINCT sender FROM events", (), |row| {
+        Ok(row.get_text(0))
+    })?;
+    for sender in &senders {
+        let user_id = Uuid::new_v4();
+        conn.execute(
+            "INSERT INTO users (id, name) VALUES (?1, ?2)",
+            (user_id.as_bytes().as_slice(), sender),
+        )?;
+    }
+    conn.execute("ALTER TABLE events RENAME TO events_old", ())?;
+    conn.execute(
+        "CREATE TABLE events (
+            id INTEGER PRIMARY KEY,
+            message_id BLOB UNIQUE NOT NULL,
+            sender BLOB NOT NULL,
+            content TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL
+        )",
+        (),
+    )?;
+    conn.execute(
+        "INSERT INTO events (id, message_id, sender, content, timestamp_ms) \
+            SELECT events_old.id, events_old.message_id, users.id, events_old.content, events_old.timestamp_ms \
+            FROM events_old \
+            JOIN users ON users.name = events_old.sender",
+        (),
+    )?;
+    conn.execute("DROP TABLE events_old", ())?;
+    Ok(())
+}
+
+fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
+where
+    C: ExecuteSql,
+{
+    conn.execute(
+        "CREATE TABLE events (
+            id INTEGER PRIMARY KEY,
+            message_id BLOB UNIQUE NOT NULL,
+            sender BLOB NOT NULL,
+            content TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL
+        )",
+        (),
+    )?;
+    conn.execute(
+        "CREATE TABLE users (
+            id BLOB PRIMARY KEY,
+            name TEXT NOT NULL
+        )",
+        (),
+    )?;
     Ok(())
 }
 
@@ -155,6 +211,25 @@ fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
 where
     C: ExecuteSql,
 {
+    let maybe_user_id = conn
+        .rows_vec(
+            "SELECT id FROM users WHERE name = ?1",
+            (&event.message.sender,),
+            |row| Ok(row.get_uuid(0)),
+        )?
+        .pop();
+    let user_id = match maybe_user_id {
+        Some(user_id) => user_id,
+        None => {
+            let user_id = Uuid::new_v4();
+            conn.execute(
+                "INSERT INTO users (id, name) VALUES (?1, ?2)",
+                (&user_id, &event.message.sender),
+            )?;
+            user_id
+        }
+    };
+
     let event_id: i64 = event.id.0.try_into().unwrap();
     let Err(err) = conn.execute(
         "INSERT INTO events (id, message_id, sender, content, timestamp_ms) \
@@ -162,7 +237,7 @@ where
         (
             event_id,
             event.message.id.as_bytes().as_slice(),
-            &event.message.sender,
+            &user_id,
             &event.message.content,
             event.timestamp_ms as i64,
         ),
@@ -183,12 +258,12 @@ where
         "SELECT sender, content FROM events WHERE message_id = ?1",
         event.message.id.as_bytes().as_slice(),
         |row| {
-            let sender = row.get_text(0);
+            let sender = row.get_uuid(0);
             let content = row.get_text(1);
             Ok((sender, content))
         },
     )?;
-    if sender == event.message.sender && content == event.message.content {
+    if sender == user_id && content == event.message.content {
         Ok(InsertOutcome::Duplicate)
     } else {
         Ok(InsertOutcome::Conflict)
@@ -198,56 +273,49 @@ where
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::{Arc, Mutex},
+        env::temp_dir,
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use super::{Chat as _, PersistentChat};
     use crate::{
-        chat::{ChatError, EventId, Message},
-        persistence::{
-            Argument, Arguments, ExecuteSql, FieldAccess, Persistence, PersistenceError,
-        },
+        chat::{ChatError, EventId, Message, migrate_chat_persistence},
+        persistence::{Persistence, SqlitePersistence},
     };
     use uuid::Uuid;
 
-    /// This tests confirms we use the correct WHERE and ORDER BYclause when interacting with
-    /// persistence and forward the results correctly.
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three events
+        let id_1: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd994".parse().unwrap();
         let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
         let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
-        let persistence = PersistenceMock::new(vec![
-            ExpectedQuery {
-                sql: "SELECT MAX(id) FROM events",
-                parameters: vec![],
-                result: Ok(vec![vec![StubField::I64(3)]]),
-            },
-            ExpectedQuery {
-                sql: "SELECT id, message_id, sender, content, timestamp_ms \
-                    FROM events \
-                    WHERE id > ?1 ORDER BY id",
-                parameters: vec![1i64.into()],
-                result: Ok(vec![
-                    vec![
-                        StubField::I64(2),
-                        StubField::Blob(id_2.as_bytes().to_vec()),
-                        StubField::Text("dummy".to_owned()),
-                        StubField::Text("dummy".to_owned()),
-                        StubField::I64(1000),
-                    ],
-                    vec![
-                        StubField::I64(3),
-                        StubField::Blob(id_3.as_bytes().to_vec()),
-                        StubField::Text("dummy".to_owned()),
-                        StubField::Text("dummy".to_owned()),
-                        StubField::I64(2000),
-                    ],
-                ]),
-            },
-        ]);
-        let history = PersistentChat::new(persistence).await.unwrap();
+        let persistence = persistence_fake().await;
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+        history
+            .record_message(Message {
+                id: id_1,
+                sender: "Dummy".to_owned(),
+                content: "Dummy".to_owned(),
+            })
+            .await
+            .unwrap();
+        history
+            .record_message(Message {
+                id: id_2,
+                sender: "Dummy".to_owned(),
+                content: "Dummy".to_owned(),
+            })
+            .await
+            .unwrap();
+        history
+            .record_message(Message {
+                id: id_3,
+                sender: "Dummy".to_owned(),
+                content: "Dummy".to_owned(),
+            })
+            .await
+            .unwrap();
 
         // When retrieving events since event 1
         let events = history.events_since(EventId(1)).await.unwrap();
@@ -262,29 +330,17 @@ mod tests {
     async fn duplicate_same_id_same_message() {
         // Given a message id that already exists with the same content
         let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        struct Stub;
-        impl PersistenceStub for Stub {
-            fn query(
-                &self,
-                query: &str,
-                _: impl Arguments,
-            ) -> Result<Vec<Vec<StubField>>, StubError> {
-                match query {
-                    "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
-                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
-                    (?1, ?2, ?3, ?4, ?5)" => Err(StubError::UniqueConstraintViolation),
-                    "SELECT sender, content FROM events WHERE message_id = ?1" => Ok(vec![vec![
-                        StubField::Text("Alice".to_owned()),
-                        StubField::Text("Hello".to_owned()),
-                    ]]),
-                    _ => unimplemented!(),
-                }
-            }
-        }
-        let mut history = PersistentChat::new(Stub).await.unwrap();
+        let persistence = persistence_fake().await;
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+        let message = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_owned(),
+            content: "Hello".to_owned(),
+        };
+        history.record_message(message.clone()).await.unwrap();
 
         // When recording a duplicate message
-        let result = history
+        let maybe_event = history
             .record_message(Message {
                 id,
                 sender: "Alice".to_owned(),
@@ -294,35 +350,21 @@ mod tests {
             .unwrap();
 
         // Then no event is emitted
-        assert!(result.is_none());
+        assert!(maybe_event.is_none());
     }
 
     #[tokio::test]
     async fn conflict_same_id_different_message() {
-        // Given a message id that already exists with different content
-        struct Stub;
-        impl PersistenceStub for Stub {
-            fn query(
-                &self,
-                query: &str,
-                _: impl Arguments,
-            ) -> Result<Vec<Vec<StubField>>, StubError> {
-                match query {
-                    "SELECT MAX(id) FROM events" => Ok(vec![vec![StubField::I64(1)]]),
-                    // Inserting triggers constraint violation
-                    "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
-                    (?1, ?2, ?3, ?4, ?5)" => Err(StubError::UniqueConstraintViolation),
-                    "SELECT sender, content FROM events WHERE message_id = ?1" => Ok(vec![vec![
-                        StubField::Text("Alice".to_owned()),
-                        // Hello is different from Goodbye
-                        StubField::Text("Hello".to_owned()),
-                    ]]),
-                    _ => unimplemented!(),
-                }
-            }
-        }
+        // Given a message id that already exists with the same content
         let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let mut history = PersistentChat::new(Stub).await.unwrap();
+        let persistence = persistence_fake().await;
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+        let message = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_owned(),
+            content: "Hello".to_owned(),
+        };
+        history.record_message(message.clone()).await.unwrap();
 
         // When recording a message whose id already exists with different content
         let result = history
@@ -340,22 +382,15 @@ mod tests {
     #[tokio::test]
     async fn last_event_id_exceeds_total_number_of_events() {
         // Given a history with one message
-        let persistence = PersistenceMock::new(vec![
-            ExpectedQuery {
-                sql: "SELECT MAX(id) FROM events",
-                parameters: vec![],
-                result: Ok(vec![vec![StubField::I64(1)]]),
-            },
-            // Then
-            ExpectedQuery {
-                sql: "SELECT id, message_id, sender, content, timestamp_ms \
-                    FROM events \
-                    WHERE id > ?1 ORDER BY id",
-                parameters: vec![2i64.into()],
-                result: Ok(vec![]),
-            },
-        ]);
-        let history = PersistentChat::new(persistence).await.unwrap();
+        // Given a message id that already exists with the same content
+        let persistence = persistence_fake().await;
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+        let message = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "dummy".to_owned(),
+            content: "dummy".to_owned(),
+        };
+        history.record_message(message.clone()).await.unwrap();
 
         // When retrieving events since an id beyond the history
         let events = history.events_since(EventId(2)).await.unwrap();
@@ -364,260 +399,70 @@ mod tests {
         assert!(events.is_empty());
     }
 
-    /// Interaction with persistence during inserting a new row
     #[tokio::test]
-    async fn insert_new_record() {
+    async fn inserting_new_record_emits_event() {
         // Given
+        let persistence = persistence_fake().await;
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // When inserting a new record
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_owned(),
             content: "Hi".to_owned(),
         };
-        let persistence = PersistenceMock::new(vec![
-            ExpectedQuery {
-                sql: "SELECT MAX(id) FROM events",
-                parameters: vec![],
-                result: Ok(vec![vec![StubField::I64(42)]]),
-            },
-            // Then
-            ExpectedQuery {
-                sql: "INSERT INTO events (id, message_id, sender, content, timestamp_ms) VALUES \
-                (?1, ?2, ?3, ?4, ?5)",
-                parameters: vec![
-                    43.into(),
-                    message.id.as_bytes().to_vec().into(),
-                    "Alice".into(),
-                    "Hi".into(),
-                    ParameterExpectation::recent_timestamp_ms(),
-                ],
-                result: Ok(vec![]),
-            },
-        ]);
-
-        // When
-        let mut chat = PersistentChat::new(persistence).await.unwrap();
-        let maybe_event = chat.record_message(message.clone()).await.unwrap();
+        let event = history.record_message(message.clone()).await.unwrap();
 
         // Then
-        let event = maybe_event.expect("An event has been emitted");
-        assert_eq!(event.id, EventId(43));
+        let stop = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(EventId(1), event.id);
+        assert_eq!(message, event.message);
+        assert!(start <= event.timestamp_ms && event.timestamp_ms <= stop);
+    }
+
+    #[tokio::test]
+    async fn persist_messages() {
+        // Given
+        let directory = temp_dir();
+        let persistence = SqlitePersistence::new(Some(&directory), migrate_chat_persistence)
+            .await
+            .unwrap();
+        let mut history = PersistentChat::new(persistence).await.unwrap();
+
+        // When inserting a new record ...
+        let message = Message {
+            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            sender: "Alice".to_owned(),
+            content: "Hi".to_owned(),
+        };
+        let _event = history.record_message(message.clone()).await.unwrap();
+        drop(history);
+        // ...and rebooting the persistence layer
+        let persistence = SqlitePersistence::new(Some(&directory), migrate_chat_persistence)
+            .await
+            .unwrap();
+        let history = PersistentChat::new(persistence).await.unwrap();
+
+        // Then the event is still present
+        let mut events = history.events_since(EventId::before_all()).await.unwrap();
+        assert_eq!(1, events.len());
+        let event = events.pop().unwrap();
+        assert_eq!(event.id, EventId(1));
         assert_eq!(event.message, message);
     }
 
-    trait PersistenceStub {
-        fn query(
-            &self,
-            query: &str,
-            args: impl Arguments,
-        ) -> Result<Vec<Vec<StubField>>, StubError>;
-    }
-
-    impl<T> ExecuteSql for T
-    where
-        T: PersistenceStub,
-    {
-        type Row<'a> = Vec<StubField>;
-        type Error = StubError;
-
-        fn execute(&self, query: &str, params: impl Arguments) -> Result<(), Self::Error> {
-            self.query(query, params)?;
-            Ok(())
-        }
-
-        fn row<O>(
-            &self,
-            query: &'static str,
-            params: impl Arguments,
-            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error>,
-        ) -> Result<O, Self::Error> {
-            let rows = self.query(query, params)?;
-            map(&rows[0])
-        }
-    }
-
-    impl<T> Persistence for T
-    where
-        T: PersistenceStub + Sync,
-    {
-        type Row<'a> = Vec<StubField>;
-        type Error = StubError;
-        type Connection = Self;
-
-        async fn row<O>(
-            &self,
-            query: &'static str,
-            params: impl Arguments + Send + Sync + 'static,
-            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
-        ) -> anyhow::Result<O>
-        where
-            O: Send + 'static,
-        {
-            let rows = self.query(query, params)?;
-            let row = map(&rows[0]).unwrap();
-            Ok(row)
-        }
-
-        async fn rows_vec<O>(
-            &self,
-            query: &'static str,
-            params: impl Arguments + Send + Sync + 'static,
-            map: impl Fn(&Self::Row<'_>) -> Result<O, Self::Error> + Send + 'static,
-        ) -> anyhow::Result<Vec<O>>
-        where
-            O: Send + 'static,
-        {
-            let rows = self.query(query, params)?;
-            let result = rows.iter().map(|row| map(row).unwrap()).collect();
-            Ok(result)
-        }
-
-        async fn transaction<O>(
-            &self,
-            execute: impl FnOnce(&Self::Connection) -> Result<O, Self::Error> + Send + 'static,
-        ) -> anyhow::Result<O> {
-            let value = execute(&self).unwrap();
-            Ok(value)
-        }
-    }
-
-    struct PersistenceMock(Arc<Mutex<Vec<ExpectedQuery>>>);
-
-    impl PersistenceMock {
-        fn new(mut expectations: Vec<ExpectedQuery>) -> Self {
-            expectations.reverse();
-            PersistenceMock(Arc::new(Mutex::new(expectations)))
-        }
-    }
-
-    impl PersistenceStub for PersistenceMock {
-        fn query(
-            &self,
-            query: &str,
-            params: impl Arguments,
-        ) -> Result<Vec<Vec<StubField>>, StubError> {
-            let expected = self.0.lock().unwrap().pop().unwrap();
-            expected.invoke(query, params)
-        }
-    }
-
-    #[derive(Debug)]
-    pub enum StubField {
-        Blob(Vec<u8>),
-        I64(i64),
-        Text(String),
-    }
-
-    impl FieldAccess for Vec<StubField> {
-        fn get_blob(&self, index: usize) -> Vec<u8> {
-            match &self[index] {
-                StubField::Blob(value) => value.clone(),
-                other => panic!("expected Blob at index {index}, got {other:?}"),
-            }
-        }
-
-        fn get_i64(&self, index: usize) -> i64 {
-            match &self[index] {
-                StubField::I64(value) => *value,
-                other => panic!("expected I64 at index {index}, got {other:?}"),
-            }
-        }
-
-        fn get_i64_opt(&self, index: usize) -> Option<i64> {
-            match &self[index] {
-                StubField::I64(value) => Some(*value),
-                other => panic!("expected I64 at index {index}, got {other:?}"),
-            }
-        }
-
-        fn get_text(&self, index: usize) -> String {
-            match &self[index] {
-                StubField::Text(value) => value.clone(),
-                other => panic!("expected Text at index {index}, got {other:?}"),
-            }
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum StubError {
-        #[error("test unique constraint violation")]
-        UniqueConstraintViolation,
-    }
-
-    impl PersistenceError for StubError {
-        fn is_unique_constraint_violation(&self) -> bool {
-            match self {
-                StubError::UniqueConstraintViolation => true,
-            }
-        }
-    }
-
-    struct ExpectedQuery {
-        sql: &'static str,
-        parameters: Vec<ParameterExpectation>,
-        result: Result<Vec<Vec<StubField>>, StubError>,
-    }
-
-    impl ExpectedQuery {
-        fn invoke(
-            self,
-            query: &str,
-            params: impl Arguments,
-        ) -> Result<Vec<Vec<StubField>>, StubError> {
-            assert_eq!(self.sql, query);
-            assert_eq!(self.parameters.len(), params.len());
-            for (index, expectation) in self.parameters.into_iter().enumerate() {
-                (expectation.0)(params.get(index));
-            }
-            self.result
-        }
-    }
-
-    struct ParameterExpectation(Box<dyn FnOnce(Argument<'_>) + Send>);
-
-    impl ParameterExpectation {
-        fn recent_timestamp_ms() -> Self {
-            let before = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64;
-            ParameterExpectation(Box::new(move |param| {
-                let Argument::I64(actual) = param else {
-                    panic!("expected I64 parameter for timestamp, got {param:?}");
-                };
-                let after = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
-                assert!(
-                    actual >= before && actual <= after,
-                    "timestamp {actual} not in expected range [{before}, {after}]"
-                );
-            }))
-        }
-    }
-
-    impl From<i64> for ParameterExpectation {
-        fn from(expected: i64) -> Self {
-            ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Argument::I64(expected), actual);
-            }))
-        }
-    }
-
-    impl From<&str> for ParameterExpectation {
-        fn from(expected: &str) -> Self {
-            let expected = expected.to_owned();
-            ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Argument::Text(expected.into()), actual);
-            }))
-        }
-    }
-
-    impl From<Vec<u8>> for ParameterExpectation {
-        fn from(expected: Vec<u8>) -> Self {
-            ParameterExpectation(Box::new(move |actual| {
-                assert_eq!(Argument::Blob(expected.into()), actual);
-            }))
-        }
+    async fn persistence_fake() -> impl Persistence {
+        SqlitePersistence::new(None, migrate_chat_persistence)
+            .await
+            .unwrap()
     }
 }
