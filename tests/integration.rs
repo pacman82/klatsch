@@ -9,6 +9,7 @@ use futures_util::StreamExt as _;
 use reqwest::Client;
 use serde_json::json;
 use tokio::{
+    fs,
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     sync::watch,
@@ -179,6 +180,35 @@ async fn persistence() {
     let data_2: serde_json::Value = serde_json::from_str(&event_2.data).unwrap();
     assert_eq!(data_2["sender"], "Bob");
     assert_eq!(data_2["content"], "Hi there");
+}
+
+#[tokio::test]
+async fn load_v1_persistence() {
+    // Given
+    let persistence_dir = tempfile::tempdir().unwrap();
+    fs::copy("tests/v1.db", persistence_dir.path().join("klatsch.db"))
+        .await
+        .unwrap();
+
+    // When restarting with the same database
+    let server = TestServer::new(Some(persistence_dir.path())).await;
+
+    // Then the messages are still available
+    let mut sse = server.events().await;
+    let event_1 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for first event")
+        .unwrap();
+    let event_2 = timeout(Duration::from_secs(1), sse.next())
+        .await
+        .expect("timed out waiting for second event")
+        .unwrap();
+    let data_1: serde_json::Value = serde_json::from_str(&event_1.data).unwrap();
+    assert_eq!(data_1["sender"], "Bob");
+    assert_eq!(data_1["content"], "Hi Alice");
+    let data_2: serde_json::Value = serde_json::from_str(&event_2.data).unwrap();
+    assert_eq!(data_2["sender"], "Alice");
+    assert_eq!(data_2["content"], "Hi Bob");
 }
 
 #[cfg(not(windows))]

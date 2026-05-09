@@ -101,7 +101,7 @@ mod tests {
     async fn schema_from_v1() {
         // Given an persistence directory with an existing v1 database
         let dir = tempdir().unwrap();
-        fs::copy("src/persistence/tests/v1.db", dir.path().join("klatsch.db"))
+        fs::copy("tests/v1.db", dir.path().join("klatsch.db"))
             .await
             .unwrap();
 
