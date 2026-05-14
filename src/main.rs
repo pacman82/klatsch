@@ -1,19 +1,15 @@
 mod chat;
 mod configuration;
+mod klatsch;
 mod persistence;
 mod server;
 mod shutdown;
 mod tracing;
 
-use ::tracing::info;
 use dotenvy::dotenv;
 
 use crate::{
-    chat::{ChatRuntime, PersistentChat, migrate_chat_persistence},
-    configuration::Configuration,
-    persistence::SqlitePersistence,
-    server::Server,
-    shutdown::shutdown_signal,
+    configuration::Configuration, klatsch::Klatsch, shutdown::shutdown_signal,
     tracing::init_tracing,
 };
 
@@ -29,31 +25,11 @@ async fn main() -> anyhow::Result<()> {
 
     init_tracing();
 
-    info!(target: "app", "Starting");
-
-    // Initialize persistence for chat
-    let persistence =
-        SqlitePersistence::new(cfg.persistence_dir(), migrate_chat_persistence).await?;
-    let history = PersistentChat::new(persistence).await?;
-
-    // Forward messages between peers in the chat
-    let chat = ChatRuntime::new(history);
-
-    // Answer incoming HTTP requests
-    let server = Server::new(cfg.socket_addr(), chat.client()).await?;
-    info!(target: "app", "Ready");
+    let app = Klatsch::new(&cfg).await?;
 
     // Run our application until a shutdown signal is received
     shutdown.await;
-    info!(target: "app", "Shutdown signal received");
 
-    // Gracefully shutdown the http server.
-    server.shutdown().await;
-
-    // Let's shutdown the chat runtime as well. After the http interface, since the http interface
-    // relies on it.
-    chat.shutdown().await;
-
-    info!(target: "app", "Shutdown complete");
+    app.shutdown().await;
     Ok(())
 }
