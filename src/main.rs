@@ -8,6 +8,8 @@ mod tracing;
 
 use dotenvy::dotenv;
 
+use ::tracing::info;
+
 use crate::{
     configuration::Configuration, klatsch::Klatsch, shutdown::shutdown_signal,
     tracing::init_tracing,
@@ -25,11 +27,16 @@ async fn main() -> anyhow::Result<()> {
 
     init_tracing();
 
+    info!(target: "app", "Starting");
     let app = Klatsch::new(&cfg).await?;
+    info!(target: "app", "Ready");
 
     // Run our application until a shutdown signal is received
     shutdown.await;
 
+    info!(target: "app", "Shutdown signal received");
     app.shutdown().await;
+    info!(target: "app", "Shutdown complete");
+
     Ok(())
 }
