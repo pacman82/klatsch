@@ -15,6 +15,7 @@ const CURRENT_SCHEMA_VERSION: u32 = 2;
 pub struct SqlitePersistence {
     conn: Client,
     /// Held for the lifetime of the struct to prevent concurrent instances on the same directory.
+    /// `None` for in-memory databases.
     _lock_file: Option<File>,
 }
 
@@ -254,6 +255,7 @@ fn acquire_lock(dir: &Path) -> anyhow::Result<File> {
     }
 }
 
+/// Migration function running in the actor thread of async-sqlite
 fn migrate_to_current(
     conn: &mut rusqlite::Connection,
     migrate: impl Fn(&rusqlite::Connection, u32) -> Result<(), rusqlite::Error>,
