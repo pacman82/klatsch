@@ -38,7 +38,7 @@ uuid = { version = "1.23.1", features = ["serde", "v4"] }
 double-trait = { version = "0.2.9", features = ["stream"] }
 eventsource-stream = "0.2.3"
 reqwest = { version = "0.13.3", features = ["json", "stream"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["process", "time"] }
