@@ -5,6 +5,7 @@ mod persistence;
 mod server;
 mod shutdown;
 mod tracing;
+mod user;
 
 use dotenvy::dotenv;
 

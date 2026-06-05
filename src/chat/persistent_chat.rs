@@ -188,13 +188,6 @@ where
         )",
         (),
     )?;
-    conn.execute(
-        "CREATE TABLE users (
-            id BLOB PRIMARY KEY,
-            name TEXT NOT NULL
-        )",
-        (),
-    )?;
     Ok(())
 }
 
@@ -280,7 +273,7 @@ mod tests {
     use super::{Chat as _, PersistentChat};
     use crate::{
         chat::{ChatError, EventId, Message, migrate_chat_persistence},
-        persistence::{Persistence, SqlitePersistence},
+        persistence::{ExecuteSql, Persistence, SqlitePersistence},
     };
     use uuid::Uuid;
 
@@ -433,7 +426,7 @@ mod tests {
     async fn persist_messages() {
         // Given
         let directory = temp_dir();
-        let persistence = SqlitePersistence::new(Some(&directory), migrate_chat_persistence)
+        let persistence = SqlitePersistence::new(Some(&directory), migrate_user_and_chat)
             .await
             .unwrap();
         let mut history = PersistentChat::new(persistence).await.unwrap();
@@ -447,7 +440,7 @@ mod tests {
         let _event = history.record_message(message.clone()).await.unwrap();
         drop(history);
         // ...and rebooting the persistence layer
-        let persistence = SqlitePersistence::new(Some(&directory), migrate_chat_persistence)
+        let persistence = SqlitePersistence::new(Some(&directory), migrate_user_and_chat)
             .await
             .unwrap();
         let history = PersistentChat::new(persistence).await.unwrap();
@@ -461,8 +454,23 @@ mod tests {
     }
 
     async fn persistence_fake() -> impl Persistence {
-        SqlitePersistence::new(None, migrate_chat_persistence)
+        SqlitePersistence::new(None, migrate_user_and_chat)
             .await
             .unwrap()
+    }
+
+    fn migrate_user_and_chat<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
+    where
+        C: ExecuteSql,
+    {
+        conn.execute(
+            "CREATE TABLE users (
+                id BLOB PRIMARY KEY,
+                name TEXT NOT NULL
+            )",
+            (),
+        )?;
+        migrate_chat_persistence(conn, from_version)?;
+        Ok(())
     }
 }

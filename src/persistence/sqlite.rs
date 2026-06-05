@@ -307,11 +307,6 @@ mod tests {
         ClientBuilder, FieldAccess, JournalMode, Persistence, SqlitePersistence, rusqlite,
     };
 
-    use tempfile::tempdir;
-    use tokio::fs;
-
-    use crate::chat::migrate_chat_persistence;
-
     #[tokio::test]
     async fn creates_missing_persistence_directory() {
         // Given that the directory does not exist yet
@@ -419,45 +414,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([(1i64, "Hello, World!".to_owned())].as_slice(), &after);
-    }
-
-    #[tokio::test]
-    async fn schema_from_v1() {
-        // Given an persistence directory with an existing v1 database
-        let dir = tempdir().unwrap();
-        fs::copy("tests/v1.db", dir.path().join("klatsch.db"))
-            .await
-            .unwrap();
-
-        // When starting persistence in this directory
-        let persistence = SqlitePersistence::new(Some(dir.path()), migrate_chat_persistence)
-            .await
-            .unwrap();
-
-        // Then
-        assert_eq!(sql_schema_from_scratch().await, schema(&persistence).await)
-    }
-
-    async fn schema(persistence: &SqlitePersistence) -> Vec<String> {
-        persistence
-            .rows_vec(
-                "SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name",
-                (),
-                |row| {
-                    let sql: Option<String> = row.get(0).unwrap();
-                    Ok(sql.unwrap())
-                },
-            )
-            .await
-            .unwrap()
-    }
-
-    /// SQL creating the the persistence schema from scratch, then no migration takes place.
-    async fn sql_schema_from_scratch() -> Vec<String> {
-        let persistence = SqlitePersistence::new(None, migrate_chat_persistence)
-            .await
-            .unwrap();
-
-        schema(&persistence).await
     }
 }

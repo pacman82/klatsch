@@ -1,7 +1,7 @@
 use crate::{
-    chat::{ChatRuntime, PersistentChat, migrate_chat_persistence},
+    chat::{ChatRuntime, PersistentChat},
     configuration::Configuration,
-    persistence::SqlitePersistence,
+    persistence::{SqlitePersistence, migrate},
     server::Server,
 };
 
@@ -13,8 +13,8 @@ pub struct Klatsch {
 impl Klatsch {
     pub async fn new(cfg: &Configuration) -> anyhow::Result<Self> {
         // Initialize persistence for chat
-        let persistence =
-            SqlitePersistence::new(cfg.persistence_dir(), migrate_chat_persistence).await?;
+        let persistence = SqlitePersistence::new(cfg.persistence_dir(), migrate).await?;
+
         let history = PersistentChat::new(persistence).await?;
 
         // Forward messages between peers in the chat
