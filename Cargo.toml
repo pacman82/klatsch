@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0.102"
-async-sqlite = "0.5.7"
+async-sqlite = "0.6.0"
 async-stream = "0.3.6"
 axum = { version = "0.8.9", features = ["macros"] }
 dotenvy = "0.15.7"
@@ -32,10 +32,10 @@ tower-http = { version = "0.6.11", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Client creates UUIDs for messages. However we generate v4 UUIDs in migrations.
-uuid = { version = "1.23.2", features = ["serde", "v4"] }
+uuid = { version = "1.23.3", features = ["serde", "v4"] }
 
 [dev-dependencies]
-double-trait = { version = "0.2.9", features = ["stream"] }
+double-trait = { version = "0.2.10", features = ["stream"] }
 eventsource-stream = "0.2.3"
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
 serde_json = "1.0.150"
@@ -44,7 +44,7 @@ thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["process", "time"] }
 tokio-test = "0.4.5"
 tower = { version = "0.5.3", features = ["util"] }
-uuid = { version = "1.23.2", features = ["serde", "v7"] }
+uuid = { version = "1.23.3", features = ["serde", "v7"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.31.3", features = ["process", "signal"] }
