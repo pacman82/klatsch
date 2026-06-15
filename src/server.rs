@@ -19,7 +19,7 @@ use tokio::{
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::chat::SharedChat;
+use crate::{chat::SharedChat, user::Authenticate};
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -33,10 +33,11 @@ pub struct Server {
 impl Server {
     /// Starts the HTTP server providing both the API and UI to clients. While the server runs in
     /// its own thread, the TCP socket is already opened and listened to once this function returns.
-    pub async fn new<C>(socket_address: impl ToSocketAddrs, chat: C) -> anyhow::Result<Server>
-    where
-        C: SharedChat + Send + Sync + Clone + 'static,
-    {
+    pub async fn new(
+        socket_address: impl ToSocketAddrs,
+        chat: impl SharedChat + Send + Sync + Clone + 'static,
+        users: impl Authenticate + Send + Sync + Clone + 'static,
+    ) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
 
         // The "Listening" in the event log would indicate to operators that we can do accept
@@ -57,7 +58,7 @@ impl Server {
         );
         let (shutting_down_sender, mut shutting_down_receiver) = watch::channel(false);
         let join_handle = tokio::spawn(async move {
-            let router = router(chat, shutting_down_receiver.clone());
+            let router = router(chat, users, shutting_down_receiver.clone());
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutting_down_receiver
@@ -81,13 +82,14 @@ impl Server {
     }
 }
 
-fn router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
+fn router<C, A>(chat: C, users: A, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
+    A: Authenticate + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(chat, shutting_down))
+        .merge(api_router(chat, users, shutting_down))
         .merge(ui_router());
 
     add_tracing_layer(router)

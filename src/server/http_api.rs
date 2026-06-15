@@ -12,7 +12,10 @@ use serde::Serialize;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::chat::{ChatError, Event, Message, SharedChat};
+use crate::{
+    chat::{ChatError, Event, Message, SharedChat},
+    user::Authenticate,
+};
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
 #[cfg(debug_assertions)]
@@ -48,9 +51,10 @@ impl From<ChatError> for HttpError {
 
 use super::{last_event_id::LastEventId, terminate_if::terminate_if};
 
-pub fn api_router<C>(chat: C, shutting_down: watch::Receiver<bool>) -> Router
+pub fn api_router<C, A>(chat: C, users: A, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
+    A: Authenticate + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -65,8 +69,8 @@ where
     let router = Router::new()
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
-        .route("/api/v0/add_message", post(add_message::<C>))
-        .with_state(chat);
+        .route("/api/v0/add_message", post(add_message::<C, A>))
+        .with_state((chat, users));
 
     #[cfg(debug_assertions)]
     let router = router
@@ -167,12 +171,13 @@ impl From<Event> for SseEvent {
     }
 }
 
-async fn add_message<C>(
-    State(mut chat): State<C>,
+async fn add_message<C, A>(
+    State((mut chat, users)): State<(C, A)>,
     Json(msg): Json<Message>,
 ) -> Result<(), HttpError>
 where
     C: SharedChat,
+    A: Authenticate,
 {
     chat.add_message(msg).await?;
     Ok(())
@@ -286,7 +291,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatStub, shutting_down);
+        let app = api_router(ChatStub, Dummy, shutting_down);
 
         // When
         let response = app
@@ -369,7 +374,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, shutting_down);
+        let app = api_router(ChatSaboteur, Dummy, shutting_down);
 
         // When requesting events
         let response = app
@@ -403,7 +408,7 @@ mod tests {
     async fn messages_should_return_content_type_event_stream() {
         // Given
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, shutting_down);
+        let app = api_router(Dummy, Dummy, shutting_down);
 
         // When
         let response = app
@@ -433,7 +438,7 @@ mod tests {
         // Given
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), shutting_down);
+        let app = api_router(spy.clone(), Dummy, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
             "sender": "Bob",
@@ -467,7 +472,7 @@ mod tests {
         // Given
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), shutting_down);
+        let app = api_router(spy.clone(), Dummy, shutting_down);
 
         // When: request with Last-Event-ID = 7
         let _response = app
@@ -500,7 +505,7 @@ mod tests {
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let app = api_router(PendingChatStub, shutdown_rx);
+        let app = api_router(PendingChatStub, Dummy, shutdown_rx);
 
         let response_body = app
             .oneshot(
@@ -536,7 +541,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, shutting_down);
+        let app = api_router(ChatSaboteur, Dummy, shutting_down);
 
         // When a message is sent
         let response = app
@@ -565,7 +570,7 @@ mod tests {
     async fn sabotaged_events_stream_receives_error_event() {
         // Given a server
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, shutting_down);
+        let app = api_router(Dummy, Dummy, shutting_down);
 
         // When sabotage is enabled and events are requested
         let _ = app
@@ -620,7 +625,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(OneEventThenPendingStub, shutting_down);
+        let app = api_router(OneEventThenPendingStub, Dummy, shutting_down);
         let response = app
             .clone()
             .oneshot(

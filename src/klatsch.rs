@@ -3,6 +3,7 @@ use crate::{
     configuration::Configuration,
     persistence::{SqlitePersistence, migrate},
     server::Server,
+    user::Users,
 };
 
 pub struct Klatsch {
@@ -15,13 +16,14 @@ impl Klatsch {
         // Initialize persistence for chat
         let persistence = SqlitePersistence::new(cfg.persistence_dir(), migrate).await?;
 
+        let users = Users;
         let history = PersistentChat::new(persistence).await?;
 
         // Forward messages between peers in the chat
         let chat = ChatRuntime::new(history);
 
         // Answer incoming HTTP requests
-        let server = Server::new(cfg.socket_addr(), chat.client()).await?;
+        let server = Server::new(cfg.socket_addr(), chat.client(), users.client()).await?;
 
         Ok(Self { chat, server })
     }
