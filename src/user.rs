@@ -1,5 +1,21 @@
 use crate::persistence::ExecuteSql;
 
+pub struct Users;
+
+impl Users {
+    pub fn client(&self) -> UsersClient {
+        UsersClient
+    }
+}
+
+#[derive(Clone)]
+pub struct UsersClient;
+
+#[cfg_attr(test, double_trait::dummies)]
+pub trait Authenticate {}
+
+impl Authenticate for UsersClient {}
+
 pub fn migrate_users_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
     C: ExecuteSql,
