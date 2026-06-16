@@ -2,9 +2,15 @@ use uuid::Uuid;
 
 use crate::persistence::ExecuteSql;
 
-pub struct Users;
+pub struct Users<P> {
+    persistence: P,
+}
 
-impl Users {
+impl<P> Users<P> {
+    pub fn new(persistence: P) -> Self {
+        Users { persistence }
+    }
+
     pub fn client(&self) -> UsersClient {
         UsersClient
     }
@@ -60,11 +66,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use double_trait::Dummy;
+
     use super::{Authenticate, Users};
 
     #[tokio::test]
     async fn different_uuids_for_each_user() {
-        let users = Users;
+        let users = Users::new(Dummy);
         let mut client = users.client();
 
         let alice_id = client.user_id("Alice".to_owned()).await.unwrap();
@@ -76,7 +84,7 @@ mod tests {
     #[tokio::test]
     #[should_panic] // Not implemented yet
     async fn same_user_always_has_same_uuid() {
-        let users = Users;
+        let users = Users::new(Dummy);
         let mut client = users.client();
 
         let alice_id_1 = client.user_id("Alice".to_owned()).await.unwrap();
