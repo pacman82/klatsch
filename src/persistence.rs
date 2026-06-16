@@ -1,5 +1,6 @@
 mod arguments;
 mod migrate;
+mod shared;
 mod sqlite;
 
 use uuid::Uuid;
