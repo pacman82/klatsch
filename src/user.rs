@@ -15,12 +15,15 @@ impl<P> Users<P> {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Authenticate {
-    fn user_id(&mut self, name: String) -> impl Future<Output = Result<Uuid, AuthenticationError>>;
+    fn user_id(
+        &mut self,
+        name: String,
+    ) -> impl Future<Output = Result<Uuid, AuthenticationError>> + Send;
 }
 
 impl<P> Authenticate for Users<P>
 where
-    P: Persistence,
+    P: Persistence + Send,
 {
     async fn user_id(&mut self, name: String) -> Result<Uuid, AuthenticationError> {
         let uuid = self

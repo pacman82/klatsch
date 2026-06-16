@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
-    user::Authenticate,
+    user::{Authenticate, AuthenticationError},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
@@ -42,6 +42,17 @@ impl From<ChatError> for HttpError {
                 message: "A different message with this ID already exists".into(),
             },
             ChatError::Internal => HttpError {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".into(),
+            },
+        }
+    }
+}
+
+impl From<AuthenticationError> for HttpError {
+    fn from(err: AuthenticationError) -> Self {
+        match err {
+            AuthenticationError::Internal => HttpError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "Internal server error".into(),
             },
@@ -172,13 +183,14 @@ impl From<Event> for SseEvent {
 }
 
 async fn add_message<C, A>(
-    State((mut chat, users)): State<(C, A)>,
+    State((mut chat, mut users)): State<(C, A)>,
     Json(msg): Json<Message>,
 ) -> Result<(), HttpError>
 where
     C: SharedChat,
     A: Authenticate,
 {
+    users.user_id(msg.sender.clone()).await?;
     chat.add_message(msg).await?;
     Ok(())
 }
@@ -223,7 +235,10 @@ mod tests {
         time::{Duration, UNIX_EPOCH},
     };
 
-    use crate::chat::{Event, EventId};
+    use crate::{
+        chat::{Event, EventId},
+        user::AuthenticationError,
+    };
 
     use super::*;
     use axum::{
@@ -433,12 +448,13 @@ mod tests {
             content_type
         );
     }
+
     #[tokio::test]
     async fn add_message_route_forwards_arguments_to_chat_api() {
         // Given
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), Dummy, shutting_down);
+        let app = api_router(spy.clone(), UserDummy, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
             "sender": "Bob",
@@ -465,6 +481,34 @@ mod tests {
             content: "Hello, Alice!".to_owned(),
         };
         assert_eq!(spy.take_add_message_record(), &[expected_msg],);
+    }
+
+    #[tokio::test]
+    async fn add_message_invokes_user_id() {
+        // Given
+        let spy = UsersSpy::default();
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, spy.clone(), shutting_down);
+        let new_message = json!({
+            "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
+            "sender": "Bob",
+            "content": "Hello, Alice!"
+        });
+
+        // When
+        let _response = app
+            .oneshot(
+                Request::post("/api/v0/add_message")
+                    .header("content-type", "application/json")
+                    .body(Body::from(new_message.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let user_names = spy.take_user_id_record();
+        assert_eq!(user_names, ["Bob"])
     }
 
     #[tokio::test]
@@ -541,7 +585,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, Dummy, shutting_down);
+        let app = api_router(ChatSaboteur, UserDummy, shutting_down);
 
         // When a message is sent
         let response = app
@@ -704,6 +748,33 @@ mod tests {
 
         fn take_events_record(&self) -> Vec<EventId> {
             take(&mut *self.events_record.lock().unwrap())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct UsersSpy {
+        user_id_record: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl UsersSpy {
+        fn take_user_id_record(&self) -> Vec<String> {
+            take(&mut *self.user_id_record.lock().unwrap())
+        }
+    }
+
+    impl Authenticate for UsersSpy {
+        async fn user_id(&mut self, name: String) -> Result<Uuid, AuthenticationError> {
+            self.user_id_record.lock().unwrap().push(name);
+            Ok(Uuid::nil())
+        }
+    }
+
+    #[derive(Clone)]
+    struct UserDummy;
+
+    impl Authenticate for UserDummy {
+        async fn user_id(&mut self, _name: String) -> Result<Uuid, AuthenticationError> {
+            Ok(Uuid::nil())
         }
     }
 }
