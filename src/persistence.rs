@@ -1,12 +1,12 @@
 mod arguments;
+mod migrate;
 mod sqlite;
 
 use uuid::Uuid;
 
-use crate::{chat::migrate_chat_persistence, user::migrate_users_persistence};
-
 pub use self::{
     arguments::{Argument, Arguments},
+    migrate::migrate,
     sqlite::SqlitePersistence,
 };
 
@@ -75,17 +75,6 @@ pub trait ExecuteSql {
 #[cfg_attr(test, double_trait::dummies)]
 pub trait PersistenceError {
     fn is_unique_constraint_violation(&self) -> bool;
-}
-
-/// Migrates the schema for the entire klatsch application
-pub fn migrate<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
-where
-    C: ExecuteSql,
-{
-    // we do so by migrating the schemas of our individual modules
-    migrate_users_persistence(conn, from_version)?;
-    migrate_chat_persistence(conn, from_version)?;
-    Ok(())
 }
 
 #[cfg(test)]
