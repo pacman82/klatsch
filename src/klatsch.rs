@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     chat::{ChatRuntime, PersistentChat},
     configuration::Configuration,
@@ -13,8 +15,10 @@ pub struct Klatsch {
 
 impl Klatsch {
     pub async fn new(cfg: &Configuration) -> anyhow::Result<Self> {
-        // Initialize persistence for chat
         let persistence = SqlitePersistence::new(cfg.persistence_dir(), migrate).await?;
+        // users and history share the same persistence backend. This makes life easier for the
+        // operators.
+        let persistence = Arc::new(persistence);
 
         let users = Users;
         let history = PersistentChat::new(persistence).await?;
