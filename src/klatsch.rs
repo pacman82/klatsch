@@ -27,7 +27,7 @@ impl Klatsch {
         let chat = ChatRuntime::new(history);
 
         // Answer incoming HTTP requests
-        let server = Server::new(cfg.socket_addr(), chat.client(), users.client()).await?;
+        let server = Server::new(cfg.socket_addr(), chat.client(), users).await?;
 
         Ok(Self { chat, server })
     }
