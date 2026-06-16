@@ -20,7 +20,7 @@ impl Klatsch {
         // operators.
         let persistence = Arc::new(persistence);
 
-        let users = Users;
+        let users = Users::new(persistence.clone());
         let history = PersistentChat::new(persistence).await?;
 
         // Forward messages between peers in the chat
