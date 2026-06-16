@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::persistence::ExecuteSql;
 
+#[derive(Clone)]
 pub struct Users<P> {
     persistence: P,
 }
@@ -10,21 +11,14 @@ impl<P> Users<P> {
     pub fn new(persistence: P) -> Self {
         Users { persistence }
     }
-
-    pub fn client(&self) -> UsersClient {
-        UsersClient
-    }
 }
-
-#[derive(Clone)]
-pub struct UsersClient;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Authenticate {
     fn user_id(&mut self, name: String) -> impl Future<Output = Result<Uuid, AuthenticationError>>;
 }
 
-impl Authenticate for UsersClient {
+impl<P> Authenticate for Users<P> {
     async fn user_id(&mut self, name: String) -> Result<Uuid, AuthenticationError> {
         let uuid = Uuid::new_v4();
         Ok(uuid)
@@ -72,11 +66,10 @@ mod tests {
 
     #[tokio::test]
     async fn different_uuids_for_each_user() {
-        let users = Users::new(Dummy);
-        let mut client = users.client();
+        let mut users = Users::new(Dummy);
 
-        let alice_id = client.user_id("Alice".to_owned()).await.unwrap();
-        let bob_id = client.user_id("Bob".to_owned()).await.unwrap();
+        let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
+        let bob_id = users.user_id("Bob".to_owned()).await.unwrap();
 
         assert_ne!(alice_id, bob_id)
     }
@@ -84,11 +77,10 @@ mod tests {
     #[tokio::test]
     #[should_panic] // Not implemented yet
     async fn same_user_always_has_same_uuid() {
-        let users = Users::new(Dummy);
-        let mut client = users.client();
+        let mut users = Users::new(Dummy);
 
-        let alice_id_1 = client.user_id("Alice".to_owned()).await.unwrap();
-        let alice_id_2 = client.user_id("Alice".to_owned()).await.unwrap();
+        let alice_id_1 = users.user_id("Alice".to_owned()).await.unwrap();
+        let alice_id_2 = users.user_id("Alice".to_owned()).await.unwrap();
 
         assert_eq!(alice_id_1, alice_id_2)
     }
