@@ -2,7 +2,7 @@ use std::{borrow::Cow, convert::Infallible};
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response, Sse, sse::Event as SseEvent},
     routing::{get, post},
@@ -78,6 +78,7 @@ where
     };
 
     let router = Router::new()
+        .route("/api/v0/users/{id}", get(user_info))
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
         .route("/api/v0/add_message", post(add_message::<C, A>))
@@ -193,6 +194,10 @@ where
     users.user_id(msg.sender.clone()).await?;
     chat.add_message(msg).await?;
     Ok(())
+}
+
+async fn user_info(Path(id): Path<Uuid>) -> Result<Json<()>, HttpError> {
+    Ok(Json(()))
 }
 
 /// Developer only endpoint. Enables or disables sabotage mode. Helps with testing the UI behavior
@@ -509,6 +514,40 @@ mod tests {
         // Then
         let user_names = spy.take_user_id_record();
         assert_eq!(user_names, ["Bob"])
+    }
+
+    #[tokio::test]
+    async fn user_info() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        #[derive(Clone)]
+        struct UsersStub;
+
+        impl Authenticate for UsersStub {}
+        let app = api_router(Dummy, UsersStub, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/users/f9108910-9f1d-4a9e-85dd-f768472298d7")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            content_type.starts_with("application/json"),
+            "Expected application/json, got: {}",
+            content_type
+        );
     }
 
     #[tokio::test]
