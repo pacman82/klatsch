@@ -46,6 +46,13 @@ impl AsArgument for &Uuid {
     }
 }
 
+impl AsArgument for Uuid {
+    fn as_argument(&self) -> Argument<'_> {
+        let bytes = self.into_bytes().to_vec();
+        Argument::Blob(Cow::Owned(bytes))
+    }
+}
+
 /// A collection of arguments. We use a generic trait, rather than a `Vec` or similar in order to
 /// be able to implement it directly for structs and pass them without having the need to allocate
 /// an intermediate representation.

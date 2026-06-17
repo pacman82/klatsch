@@ -2,6 +2,11 @@ use uuid::Uuid;
 
 use crate::persistence::{ExecuteSql, FieldAccess as _, Persistence};
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct User {
+    name: String,
+}
+
 #[derive(Clone)]
 pub struct Users<P> {
     persistence: P,
@@ -19,6 +24,11 @@ pub trait Authenticate {
         &mut self,
         name: String,
     ) -> impl Future<Output = Result<Uuid, AuthenticationError>> + Send;
+
+    fn user_by_id(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<User, AuthenticationError>> + Send;
 }
 
 impl<P> Authenticate for Users<P>
@@ -32,6 +42,21 @@ where
             .await
             .map_err(|_| AuthenticationError::Internal)?;
         Ok(uuid)
+    }
+
+    async fn user_by_id(&mut self, id: Uuid) -> Result<User, AuthenticationError> {
+        let mut users = self
+            .persistence
+            .rows_vec("SELECT name FROM users WHERE id = ?1", id, |row| {
+                let user = User {
+                    name: row.get_text(0),
+                };
+                Ok(user)
+            })
+            .await
+            .map_err(|_| AuthenticationError::Internal)?;
+        let user = users.pop().expect("TODO: HANDLE UNKNOWN USER ID");
+        Ok(user)
     }
 }
 
@@ -64,20 +89,6 @@ where
     Ok(user_id)
 }
 
-pub fn migrate_users_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
-where
-    C: ExecuteSql,
-{
-    match from_version {
-        // No prior database found create current schema from scratch
-        0 => {
-            create_schema_from_scratch(conn)?;
-        }
-        _ => (),
-    }
-    Ok(())
-}
-
 fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
 where
     C: ExecuteSql,
@@ -92,6 +103,20 @@ where
     Ok(())
 }
 
+pub fn migrate_users_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
+where
+    C: ExecuteSql,
+{
+    match from_version {
+        // No prior database found create current schema from scratch
+        0 => {
+            create_schema_from_scratch(conn)?;
+        }
+        _ => (),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -99,7 +124,7 @@ mod tests {
         user::migrate_users_persistence,
     };
 
-    use super::{Authenticate, Users};
+    use super::{Authenticate, User, Users};
 
     #[tokio::test]
     async fn different_uuids_for_each_user() {
@@ -121,6 +146,23 @@ mod tests {
         let alice_id_2 = users.user_id("Alice".to_owned()).await.unwrap();
 
         assert_eq!(alice_id_1, alice_id_2)
+    }
+
+    #[tokio::test]
+    async fn fetch_user_by_id() {
+        // Given
+        let persistence = persistence_fake().await;
+        let mut users = Users::new(persistence);
+        let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
+
+        // When
+        let user = users.user_by_id(alice_id).await.unwrap();
+
+        // Then
+        let expected = User {
+            name: "Alice".to_owned(),
+        };
+        assert_eq!(expected, user);
     }
 
     async fn persistence_fake() -> impl Persistence {
