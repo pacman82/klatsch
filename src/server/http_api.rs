@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
-    user::{Authenticate, AuthenticationError},
+    user::{Authenticate, AuthenticationError, User},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
@@ -62,10 +62,10 @@ impl From<AuthenticationError> for HttpError {
 
 use super::{last_event_id::LastEventId, terminate_if::terminate_if};
 
-pub fn api_router<C, A>(chat: C, users: A, shutting_down: watch::Receiver<bool>) -> Router
+pub fn api_router<C, U>(chat: C, users: U, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
-    A: Authenticate + Send + Sync + Clone + 'static,
+    U: Authenticate + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -78,10 +78,11 @@ where
     };
 
     let router = Router::new()
-        .route("/api/v0/users/{id}", get(user_info))
+        .route("/api/v0/users/{id}", get(user_info::<U>))
+        .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
-        .route("/api/v0/add_message", post(add_message::<C, A>))
+        .route("/api/v0/add_message", post(add_message::<C, U>))
         .with_state((chat, users));
 
     #[cfg(debug_assertions)]
@@ -196,8 +197,15 @@ where
     Ok(())
 }
 
-async fn user_info(Path(id): Path<Uuid>) -> Result<Json<()>, HttpError> {
-    Ok(Json(()))
+async fn user_info<U>(
+    State(mut users): State<U>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<User>, HttpError>
+where
+    U: Authenticate,
+{
+    let user = users.user_by_id(id).await?;
+    Ok(Json(user))
 }
 
 /// Developer only endpoint. Enables or disables sabotage mode. Helps with testing the UI behavior
@@ -242,7 +250,7 @@ mod tests {
 
     use crate::{
         chat::{Event, EventId},
-        user::AuthenticationError,
+        user::{AuthenticationError, User},
     };
 
     use super::*;
@@ -253,7 +261,7 @@ mod tests {
     use double_trait::Dummy;
     use eventsource_stream::Eventsource as _;
     use http_body_util::{BodyExt as _, BodyStream};
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tokio::time::timeout;
     use tokio_stream::pending;
     use tower::ServiceExt; // for `oneshot`
@@ -523,7 +531,13 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
 
-        impl Authenticate for UsersStub {}
+        impl Authenticate for UsersStub {
+            async fn user_by_id(&mut self, _: Uuid) -> Result<User, AuthenticationError> {
+                Ok(User {
+                    name: "Alice".to_owned(),
+                })
+            }
+        }
         let app = api_router(Dummy, UsersStub, shutting_down);
 
         // When
@@ -548,6 +562,11 @@ mod tests {
             "Expected application/json, got: {}",
             content_type
         );
+        let body = response.into_body().collect().await.unwrap();
+        let body = body.to_bytes().to_vec();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json!({"name": "Alice"}), body)
     }
 
     #[tokio::test]
