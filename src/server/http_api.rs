@@ -56,6 +56,10 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "Internal server error".into(),
             },
+            UsersError::UnknownUser => HttpError {
+                status_code: StatusCode::NOT_FOUND,
+                message: "Unknown user".into(),
+            },
         }
     }
 }
@@ -567,6 +571,39 @@ mod tests {
         let body: Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(json!({"name": "Alice"}), body)
+    }
+
+    #[tokio::test]
+    async fn user_info_for_unknown_user() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        #[derive(Clone)]
+        struct UsersStub;
+
+        impl Users for UsersStub {
+            async fn user_by_id(&mut self, _: Uuid) -> Result<User, UsersError> {
+                Err(UsersError::UnknownUser)
+            }
+        }
+        let app = api_router(Dummy, UsersStub, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/users/f9108910-9f1d-4a9e-85dd-f768472298d7")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap();
+        let body = String::from_utf8(body.to_bytes().to_vec()).unwrap();
+
+        assert_eq!("Unknown user", body)
     }
 
     #[tokio::test]

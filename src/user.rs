@@ -50,14 +50,15 @@ where
             })
             .await
             .map_err(|_| UsersError::Internal)?;
-        let user = users.pop().expect("TODO: HANDLE UNKNOWN USER ID");
-        Ok(user)
+        users.pop().ok_or(UsersError::UnknownUser)
     }
 }
 
 #[derive(Debug)]
 pub enum UsersError {
     Internal,
+    /// The user id does not belong to any user.
+    UnknownUser,
 }
 
 fn fetch_user_id<C>(conn: &C, name: String) -> Result<Uuid, C::Error>
@@ -114,9 +115,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
+    use uuid::Uuid;
+
     use crate::{
         persistence::{Persistence, SqlitePersistence},
-        user::migrate_users_persistence,
+        user::{UsersError, migrate_users_persistence},
     };
 
     use super::{PersistedUsers, User, Users};
@@ -158,6 +163,19 @@ mod tests {
             name: "Alice".to_owned(),
         };
         assert_eq!(expected, user);
+    }
+
+    #[tokio::test]
+    async fn fetch_unknown_user_by_id() {
+        // Given
+        let persistence = persistence_fake().await;
+        let mut users = PersistedUsers::new(persistence);
+
+        // When
+        let result = users.user_by_id(Uuid::new_v4()).await;
+
+        // Then
+        assert_matches!(result, Err(UsersError::UnknownUser));
     }
 
     async fn persistence_fake() -> impl Persistence {
