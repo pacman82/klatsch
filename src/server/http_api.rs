@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
-    user::{Authenticate, AuthenticationError, User},
+    user::{User, Users, UsersError},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
@@ -49,10 +49,10 @@ impl From<ChatError> for HttpError {
     }
 }
 
-impl From<AuthenticationError> for HttpError {
-    fn from(err: AuthenticationError) -> Self {
+impl From<UsersError> for HttpError {
+    fn from(err: UsersError) -> Self {
         match err {
-            AuthenticationError::Internal => HttpError {
+            UsersError::Internal => HttpError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "Internal server error".into(),
             },
@@ -65,7 +65,7 @@ use super::{last_event_id::LastEventId, terminate_if::terminate_if};
 pub fn api_router<C, U>(chat: C, users: U, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
-    U: Authenticate + Send + Sync + Clone + 'static,
+    U: Users + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -190,7 +190,7 @@ async fn add_message<C, A>(
 ) -> Result<(), HttpError>
 where
     C: SharedChat,
-    A: Authenticate,
+    A: Users,
 {
     users.user_id(msg.sender.clone()).await?;
     chat.add_message(msg).await?;
@@ -202,7 +202,7 @@ async fn user_info<U>(
     Path(id): Path<Uuid>,
 ) -> Result<Json<User>, HttpError>
 where
-    U: Authenticate,
+    U: Users,
 {
     let user = users.user_by_id(id).await?;
     Ok(Json(user))
@@ -250,7 +250,7 @@ mod tests {
 
     use crate::{
         chat::{Event, EventId},
-        user::{AuthenticationError, User},
+        user::{User, UsersError},
     };
 
     use super::*;
@@ -531,8 +531,8 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
 
-        impl Authenticate for UsersStub {
-            async fn user_by_id(&mut self, _: Uuid) -> Result<User, AuthenticationError> {
+        impl Users for UsersStub {
+            async fn user_by_id(&mut self, _: Uuid) -> Result<User, UsersError> {
                 Ok(User {
                     name: "Alice".to_owned(),
                 })
@@ -820,8 +820,8 @@ mod tests {
         }
     }
 
-    impl Authenticate for UsersSpy {
-        async fn user_id(&mut self, name: String) -> Result<Uuid, AuthenticationError> {
+    impl Users for UsersSpy {
+        async fn user_id(&mut self, name: String) -> Result<Uuid, UsersError> {
             self.user_id_record.lock().unwrap().push(name);
             Ok(Uuid::nil())
         }
@@ -830,8 +830,8 @@ mod tests {
     #[derive(Clone)]
     struct UserDummy;
 
-    impl Authenticate for UserDummy {
-        async fn user_id(&mut self, _name: String) -> Result<Uuid, AuthenticationError> {
+    impl Users for UserDummy {
+        async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
         }
     }

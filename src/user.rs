@@ -9,43 +9,37 @@ pub struct User {
 }
 
 #[derive(Clone)]
-pub struct Users<P> {
+pub struct PersistedUsers<P> {
     persistence: P,
 }
 
-impl<P> Users<P> {
+impl<P> PersistedUsers<P> {
     pub fn new(persistence: P) -> Self {
-        Users { persistence }
+        PersistedUsers { persistence }
     }
 }
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait Authenticate {
-    fn user_id(
-        &mut self,
-        name: String,
-    ) -> impl Future<Output = Result<Uuid, AuthenticationError>> + Send;
+pub trait Users {
+    fn user_id(&mut self, name: String) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
 
-    fn user_by_id(
-        &mut self,
-        id: Uuid,
-    ) -> impl Future<Output = Result<User, AuthenticationError>> + Send;
+    fn user_by_id(&mut self, id: Uuid) -> impl Future<Output = Result<User, UsersError>> + Send;
 }
 
-impl<P> Authenticate for Users<P>
+impl<P> Users for PersistedUsers<P>
 where
     P: Persistence + Send,
 {
-    async fn user_id(&mut self, name: String) -> Result<Uuid, AuthenticationError> {
+    async fn user_id(&mut self, name: String) -> Result<Uuid, UsersError> {
         let uuid = self
             .persistence
             .transaction(|conn| fetch_user_id(conn, name))
             .await
-            .map_err(|_| AuthenticationError::Internal)?;
+            .map_err(|_| UsersError::Internal)?;
         Ok(uuid)
     }
 
-    async fn user_by_id(&mut self, id: Uuid) -> Result<User, AuthenticationError> {
+    async fn user_by_id(&mut self, id: Uuid) -> Result<User, UsersError> {
         let mut users = self
             .persistence
             .rows_vec("SELECT name FROM users WHERE id = ?1", id, |row| {
@@ -55,14 +49,14 @@ where
                 Ok(user)
             })
             .await
-            .map_err(|_| AuthenticationError::Internal)?;
+            .map_err(|_| UsersError::Internal)?;
         let user = users.pop().expect("TODO: HANDLE UNKNOWN USER ID");
         Ok(user)
     }
 }
 
 #[derive(Debug)]
-pub enum AuthenticationError {
+pub enum UsersError {
     Internal,
 }
 
@@ -125,12 +119,12 @@ mod tests {
         user::migrate_users_persistence,
     };
 
-    use super::{Authenticate, User, Users};
+    use super::{PersistedUsers, User, Users};
 
     #[tokio::test]
     async fn different_uuids_for_each_user() {
         let persistence = persistence_fake().await;
-        let mut users = Users::new(persistence);
+        let mut users = PersistedUsers::new(persistence);
 
         let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
         let bob_id = users.user_id("Bob".to_owned()).await.unwrap();
@@ -141,7 +135,7 @@ mod tests {
     #[tokio::test]
     async fn same_user_always_has_same_uuid() {
         let persistence = persistence_fake().await;
-        let mut users = Users::new(persistence);
+        let mut users = PersistedUsers::new(persistence);
 
         let alice_id_1 = users.user_id("Alice".to_owned()).await.unwrap();
         let alice_id_2 = users.user_id("Alice".to_owned()).await.unwrap();
@@ -153,7 +147,7 @@ mod tests {
     async fn fetch_user_by_id() {
         // Given
         let persistence = persistence_fake().await;
-        let mut users = Users::new(persistence);
+        let mut users = PersistedUsers::new(persistence);
         let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
 
         // When

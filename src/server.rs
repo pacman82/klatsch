@@ -19,7 +19,7 @@ use tokio::{
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{chat::SharedChat, user::Authenticate};
+use crate::{chat::SharedChat, user::Users};
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -36,7 +36,7 @@ impl Server {
     pub async fn new(
         socket_address: impl ToSocketAddrs,
         chat: impl SharedChat + Send + Sync + Clone + 'static,
-        users: impl Authenticate + Send + Sync + Clone + 'static,
+        users: impl Users + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
 
@@ -85,7 +85,7 @@ impl Server {
 fn router<C, A>(chat: C, users: A, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
-    A: Authenticate + Send + Sync + Clone + 'static,
+    A: Users + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
