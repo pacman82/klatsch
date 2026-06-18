@@ -1,10 +1,11 @@
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::persistence::{ExecuteSql, FieldAccess as _, Persistence};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct User {
-    name: String,
+    pub name: String,
 }
 
 #[derive(Clone)]
