@@ -8,7 +8,7 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{Stream, StreamExt as _};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ use crate::{
 #[cfg(debug_assertions)]
 use axum::routing::put;
 #[cfg(debug_assertions)]
-use std::sync::Arc;
+use std::{pin::pin, sync::Arc};
 
 struct HttpError {
     status_code: StatusCode,
@@ -188,16 +188,34 @@ impl From<Event> for SseEvent {
     }
 }
 
+/// A message as submitted by the client via the add_message endpoint.
+#[derive(Deserialize)]
+struct NewMessage {
+    id: Uuid,
+    sender: String,
+    content: String,
+}
+
 async fn add_message<C, A>(
     State((mut chat, mut users)): State<(C, A)>,
-    Json(msg): Json<Message>,
+    Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
     C: SharedChat,
     A: Users,
 {
-    users.user_id(msg.sender.clone()).await?;
-    chat.add_message(msg).await?;
+    let NewMessage {
+        id,
+        sender,
+        content,
+    } = msg;
+    users.user_id(sender.clone()).await?;
+    chat.add_message(Message {
+        id,
+        sender,
+        content,
+    })
+    .await?;
     Ok(())
 }
 
@@ -230,8 +248,6 @@ fn maybe_sabotage<S>(
 where
     S: Stream<Item = Result<SseEvent, Infallible>> + Send + 'static,
 {
-    use std::pin::pin;
-
     let events = terminate_if(events, sabotaged.clone());
     async_stream::stream! {
         let mut events = pin!(events);
