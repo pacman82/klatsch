@@ -5,7 +5,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::Deserialize;
 use uuid::Uuid;
 
 /// A message as it is stored and represented as part of a chat.
@@ -41,9 +40,8 @@ impl Event {
     }
 }
 
-/// A message as it is created by the frontend and sent to the server. It is then relied to all
-/// participants in the chat as part of an `Event`.
-#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
+/// A message as it is stored and broadcast to participants in the chat as part of an `Event`.
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Message {
     /// Sender generated unique identifier for the message. It is used to recover from errors
     /// sending messages. It also a key for the UI to efficiently update data structures then
