@@ -265,10 +265,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env::temp_dir,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use tempfile::tempdir;
 
     use super::{Chat as _, PersistentChat};
     use crate::{
@@ -425,8 +424,8 @@ mod tests {
     #[tokio::test]
     async fn persist_messages() {
         // Given
-        let directory = temp_dir();
-        let persistence = SqlitePersistence::new(Some(&directory), migrate_user_and_chat)
+        let tmp = tempdir().unwrap();
+        let persistence = SqlitePersistence::new(Some(tmp.path()), migrate_user_and_chat)
             .await
             .unwrap();
         let mut history = PersistentChat::new(persistence).await.unwrap();
@@ -440,7 +439,7 @@ mod tests {
         let _event = history.record_message(message.clone()).await.unwrap();
         drop(history);
         // ...and rebooting the persistence layer
-        let persistence = SqlitePersistence::new(Some(&directory), migrate_user_and_chat)
+        let persistence = SqlitePersistence::new(Some(tmp.path()), migrate_user_and_chat)
             .await
             .unwrap();
         let history = PersistentChat::new(persistence).await.unwrap();
