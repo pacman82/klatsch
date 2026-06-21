@@ -83,6 +83,7 @@ where
 
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
+        .route("/api/v0/users", post(register_user::<U>))
         .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
@@ -217,6 +218,17 @@ where
     })
     .await?;
     Ok(())
+}
+
+async fn register_user<U>(
+    State(mut users): State<U>,
+    Json(body): Json<User>,
+) -> Result<StatusCode, HttpError>
+where
+    U: Users,
+{
+    users.user_id(body.name).await?;
+    Ok(StatusCode::OK)
 }
 
 async fn user_info<U>(
@@ -542,6 +554,29 @@ mod tests {
         // Then
         let user_names = spy.take_user_id_record();
         assert_eq!(user_names, ["Bob"])
+    }
+
+    #[tokio::test]
+    async fn register_user_forwards_to_users() {
+        // Given
+        let spy = UsersSpy::default();
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, spy.clone(), shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/users")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(spy.take_user_id_record(), ["Alice"]);
     }
 
     #[tokio::test]
