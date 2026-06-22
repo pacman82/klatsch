@@ -223,12 +223,12 @@ where
 async fn register_user<U>(
     State(mut users): State<U>,
     Json(body): Json<User>,
-) -> Result<StatusCode, HttpError>
+) -> Result<Json<Uuid>, HttpError>
 where
     U: Users,
 {
-    users.user_id(body.name).await?;
-    Ok(StatusCode::OK)
+    let id = users.user_id(body.name).await?;
+    Ok(Json(id))
 }
 
 async fn user_info<U>(
@@ -297,6 +297,11 @@ mod tests {
     use tokio::time::timeout;
     use tokio_stream::pending;
     use tower::ServiceExt; // for `oneshot`
+
+    const ALICE_ID: Uuid = Uuid::from_bytes([
+        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08,
+        0x1f, 0xb1,
+    ]);
 
     #[tokio::test]
     async fn events_route_forwards_events_from_chat() {
@@ -577,6 +582,36 @@ mod tests {
         // Then
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(spy.take_user_id_record(), ["Alice"]);
+    }
+
+    #[tokio::test]
+    async fn registering_a_user_returns_their_id() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        #[derive(Clone)]
+        struct UsersStub;
+        impl Users for UsersStub {
+            async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
+                Ok(ALICE_ID)
+            }
+        }
+        let app = api_router(Dummy, UsersStub, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/users")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let id: Uuid = serde_json::from_slice(&body).unwrap();
+        assert_eq!(id, ALICE_ID);
     }
 
     #[tokio::test]
