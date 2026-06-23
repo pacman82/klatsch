@@ -4,7 +4,7 @@ import SendMessage from './SendMessage.svelte';
 import { user } from '$lib/user.svelte';
 
 beforeEach(() => {
-	user.login('TestUser');
+	user.login('TestUser', 'ab70b6ca-4139-499f-a66d-15e88f081fb1');
 });
 
 test('resubmitting same text after failure is considered retry of same message', async () => {
@@ -30,7 +30,10 @@ test('resubmitting same text after failure is considered retry of same message',
 
 test('server error is displayed to the user', async () => {
 	// Given a server that responds with an error
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' })));
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
+	);
 
 	const screen = render(SendMessage);
 
@@ -45,7 +48,8 @@ test('server error is displayed to the user', async () => {
 
 test('error disappears after successful retry', async () => {
 	// Given a message that previously failed to send
-	const fetchStub = vi.fn()
+	const fetchStub = vi
+		.fn()
 		.mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'test error' }))
 		.mockResolvedValueOnce(new Response(null, { status: 200 }));
 	vi.stubGlobal('fetch', fetchStub);
@@ -64,7 +68,10 @@ test('error disappears after successful retry', async () => {
 
 test('editing message after failure shows send instead of retry', async () => {
 	// Given a message that failed to send
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' })));
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
+	);
 
 	const screen = render(SendMessage);
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
