@@ -1,5 +1,20 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { user } from '$lib/user.svelte';
+
+	let name = $state<string | null>(null);
+
+	onMount(async () => {
+		while (name === null) {
+			try {
+				const response = await fetch(`/api/v0/users/${user.current_id}`);
+				const data = await response.json();
+				name = data.name;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 5000));
+			}
+		}
+	});
 
 	function logout() {
 		user.logout();
@@ -7,7 +22,7 @@
 </script>
 
 <div class="user-bar">
-	<span>Logged in as <strong>{user.current}</strong></span>
+	<span>Logged in as <strong>{name}</strong></span>
 	<button onclick={logout}>Log out</button>
 </div>
 
