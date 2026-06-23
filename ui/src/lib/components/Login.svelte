@@ -2,11 +2,25 @@
 	import { user } from '$lib/user.svelte';
 
 	let name = $state('');
+	let login_error = $state<string | null>(null);
+	let is_retry = $derived(login_error !== null);
 
-	function join(e: SubmitEvent) {
+	async function join(e: SubmitEvent) {
 		e.preventDefault();
 		const trimmed = name.trim();
-		if (trimmed) user.login(trimmed);
+		if (!trimmed) return;
+		login_error = null;
+		const response = await fetch('/api/v0/users', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: trimmed })
+		});
+		if (!response.ok) {
+			login_error = `${response.status} ${response.statusText}`;
+			return;
+		}
+		const id: string = await response.json();
+		user.login(trimmed, id);
 	}
 </script>
 
@@ -15,8 +29,11 @@
 	<label for="name">Enter your name to join</label>
 	<div class="login-controls">
 		<input id="name" bind:value={name} placeholder="Your name" maxlength="32" autocomplete="off" />
-		<button type="submit">Join</button>
+		<button type="submit">{is_retry ? 'Retry' : 'Join'}</button>
 	</div>
+	{#if login_error}
+		<p class="login-error">{login_error}</p>
+	{/if}
 </form>
 
 <style>
@@ -35,6 +52,11 @@
 	}
 	label {
 		color: #666;
+	}
+	.login-error {
+		color: #dc2626;
+		font-size: 0.875rem;
+		margin: 0;
 	}
 	.login-controls {
 		display: flex;
