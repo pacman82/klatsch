@@ -193,7 +193,7 @@ impl From<Event> for SseEvent {
 #[derive(Deserialize)]
 struct NewMessage {
     id: Uuid,
-    sender: String,
+    sender: Uuid,
     content: String,
 }
 
@@ -210,10 +210,11 @@ where
         sender,
         content,
     } = msg;
-    users.user_id(sender.clone()).await?;
+    users.authenticate(sender).await?;
+    let user = users.user_by_id(sender).await?;
     chat.add_message(Message {
         id,
-        sender,
+        sender: user.name,
         content,
     })
     .await?;
@@ -299,8 +300,13 @@ mod tests {
     use tower::ServiceExt; // for `oneshot`
 
     const ALICE_ID: Uuid = Uuid::from_bytes([
-        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08,
-        0x1f, 0xb1,
+        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
+        0xb1,
+    ]);
+
+    const BOB_ID: Uuid = Uuid::from_bytes([
+        0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
+        0x1c,
     ]);
 
     #[tokio::test]
@@ -502,12 +508,21 @@ mod tests {
     #[tokio::test]
     async fn add_message_route_forwards_arguments_to_chat_api() {
         // Given
+        #[derive(Clone)]
+        struct UsersStub;
+        impl Users for UsersStub {
+            async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
+                Ok(User {
+                    name: "Bob".to_owned(),
+                })
+            }
+        }
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), UserDummy, shutting_down);
+        let app = api_router(spy.clone(), UsersStub, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
-            "sender": "Bob",
+            "sender": BOB_ID,
             "content": "Hello, Alice!"
         });
 
@@ -534,31 +549,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_message_invokes_user_id() {
-        // Given
-        let spy = UsersSpy::default();
+    async fn add_message_rejects_unauthenticated_users() {
+        // Given a users store that rejects authentication
+        #[derive(Clone)]
+        struct UsersSaboteur;
+        impl Users for UsersSaboteur {
+            async fn authenticate(&mut self, _id: Uuid) -> Result<(), UsersError> {
+                Err(UsersError::UnknownUser)
+            }
+        }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, spy.clone(), shutting_down);
-        let new_message = json!({
-            "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
-            "sender": "Bob",
-            "content": "Hello, Alice!"
-        });
+        let app = api_router(Dummy, UsersSaboteur, shutting_down);
 
-        // When
-        let _response = app
+        // When a message is sent with an unknown sender
+        let response = app
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
-                    .body(Body::from(new_message.to_string()))
+                    .body(Body::from(
+                        json!({
+                            "id": Uuid::nil(),
+                            "sender": BOB_ID,
+                            "content": "dummy"
+                        })
+                        .to_string(),
+                    ))
                     .unwrap(),
             )
             .await
             .unwrap();
 
-        // Then
-        let user_names = spy.take_user_id_record();
-        assert_eq!(user_names, ["Bob"])
+        // Then the request is rejected
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -776,7 +798,7 @@ mod tests {
                     .body(Body::from(
                         json!({
                             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
-                            "sender": "dummy",
+                            "sender": Uuid::nil(),
                             "content": "dummy"
                         })
                         .to_string(),
@@ -948,6 +970,12 @@ mod tests {
             self.user_id_record.lock().unwrap().push(name);
             Ok(Uuid::nil())
         }
+
+        async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
+            Ok(User {
+                name: "dummy".to_owned(),
+            })
+        }
     }
 
     #[derive(Clone)]
@@ -956,6 +984,12 @@ mod tests {
     impl Users for UserDummy {
         async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
+        }
+
+        async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
+            Ok(User {
+                name: "dummy".to_owned(),
+            })
         }
     }
 }

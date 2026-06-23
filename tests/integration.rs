@@ -7,6 +7,7 @@ use std::{
 use eventsource_stream::Eventsource as _;
 use futures_util::StreamExt as _;
 use reqwest::Client;
+use uuid::Uuid;
 use serde_json::json;
 use tokio::{
     fs,
@@ -103,15 +104,17 @@ async fn health_check_returns_200_ok() {
 async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
     let server = TestServer::new(None).await;
+    let alice_id = server.register_user("Alice").await;
+    let bob_id = server.register_user("Bob").await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
-        "sender": "Alice",
+        "sender": alice_id,
         "content": "Hello"
     });
     server.send_message(msg).await;
     let msg = json!({
         "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
-        "sender": "Bob",
+        "sender": bob_id,
         "content": "Hi there"
     });
     server.send_message(msg).await;
@@ -143,15 +146,17 @@ async fn persistence() {
     let persistence_dir = tempfile::tempdir().unwrap();
 
     let mut server = TestServer::new(Some(persistence_dir.path())).await;
+    let alice_id = server.register_user("Alice").await;
+    let bob_id = server.register_user("Bob").await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
-        "sender": "Alice",
+        "sender": alice_id,
         "content": "Hello"
     });
     server.send_message(msg).await;
     let msg = json!({
         "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
-        "sender": "Bob",
+        "sender": bob_id,
         "content": "Hi there"
     });
     server.send_message(msg).await;
@@ -318,6 +323,20 @@ impl TestServer {
             .bytes_stream()
             .eventsource()
             .map(|r| r.expect("SSE event must be parseable"))
+    }
+
+    async fn register_user(&self, name: &str) -> Uuid {
+        self.client
+            .post(format!("http://localhost:{}/api/v0/users", self.port))
+            .json(&json!({ "name": name }))
+            .send()
+            .await
+            .expect("Failed to register user")
+            .error_for_status()
+            .expect("Server rejected user registration")
+            .json::<Uuid>()
+            .await
+            .expect("Failed to parse user id")
     }
 
     async fn send_message(&self, message: serde_json::Value) {
