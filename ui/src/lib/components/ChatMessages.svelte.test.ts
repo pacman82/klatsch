@@ -1,6 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi } from 'vitest';
 import ChatMessages from './ChatMessages.svelte';
+import { user } from '$lib/user.svelte';
 
 class EventSourcePuppet {
 	static last: EventSourcePuppet;
@@ -13,6 +14,52 @@ class EventSourcePuppet {
 		EventSourcePuppet.last = this;
 	}
 }
+
+test('my messages are displayed on the right, others on the left', async () => {
+	// Given Alice is logged in
+	const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
+	user.login('Alice', ALICE_ID);
+	vi.stubGlobal('EventSource', EventSourcePuppet);
+
+	const screen = render(ChatMessages);
+	const puppet = EventSourcePuppet.last;
+
+	// When Messages of Alice and Bob are received
+	puppet.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({
+				id: '1',
+				sender: 'Alice',
+				sender_id: ALICE_ID,
+				content: 'mine',
+				timestamp_ms: 0
+			})
+		})
+	);
+	puppet.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({
+				id: '2',
+				sender: 'Bob',
+				sender_id: 'other-id',
+				content: 'theirs',
+				timestamp_ms: 0
+			})
+		})
+	);
+
+	// Then Alice's messages are displayed on the right (csv class 'me'), Bob's on the left (csv class 'them')
+
+	// Wait for elements to be rendered
+	await expect.element(screen.getByText('mine')).toBeVisible();
+	await expect.element(screen.getByText('theirs')).toBeVisible();
+	expect(screen.getByText('mine').query()?.closest('.message-row')?.classList.contains('me')).toBe(
+		true
+	);
+	expect(
+		screen.getByText('theirs').query()?.closest('.message-row')?.classList.contains('them')
+	).toBe(true);
+});
 
 test('connection error clears when connection is reestablished', async () => {
 	// Given a connection that has errored
@@ -77,9 +124,11 @@ test('receives messages after server restart', async () => {
 	// Then new messages are received after the server comes back
 	const reconnected = EventSourcePuppet.last;
 	expect(reconnected).not.toBe(puppet);
-	reconnected.onmessage!(new MessageEvent('message', {
-		data: JSON.stringify({ id: '1', sender: 'alice', content: 'hello', timestamp_ms: 0 })
-	}));
+	reconnected.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({ id: '1', sender: 'alice', content: 'hello', timestamp_ms: 0 })
+		})
+	);
 
 	await expect.element(screen.getByText('hello')).toBeVisible();
 });
