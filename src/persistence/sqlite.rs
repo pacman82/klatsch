@@ -99,7 +99,7 @@ impl Persistence for SqlitePersistence {
         };
 
         self.conn
-            .conn(move |conn| fetch_row(conn))
+            .conn(fetch_row)
             .await
             .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read row"))
             .map_err(Into::into)
@@ -123,14 +123,14 @@ impl Persistence for SqlitePersistence {
         };
 
         self.conn
-            .conn(move |conn| fetch_rows(conn))
+            .conn(fetch_rows)
             .await
             .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read rows"))
             .map_err(Into::into)
     }
 }
 
-fn to_rusqlite_params<'a>(params: &'a impl Arguments) -> impl Params {
+fn to_rusqlite_params(params: &impl Arguments) -> impl Params {
     let it = (0..params.len()).map(|index| params.get(index));
     params_from_iter(it)
 }

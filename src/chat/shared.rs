@@ -6,10 +6,7 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
-use tokio_stream::{
-    StreamExt,
-    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
-};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use super::{
     event::{Event, EventId, Message},
@@ -145,12 +142,10 @@ impl Events {
     }
 
     fn live_stream(current: broadcast::Receiver<Event>) -> impl Stream<Item = Event> + Send {
-        BroadcastStream::new(current).map_while(|result| match result {
-            Ok(event) => Some(event),
-            // Slow receiver. Receiver is lagging and messages have been dropped. Stopping the
-            // live stream allows us to recover from history.
-            Err(BroadcastStreamRecvError::Lagged(_skipped)) => None,
-        })
+        BroadcastStream::new(current)
+            // In case of a Slow Receiver, i.e. Receiver is lagging and messages have been dropped.
+            // Stopping the live stream allows us to recover from history.
+            .map_while(Result::ok)
     }
 }
 

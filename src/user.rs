@@ -114,12 +114,8 @@ pub fn migrate_users_persistence<C>(conn: &C, from_version: u32) -> Result<(), C
 where
     C: ExecuteSql,
 {
-    match from_version {
-        // No prior database found create current schema from scratch
-        0 => {
-            create_schema_from_scratch(conn)?;
-        }
-        _ => (),
+    if from_version == 0 {
+        create_schema_from_scratch(conn)?;
     }
     Ok(())
 }
