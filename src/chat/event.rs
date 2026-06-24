@@ -53,6 +53,8 @@ pub struct Message {
     ///
     /// User ID of the sender.
     pub sender: String,
+    /// User ID of the sender.
+    pub sender_id: Uuid,
     /// Text content of the message. I.e. the actual message
     pub content: String,
 }

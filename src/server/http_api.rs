@@ -173,6 +173,7 @@ impl From<Event> for SseEvent {
                 Message {
                     id: message_id,
                     sender,
+                    sender_id,
                     content,
                 },
             timestamp_ms,
@@ -215,6 +216,7 @@ where
     chat.add_message(Message {
         id,
         sender: user.name,
+        sender_id: sender,
         content,
     })
     .await?;
@@ -326,6 +328,7 @@ mod tests {
                         Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                             sender: "Alice".to_owned(),
+                            sender_id: ALICE_ID,
                             content: "One".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531600000),
@@ -335,6 +338,7 @@ mod tests {
                         Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
                             sender: "Bob".to_owned(),
+                            sender_id: BOB_ID,
                             content: "Two".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531601000),
@@ -344,6 +348,7 @@ mod tests {
                         Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
                             sender: "Alice".to_string(),
+                            sender_id: ALICE_ID,
                             content: "Three".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531602000),
@@ -353,6 +358,7 @@ mod tests {
                         Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
                             sender: "Bob".to_owned(),
+                            sender_id: BOB_ID,
                             content: "Four".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531603000),
@@ -543,6 +549,7 @@ mod tests {
                 .parse::<Uuid>()
                 .unwrap(),
             sender: "Bob".to_owned(),
+            sender_id: BOB_ID,
             content: "Hello, Alice!".to_owned(),
         };
         assert_eq!(spy.take_add_message_record(), &[expected_msg],);
@@ -864,6 +871,7 @@ mod tests {
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
                         sender: "dummy".to_owned(),
+                        sender_id: Uuid::nil(),
                         content: "dummy".to_owned(),
                     },
                     UNIX_EPOCH,
