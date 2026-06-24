@@ -53,10 +53,10 @@
 
 <div class="chat-container">
 	{#each messages as msg (msg.id)}
-		<div class="message-row {msg.sender_id == user.current_id ? 'me' : 'them'}">
+		<div class="message-row {msg.sender_id == user.current ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !(msg.sender_id == user.current_id)}
+					{#if !(msg.sender_id == user.current)}
 						<span class="sender">{msg.sender}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>

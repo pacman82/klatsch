@@ -1,17 +1,17 @@
 import { browser } from '$app/environment';
 
-let current_id = $state<string | null>(browser ? localStorage.getItem('user_id') : null);
+let current = $state<string | null>(browser ? localStorage.getItem('user') : null);
 
 export const user = {
-	get current_id() {
-		return current_id;
+	get current() {
+		return current;
 	},
 	login(id: string) {
-		current_id = id;
-		if (browser) localStorage.setItem('user_id', id);
+		current = id;
+		if (browser) localStorage.setItem('user', id);
 	},
 	logout() {
-		current_id = null;
-		if (browser) localStorage.removeItem('user_id');
+		current = null;
+		if (browser) localStorage.removeItem('user');
 	}
 };

@@ -8,7 +8,7 @@
 
 <svelte:head><title>Klatsch</title></svelte:head>
 
-{#if user.current_id}
+{#if user.current}
 	<UserBar />
 	<ChatMessages />
 	<SendMessage />
