@@ -11,8 +11,9 @@ beforeEach(() => {
 
 test('retries fetching the user name every 5 seconds after a failure', async () => {
 	vi.useFakeTimers();
-	const fetchStub = vi.fn()
-		.mockRejectedValueOnce(new Error('Network error'))
+	const fetchStub = vi
+		.fn()
+		.mockRejectedValueOnce(new Error('Test error'))
 		.mockResolvedValueOnce(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }));
 	vi.stubGlobal('fetch', fetchStub);
 
@@ -33,4 +34,12 @@ test('displays the user name', async () => {
 	const screen = render(UserBar);
 
 	await expect.element(screen.getByText('Logged in as Alice')).toBeVisible();
+});
+
+test('displays fetching user info, if initial fetch fails', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Test error')));
+
+	const screen = render(UserBar);
+
+	await expect.element(screen.getByText('Fetching user info...')).toBeVisible();
 });

@@ -2,14 +2,17 @@
 	import { onMount } from 'svelte';
 	import { user } from '$lib/user.svelte';
 
+	type User = {
+		name: string;
+	};
 	let name = $state<string | null>(null);
+	let user_info = $state<User | null>(null);
 
 	onMount(async () => {
 		while (name === null) {
 			try {
 				const response = await fetch(`/api/v0/users/${user.current_id}`);
-				const data = await response.json();
-				name = data.name;
+				user_info = await response.json();
 			} catch {
 				await new Promise((resolve) => setTimeout(resolve, 5000));
 			}
@@ -22,7 +25,11 @@
 </script>
 
 <div class="user-bar">
-	<span>Logged in as <strong>{name}</strong></span>
+	{#if user_info !== null}
+		<span>Logged in as <strong>{user_info.name}</strong></span>
+	{:else}
+		<span>Fetching user info...</span>
+	{/if}
 	<button onclick={logout}>Log out</button>
 </div>
 
