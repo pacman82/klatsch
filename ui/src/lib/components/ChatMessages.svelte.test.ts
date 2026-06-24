@@ -18,7 +18,7 @@ class EventSourcePuppet {
 test('my messages are displayed on the right, others on the left', async () => {
 	// Given Alice is logged in
 	const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
-	user.login('Alice', ALICE_ID);
+	user.login(ALICE_ID);
 	vi.stubGlobal('EventSource', EventSourcePuppet);
 
 	const screen = render(ChatMessages);

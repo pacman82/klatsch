@@ -23,7 +23,7 @@
 			return;
 		}
 		const id: string = await response.json();
-		user.login(trimmed, id);
+		user.login(id);
 	}
 </script>
 

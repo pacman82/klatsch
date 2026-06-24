@@ -4,7 +4,8 @@ import SendMessage from './SendMessage.svelte';
 import { user } from '$lib/user.svelte';
 
 beforeEach(() => {
-	user.login('TestUser', 'ab70b6ca-4139-499f-a66d-15e88f081fb1');
+	const DUMMY_TEST_USER_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
+	user.login(DUMMY_TEST_USER_ID);
 });
 
 test('resubmitting same text after failure is considered retry of same message', async () => {

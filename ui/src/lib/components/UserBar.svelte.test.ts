@@ -6,7 +6,7 @@ import { user } from '$lib/user.svelte';
 const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 
 beforeEach(() => {
-	user.login('Alice', ALICE_ID);
+	user.login(ALICE_ID);
 });
 
 test('retries fetching the user name every 5 seconds after a failure', async () => {
