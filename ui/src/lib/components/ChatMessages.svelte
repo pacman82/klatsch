@@ -5,6 +5,7 @@
 	type ChatMessage = {
 		id: string;
 		sender: string;
+		sender_id: string;
 		content: string;
 		// Unix timestamp, milliseconds since epoch UTC
 		timestamp_ms: number;
@@ -52,10 +53,10 @@
 
 <div class="chat-container">
 	{#each messages as msg (msg.id)}
-		<div class="message-row {msg.sender == user.current ? 'me' : 'them'}">
+		<div class="message-row {msg.sender_id == user.current_id ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !(msg.sender == user.current)}
+					{#if !(msg.sender_id == user.current_id)}
 						<span class="sender">{msg.sender}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
