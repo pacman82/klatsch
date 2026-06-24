@@ -82,10 +82,10 @@ where
                 write!(writer, "{}", bold.paint(span.metadata().name()))?;
                 seen = true;
                 let ext = span.extensions();
-                if let Some(fields) = &ext.get::<FormattedFields<N>>() {
-                    if !fields.is_empty() {
-                        write!(writer, "{}{}{}", bold.paint("{"), fields, bold.paint("}"))?;
-                    }
+                if let Some(fields) = &ext.get::<FormattedFields<N>>()
+                    && !fields.is_empty()
+                {
+                    write!(writer, "{}{}{}", bold.paint("{"), fields, bold.paint("}"))?;
                 }
                 write!(writer, "{}", dimmed.paint(":"))?;
             }
