@@ -158,6 +158,8 @@ pub struct HttpMessage {
     pub id: Uuid,
     /// Author of the message
     pub sender: String,
+    /// User id of the author
+    pub sender_id: Uuid,
     /// Text content of the message. I.e. the actual message
     pub content: String,
     /// Unix timestamp of that message being received by the server. Milliseconds since epoch.
@@ -183,6 +185,7 @@ impl From<Event> for SseEvent {
             .json_data(HttpMessage {
                 id: message_id,
                 sender,
+                sender_id,
                 content,
                 timestamp_ms,
             })
@@ -402,6 +405,7 @@ mod tests {
                 json!({
                     "id": "019c0050-e4d7-7447-9d8f-81cde690f4a1",
                     "sender": "Alice",
+                    "sender_id": ALICE_ID,
                     "content": "One",
                     "timestamp_ms": 1704531600000u64
                 }),
@@ -412,6 +416,7 @@ mod tests {
                 json!({
                     "id": "019c0051-c29d-7968-b953-4adc898b1360",
                     "sender": "Bob",
+                    "sender_id": BOB_ID,
                     "content": "Two",
                     "timestamp_ms": 1704531601000u64
                 }),
@@ -422,6 +427,7 @@ mod tests {
                 json!({
                     "id": "019c0051-e50d-7ea7-8a0e-f7df4176dd93",
                     "sender": "Alice",
+                    "sender_id": ALICE_ID,
                     "content": "Three",
                     "timestamp_ms": 1704531602000u64
                 }),
@@ -432,6 +438,7 @@ mod tests {
                 json!({
                     "id": "019c0052-09b0-73be-a145-3767cb10cdf6",
                     "sender": "Bob",
+                    "sender_id": BOB_ID,
                     "content": "Four",
                     "timestamp_ms": 1704531603000u64
                 }),
