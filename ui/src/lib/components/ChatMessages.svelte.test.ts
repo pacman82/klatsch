@@ -15,11 +15,35 @@ class EventSourcePuppet {
 	}
 }
 
+test("other sender's name is fetched and displayed", async () => {
+	const BOB_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+	vi.stubGlobal('EventSource', EventSourcePuppet);
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'Bob' }), { status: 200 }))
+	);
+
+	const screen = render(ChatMessages);
+	const puppet = EventSourcePuppet.last;
+
+	puppet.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({ id: '1', sender_id: BOB_ID, content: 'hello', timestamp_ms: 0 })
+		})
+	);
+
+	await expect.element(screen.getByText('Bob')).toBeVisible();
+});
+
 test('my messages are displayed on the right, others on the left', async () => {
 	// Given Alice is logged in
 	const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 	user.login(ALICE_ID);
 	vi.stubGlobal('EventSource', EventSourcePuppet);
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'Bob' }), { status: 200 }))
+	);
 
 	const screen = render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
@@ -29,7 +53,6 @@ test('my messages are displayed on the right, others on the left', async () => {
 		new MessageEvent('message', {
 			data: JSON.stringify({
 				id: '1',
-				sender: 'Alice',
 				sender_id: ALICE_ID,
 				content: 'mine',
 				timestamp_ms: 0
@@ -40,7 +63,6 @@ test('my messages are displayed on the right, others on the left', async () => {
 		new MessageEvent('message', {
 			data: JSON.stringify({
 				id: '2',
-				sender: 'Bob',
 				sender_id: 'other-id',
 				content: 'theirs',
 				timestamp_ms: 0

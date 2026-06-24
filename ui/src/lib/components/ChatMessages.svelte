@@ -4,7 +4,6 @@
 
 	type ChatMessage = {
 		id: string;
-		sender: string;
 		sender_id: string;
 		content: string;
 		// Unix timestamp, milliseconds since epoch UTC
@@ -14,6 +13,24 @@
 	let messages: ChatMessage[] = $state([]);
 	let disconnected = $state(false);
 	let serverError: string | null = $state(null);
+	let user_names = $state<Record<string, string>>({});
+	let fetching_names = new Set<string>();
+
+	async function fetch_name(sender_id: string) {
+		if (sender_id in user_names || fetching_names.has(sender_id)) return;
+		fetching_names.add(sender_id);
+		while (!(sender_id in user_names)) {
+			try {
+				const response = await fetch(`/api/v0/users/${sender_id}`);
+				if (!response.ok) throw new Error(`${response.status}`);
+				const data: { name: string } = await response.json();
+				user_names[sender_id] = data.name;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 5000));
+			}
+		}
+		fetching_names.delete(sender_id);
+	}
 
 	// Keep track of the current event source. It can change during the course of the component's life.
 	// In case the server ends the event stream properly (e.g. during a graceful shutdown), the
@@ -25,6 +42,9 @@
 		eventSource.onmessage = (event) => {
 			const msg: ChatMessage = JSON.parse(event.data);
 			messages = [...messages, msg];
+			if (msg.sender_id && msg.sender_id !== user.current) {
+				fetch_name(msg.sender_id);
+			}
 		};
 		eventSource.onopen = () => {
 			disconnected = false;
@@ -56,8 +76,8 @@
 		<div class="message-row {msg.sender_id == user.current ? 'me' : 'them'}">
 			<div class="message-content">
 				<div class="bubble">
-					{#if !(msg.sender_id == user.current)}
-						<span class="sender">{msg.sender}</span>
+					{#if !(msg.sender_id == user.current) && msg.sender_id in user_names}
+						<span class="sender">{user_names[msg.sender_id]}</span>
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
 				</div>
