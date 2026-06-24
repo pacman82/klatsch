@@ -7,7 +7,6 @@ use std::{
 use eventsource_stream::Eventsource as _;
 use futures_util::StreamExt as _;
 use reqwest::Client;
-use uuid::Uuid;
 use serde_json::json;
 use tokio::{
     fs,
@@ -17,6 +16,7 @@ use tokio::{
     task::JoinHandle,
     time::timeout,
 };
+use uuid::Uuid;
 
 #[cfg(unix)]
 use nix::{
@@ -83,8 +83,10 @@ async fn server_boots_within_one_sec() {
     let end = Instant::now();
 
     // Then it should have taken less than 1 second to boot up
+    let time_to_boot = end - start;
+    eprintln!("Time to boot: {} ms", time_to_boot.as_millis());
     let max_duration = Duration::from_secs(1);
-    assert!(end - start <= max_duration)
+    assert!(time_to_boot <= max_duration)
 }
 
 #[tokio::test]
