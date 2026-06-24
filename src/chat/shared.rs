@@ -235,6 +235,7 @@ mod tests {
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
+                    sender_id: ALICE_ID,
                     content: "One".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -244,6 +245,7 @@ mod tests {
                 Message {
                     id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                     sender: "Bob".to_string(),
+                    sender_id: BOB_ID,
                     content: "Two".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
@@ -283,6 +285,7 @@ mod tests {
         let msg = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_string(),
+            sender_id: ALICE_ID,
             content: "Hello".to_string(),
         };
         chat.client().add_message(msg.clone()).await.unwrap();
@@ -336,6 +339,7 @@ mod tests {
             .add_message(Message {
                 id: duplicate_id,
                 sender: "dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -344,6 +348,7 @@ mod tests {
             .add_message(Message {
                 id: fresh_id,
                 sender: "dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -380,6 +385,7 @@ mod tests {
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                 sender: "dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await;
@@ -439,6 +445,7 @@ mod tests {
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                     sender: "Alice".to_string(),
+                    sender_id: ALICE_ID,
                     content: "One".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -481,6 +488,7 @@ mod tests {
         let live_msg = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
             sender: "Bob".to_string(),
+            sender_id: BOB_ID,
             content: "Two".to_string(),
         };
         chat.client().add_message(live_msg.clone()).await.unwrap();
@@ -514,6 +522,7 @@ mod tests {
                         Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
                             sender: "Alice".to_string(),
+                            sender_id: ALICE_ID,
                             content: "One".to_string(),
                         },
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -523,6 +532,7 @@ mod tests {
                         Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
                             sender: "Bob".to_string(),
+                            sender_id: BOB_ID,
                             content: "Two".to_string(),
                         },
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
@@ -582,11 +592,13 @@ mod tests {
         let msg_a = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_string(),
+            sender_id: ALICE_ID,
             content: "From Alice".to_string(),
         };
         let msg_b = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
             sender: "Bob".to_string(),
+            sender_id: BOB_ID,
             content: "From Bob".to_string(),
         };
         client_a.add_message(msg_a.clone()).await.unwrap();
@@ -620,7 +632,8 @@ mod tests {
         sender_client
             .add_message(Message {
                 id: Uuid::now_v7(),
-                sender: "a".to_string(),
+                sender: "Alice".to_owned(),
+                sender_id: ALICE_ID,
                 content: "Initial message".to_string(),
             })
             .await
@@ -638,7 +651,8 @@ mod tests {
         for _ in 0..NUM_MESSAGES_IN_BURST {
             let msg = Message {
                 id: Uuid::now_v7(),
-                sender: "b".to_string(),
+                sender: "Bob".to_owned(),
+                sender_id: BOB_ID,
                 content: "dummy".to_owned(),
             };
             sender_client.add_message(msg).await.unwrap();
@@ -699,6 +713,7 @@ mod tests {
                 Message {
                     id: Uuid::nil(),
                     sender: "dummy".to_owned(),
+                    sender_id: Uuid::nil(),
                     content: "dummy".to_owned(),
                 },
                 SystemTime::UNIX_EPOCH,
@@ -738,4 +753,14 @@ mod tests {
             Ok(Some(event))
         }
     }
+
+    const ALICE_ID: Uuid = Uuid::from_bytes([
+        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
+        0xb1,
+    ]);
+
+    const BOB_ID: Uuid = Uuid::from_bytes([
+        0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
+        0x1c,
+    ]);
 }

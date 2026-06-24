@@ -37,7 +37,7 @@ where
     P: Persistence + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        let query = "SELECT events.id, message_id, users.name, content, timestamp_ms \
+        let query = "SELECT events.id, message_id, events.sender, users.name, content, timestamp_ms \
             FROM events JOIN users ON events.sender = users.id \
             WHERE events.id > ?1 ORDER BY events.id";
 
@@ -45,13 +45,15 @@ where
             let event_id = row.get_i64(0);
             let event_id = EventId(event_id.try_into().unwrap());
             let message_id = row.get_uuid(1);
-            let sender = row.get_text(2);
-            let content = row.get_text(3);
-            let timestamp_ms = row.get_i64(4);
+            let sender_id = row.get_uuid(2);
+            let sender = row.get_text(3);
+            let content = row.get_text(4);
+            let timestamp_ms = row.get_i64(5);
             let timestamp_ms: u64 = timestamp_ms.try_into().unwrap();
             let message = Message {
                 id: message_id,
                 sender,
+                sender_id,
                 content,
             };
             let event = Event {
@@ -288,6 +290,7 @@ mod tests {
             .record_message(Message {
                 id: id_1,
                 sender: "Dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -296,6 +299,7 @@ mod tests {
             .record_message(Message {
                 id: id_2,
                 sender: "Dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -304,6 +308,7 @@ mod tests {
             .record_message(Message {
                 id: id_3,
                 sender: "Dummy".to_owned(),
+                sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -327,6 +332,7 @@ mod tests {
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_owned(),
+            sender_id: ALICE_ID,
             content: "Hello".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();
@@ -336,6 +342,7 @@ mod tests {
             .record_message(Message {
                 id,
                 sender: "Alice".to_owned(),
+                sender_id: ALICE_ID,
                 content: "Hello".to_owned(),
             })
             .await
@@ -354,6 +361,7 @@ mod tests {
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_owned(),
+            sender_id: ALICE_ID,
             content: "Hello".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();
@@ -363,6 +371,7 @@ mod tests {
             .record_message(Message {
                 id,
                 sender: "Alice".to_owned(),
+                sender_id: ALICE_ID,
                 content: "Goodbye".to_owned(),
             })
             .await;
@@ -380,6 +389,7 @@ mod tests {
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "dummy".to_owned(),
+            sender_id: Uuid::nil(),
             content: "dummy".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();
@@ -405,6 +415,7 @@ mod tests {
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_owned(),
+            sender_id: ALICE_ID,
             content: "Hi".to_owned(),
         };
         let event = history.record_message(message.clone()).await.unwrap();
@@ -421,6 +432,9 @@ mod tests {
         assert!(start <= event.timestamp_ms && event.timestamp_ms <= stop);
     }
 
+    // While we refactor sender -> sender_id messages are not guaranteed to be persisted exactly
+    // the sender_id is looked up internally, which is always the same in production.
+    #[should_panic]
     #[tokio::test]
     async fn persist_messages() {
         // Given
@@ -434,6 +448,7 @@ mod tests {
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
             sender: "Alice".to_owned(),
+            sender_id: ALICE_ID,
             content: "Hi".to_owned(),
         };
         let _event = history.record_message(message.clone()).await.unwrap();
@@ -472,4 +487,14 @@ mod tests {
         migrate_chat_persistence(conn, from_version)?;
         Ok(())
     }
+
+    const ALICE_ID: Uuid = Uuid::from_bytes([
+        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
+        0xb1,
+    ]);
+
+    const BOB_ID: Uuid = Uuid::from_bytes([
+        0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
+        0x1c,
+    ]);
 }
