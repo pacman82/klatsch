@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { user } from '$lib/user.svelte';
 
+	// Username used for login
 	let name = $state('');
+	// An error in case the last login attempt failed. Used to display an error message to the user.
 	let login_error = $state<string | null>(null);
+	// Whether to call the submit button "Retry" instead of "Join"
 	let is_retry = $derived(login_error !== null);
 
 	async function join(e: SubmitEvent) {
