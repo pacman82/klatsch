@@ -11,7 +11,7 @@
 	onMount(async () => {
 		while (name === null) {
 			try {
-				const response = await fetch(`/api/v0/users/${user.current_id}`);
+				const response = await fetch(`/api/v0/users/${user.current}`);
 				user_info = await response.json();
 			} catch {
 				await new Promise((resolve) => setTimeout(resolve, 5000));

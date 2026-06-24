@@ -38,5 +38,5 @@ test('login stores the user id returned by the server', async () => {
 	await screen.getByPlaceholder('Your name').fill('Alice');
 	await screen.getByRole('button', { name: 'Join' }).click();
 
-	expect(user.current_id).toBe(id);
+	expect(user.current).toBe(id);
 });

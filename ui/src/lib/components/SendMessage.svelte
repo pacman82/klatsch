@@ -26,7 +26,7 @@
 		const content = message_content.trim();
 		if (!content) return;
 
-		const sender = user.current_id;
+		const sender = user.current;
 		if (!sender) throw new Error("SendMessage rendered without a logged-in user");
 
 		const id = is_retry ? last_attempt!.id : v7();
