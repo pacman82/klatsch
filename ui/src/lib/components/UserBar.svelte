@@ -1,23 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { user } from '$lib/user.svelte';
+	import { user_cache } from '$lib/user_cache.svelte';
 
-	type User = {
-		name: string;
-	};
-	let name = $state<string | null>(null);
-	let user_info = $state<User | null>(null);
-
-	onMount(async () => {
-		while (name === null) {
-			try {
-				const response = await fetch(`/api/v0/users/${user.current}`);
-				user_info = await response.json();
-			} catch {
-				await new Promise((resolve) => setTimeout(resolve, 5000));
-			}
-		}
-	});
+	const user_info = $derived(user_cache.resolve(user.current!));
 
 	function logout() {
 		user.logout();
@@ -25,7 +10,7 @@
 </script>
 
 <div class="user-bar">
-	{#if user_info !== null}
+	{#if user_info}
 		<span>Logged in as <strong>{user_info.name}</strong></span>
 	{:else}
 		<span>Fetching user info...</span>

@@ -2,6 +2,7 @@ import { render } from 'vitest-browser-svelte';
 import { expect, test, vi, beforeEach } from 'vitest';
 import UserBar from './UserBar.svelte';
 import { user } from '$lib/user.svelte';
+import { user_cache } from '$lib/user_cache.svelte';
 
 const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 
@@ -26,18 +27,15 @@ test('retries fetching the user name every 5 seconds after a failure', async () 
 });
 
 test('displays the user name', async () => {
-	vi.stubGlobal(
-		'fetch',
-		vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }))
-	);
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
 	const screen = render(UserBar);
 
 	await expect.element(screen.getByText('Logged in as Alice')).toBeVisible();
 });
 
-test('displays fetching user info, if initial fetch fails', async () => {
-	vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Test error')));
+test('displays fetching user info while name is loading', async () => {
+	vi.spyOn(user_cache, 'resolve').mockReturnValue(undefined);
 
 	const screen = render(UserBar);
 
