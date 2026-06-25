@@ -216,12 +216,11 @@ where
     let user_id = match maybe_user_id {
         Some(user_id) => user_id,
         None => {
-            let user_id = Uuid::new_v4();
             conn.execute(
                 "INSERT INTO users (id, name) VALUES (?1, ?2)",
-                (&user_id, &event.message.sender),
+                (&event.message.sender_id, &event.message.sender),
             )?;
-            user_id
+            event.message.sender_id
         }
     };
 
@@ -432,9 +431,6 @@ mod tests {
         assert!(start <= event.timestamp_ms && event.timestamp_ms <= stop);
     }
 
-    // While we refactor sender -> sender_id messages are not guaranteed to be persisted exactly
-    // the sender_id is looked up internally, which is always the same in production.
-    #[should_panic]
     #[tokio::test]
     async fn persist_messages() {
         // Given
