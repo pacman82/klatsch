@@ -37,8 +37,8 @@ where
     P: Persistence + Sync + Send,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
-        let query = "SELECT events.id, message_id, events.sender, users.name, content, timestamp_ms \
-            FROM events JOIN users ON events.sender = users.id \
+        let query = "SELECT events.id, message_id, events.sender, content, timestamp_ms \
+            FROM events \
             WHERE events.id > ?1 ORDER BY events.id";
 
         let map = |row: &P::Row<'_>| {
@@ -46,13 +46,11 @@ where
             let event_id = EventId(event_id.try_into().unwrap());
             let message_id = row.get_uuid(1);
             let sender_id = row.get_uuid(2);
-            let sender = row.get_text(3);
-            let content = row.get_text(4);
-            let timestamp_ms = row.get_i64(5);
+            let content = row.get_text(3);
+            let timestamp_ms = row.get_i64(4);
             let timestamp_ms: u64 = timestamp_ms.try_into().unwrap();
             let message = Message {
                 id: message_id,
-                sender,
                 sender_id,
                 content,
             };
@@ -206,32 +204,15 @@ fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
 where
     C: ExecuteSql,
 {
-    let maybe_user_id = conn
-        .rows_vec(
-            "SELECT id FROM users WHERE name = ?1",
-            (&event.message.sender,),
-            |row| Ok(row.get_uuid(0)),
-        )?
-        .pop();
-    let user_id = match maybe_user_id {
-        Some(user_id) => user_id,
-        None => {
-            conn.execute(
-                "INSERT INTO users (id, name) VALUES (?1, ?2)",
-                (&event.message.sender_id, &event.message.sender),
-            )?;
-            event.message.sender_id
-        }
-    };
-
     let event_id: i64 = event.id.0.try_into().unwrap();
     let Err(err) = conn.execute(
         "INSERT INTO events (id, message_id, sender, content, timestamp_ms) \
         VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             event_id,
+            // TODO: pass as Uuid
             event.message.id.as_bytes().as_slice(),
-            &user_id,
+            &event.message.sender_id,
             &event.message.content,
             event.timestamp_ms as i64,
         ),
@@ -257,7 +238,7 @@ where
             Ok((sender, content))
         },
     )?;
-    if sender == user_id && content == event.message.content {
+    if sender == event.message.sender_id && content == event.message.content {
         Ok(InsertOutcome::Duplicate)
     } else {
         Ok(InsertOutcome::Conflict)
@@ -288,7 +269,6 @@ mod tests {
         history
             .record_message(Message {
                 id: id_1,
-                sender: "Dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -297,7 +277,6 @@ mod tests {
         history
             .record_message(Message {
                 id: id_2,
-                sender: "Dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -306,7 +285,6 @@ mod tests {
         history
             .record_message(Message {
                 id: id_3,
-                sender: "Dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -330,7 +308,6 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_owned(),
             sender_id: ALICE_ID,
             content: "Hello".to_owned(),
         };
@@ -340,7 +317,6 @@ mod tests {
         let maybe_event = history
             .record_message(Message {
                 id,
-                sender: "Alice".to_owned(),
                 sender_id: ALICE_ID,
                 content: "Hello".to_owned(),
             })
@@ -359,7 +335,6 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_owned(),
             sender_id: ALICE_ID,
             content: "Hello".to_owned(),
         };
@@ -369,7 +344,6 @@ mod tests {
         let result = history
             .record_message(Message {
                 id,
-                sender: "Alice".to_owned(),
                 sender_id: ALICE_ID,
                 content: "Goodbye".to_owned(),
             })
@@ -387,7 +361,6 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "dummy".to_owned(),
             sender_id: Uuid::nil(),
             content: "dummy".to_owned(),
         };
@@ -413,7 +386,6 @@ mod tests {
         // When inserting a new record
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_owned(),
             sender_id: ALICE_ID,
             content: "Hi".to_owned(),
         };
@@ -443,7 +415,6 @@ mod tests {
         // When inserting a new record ...
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_owned(),
             sender_id: ALICE_ID,
             content: "Hi".to_owned(),
         };

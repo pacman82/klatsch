@@ -49,11 +49,7 @@ pub struct Message {
     ///
     /// UUID v7, because we care about newer messages more than older ones in the database.
     pub id: Uuid,
-    /// Author of the message
-    ///
-    /// User ID of the sender.
-    pub sender: String,
-    /// User ID of the sender.
+    /// User ID of the author.
     pub sender_id: Uuid,
     /// Text content of the message. I.e. the actual message
     pub content: String,
