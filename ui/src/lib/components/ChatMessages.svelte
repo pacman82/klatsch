@@ -24,7 +24,7 @@
 		eventSource = new EventSource('/api/v0/events');
 		eventSource.onmessage = (event) => {
 			const msg: ChatMessage = JSON.parse(event.data);
-			messages = [...messages, msg];
+			messages.push(msg);
 		};
 		eventSource.onopen = () => {
 			disconnected = false;
