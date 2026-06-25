@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { user } from '$lib/user.svelte';
+	import { user_cache } from '$lib/user_cache.svelte';
 
 	type ChatMessage = {
 		id: string;
-		sender: string;
 		sender_id: string;
 		content: string;
 		// Unix timestamp, milliseconds since epoch UTC
@@ -57,7 +57,12 @@
 			<div class="message-content">
 				<div class="bubble">
 					{#if !(msg.sender_id == user.current)}
-						<span class="sender">{msg.sender}</span>
+						{@const sender = user_cache.resolve(msg.sender_id)}
+						{#if sender}
+							<span class="sender">{sender.name}</span>
+						{:else}
+							<span class="sender"><em>?</em></span>
+						{/if}
 					{/if}
 					<span class="bubble-content">{msg.content}</span>
 				</div>

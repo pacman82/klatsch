@@ -113,7 +113,12 @@ test('server error does not persist across reconnections', async () => {
 });
 
 test('receives messages after server restart', async () => {
+	const ALICE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 	vi.stubGlobal('EventSource', EventSourcePuppet);
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }))
+	);
 	const screen = render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 
@@ -126,7 +131,7 @@ test('receives messages after server restart', async () => {
 	expect(reconnected).not.toBe(puppet);
 	reconnected.onmessage!(
 		new MessageEvent('message', {
-			data: JSON.stringify({ id: '1', sender: 'alice', content: 'hello', timestamp_ms: 0 })
+			data: JSON.stringify({ id: '1', sender_id: ALICE_ID, content: 'hello', timestamp_ms: 0 })
 		})
 	);
 
