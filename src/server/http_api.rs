@@ -156,8 +156,6 @@ pub struct HttpMessage {
     /// sending messages. It also a key for the UI to efficiently update data structures then
     /// rendering messages.
     pub id: Uuid,
-    /// Author of the message
-    pub sender: String,
     /// User id of the author
     pub sender_id: Uuid,
     /// Text content of the message. I.e. the actual message
@@ -174,7 +172,6 @@ impl From<Event> for SseEvent {
             message:
                 Message {
                     id: message_id,
-                    sender,
                     sender_id,
                     content,
                 },
@@ -184,7 +181,6 @@ impl From<Event> for SseEvent {
             .id(event_id.to_string())
             .json_data(HttpMessage {
                 id: message_id,
-                sender,
                 sender_id,
                 content,
                 timestamp_ms,
@@ -215,10 +211,8 @@ where
         content,
     } = msg;
     users.authenticate(sender).await?;
-    let user = users.user_by_id(sender).await?;
     chat.add_message(Message {
         id,
-        sender: user.name,
         sender_id: sender,
         content,
     })
@@ -330,7 +324,6 @@ mod tests {
                         EventId(1),
                         Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                            sender: "Alice".to_owned(),
                             sender_id: ALICE_ID,
                             content: "One".to_owned(),
                         },
@@ -340,7 +333,6 @@ mod tests {
                         EventId(2),
                         Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
-                            sender: "Bob".to_owned(),
                             sender_id: BOB_ID,
                             content: "Two".to_owned(),
                         },
@@ -350,7 +342,6 @@ mod tests {
                         EventId(3),
                         Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
-                            sender: "Alice".to_string(),
                             sender_id: ALICE_ID,
                             content: "Three".to_owned(),
                         },
@@ -360,7 +351,6 @@ mod tests {
                         EventId(4),
                         Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
-                            sender: "Bob".to_owned(),
                             sender_id: BOB_ID,
                             content: "Four".to_owned(),
                         },
@@ -404,7 +394,6 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0050-e4d7-7447-9d8f-81cde690f4a1",
-                    "sender": "Alice",
                     "sender_id": ALICE_ID,
                     "content": "One",
                     "timestamp_ms": 1704531600000u64
@@ -415,7 +404,6 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0051-c29d-7968-b953-4adc898b1360",
-                    "sender": "Bob",
                     "sender_id": BOB_ID,
                     "content": "Two",
                     "timestamp_ms": 1704531601000u64
@@ -426,7 +414,6 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0051-e50d-7ea7-8a0e-f7df4176dd93",
-                    "sender": "Alice",
                     "sender_id": ALICE_ID,
                     "content": "Three",
                     "timestamp_ms": 1704531602000u64
@@ -437,7 +424,6 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0052-09b0-73be-a145-3767cb10cdf6",
-                    "sender": "Bob",
                     "sender_id": BOB_ID,
                     "content": "Four",
                     "timestamp_ms": 1704531603000u64
@@ -555,7 +541,6 @@ mod tests {
             id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
                 .parse::<Uuid>()
                 .unwrap(),
-            sender: "Bob".to_owned(),
             sender_id: BOB_ID,
             content: "Hello, Alice!".to_owned(),
         };
@@ -877,7 +862,6 @@ mod tests {
                     EventId(1),
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        sender: "dummy".to_owned(),
                         sender_id: Uuid::nil(),
                         content: "dummy".to_owned(),
                     },

@@ -234,7 +234,6 @@ mod tests {
                 EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                    sender: "Alice".to_string(),
                     sender_id: ALICE_ID,
                     content: "One".to_string(),
                 },
@@ -244,7 +243,6 @@ mod tests {
                 EventId(2),
                 Message {
                     id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-                    sender: "Bob".to_string(),
                     sender_id: BOB_ID,
                     content: "Two".to_string(),
                 },
@@ -284,7 +282,6 @@ mod tests {
         // When
         let msg = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_string(),
             sender_id: ALICE_ID,
             content: "Hello".to_string(),
         };
@@ -338,7 +335,6 @@ mod tests {
         sender
             .add_message(Message {
                 id: duplicate_id,
-                sender: "dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
@@ -347,7 +343,6 @@ mod tests {
         sender
             .add_message(Message {
                 id: fresh_id,
-                sender: "dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
@@ -384,7 +379,6 @@ mod tests {
             .client()
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                sender: "dummy".to_owned(),
                 sender_id: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
@@ -444,7 +438,6 @@ mod tests {
                 EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                    sender: "Alice".to_string(),
                     sender_id: ALICE_ID,
                     content: "One".to_string(),
                 },
@@ -487,7 +480,6 @@ mod tests {
         // while the client is waiting another client sends a message.
         let live_msg = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-            sender: "Bob".to_string(),
             sender_id: BOB_ID,
             content: "Two".to_string(),
         };
@@ -521,7 +513,6 @@ mod tests {
                         EventId(1),
                         Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                            sender: "Alice".to_string(),
                             sender_id: ALICE_ID,
                             content: "One".to_string(),
                         },
@@ -531,7 +522,6 @@ mod tests {
                         EventId(2),
                         Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-                            sender: "Bob".to_string(),
                             sender_id: BOB_ID,
                             content: "Two".to_string(),
                         },
@@ -554,8 +544,8 @@ mod tests {
             .unwrap();
 
         // Then
-        assert_eq!(events[0].message.sender, "Alice");
-        assert_eq!(events[1].message.sender, "Bob");
+        assert_eq!(events[0].message.sender_id, ALICE_ID);
+        assert_eq!(events[1].message.sender_id, BOB_ID);
 
         // Cleanup
         chat.shutdown().await;
@@ -591,13 +581,11 @@ mod tests {
         // When each client sends a message
         let msg_a = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender: "Alice".to_string(),
             sender_id: ALICE_ID,
             content: "From Alice".to_string(),
         };
         let msg_b = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-            sender: "Bob".to_string(),
             sender_id: BOB_ID,
             content: "From Bob".to_string(),
         };
@@ -632,7 +620,6 @@ mod tests {
         sender_client
             .add_message(Message {
                 id: Uuid::now_v7(),
-                sender: "Alice".to_owned(),
                 sender_id: ALICE_ID,
                 content: "Initial message".to_string(),
             })
@@ -651,7 +638,6 @@ mod tests {
         for _ in 0..NUM_MESSAGES_IN_BURST {
             let msg = Message {
                 id: Uuid::now_v7(),
-                sender: "Bob".to_owned(),
                 sender_id: BOB_ID,
                 content: "dummy".to_owned(),
             };
@@ -712,7 +698,6 @@ mod tests {
                 last_event_id.successor(),
                 Message {
                     id: Uuid::nil(),
-                    sender: "dummy".to_owned(),
                     sender_id: Uuid::nil(),
                     content: "dummy".to_owned(),
                 },
