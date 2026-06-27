@@ -83,7 +83,7 @@ where
 
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
-        .route("/api/v0/users", post(register_user::<U>))
+        .route("/api/v0/users", post(login::<U>))
         .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
@@ -220,14 +220,20 @@ where
     Ok(())
 }
 
-async fn register_user<U>(
+#[derive(Deserialize)]
+struct LoginBody {
+    name: String,
+    password: String,
+}
+
+async fn login<U>(
     State(mut users): State<U>,
-    Json(body): Json<User>,
+    Json(body): Json<LoginBody>,
 ) -> Result<Json<Uuid>, HttpError>
 where
     U: Users,
 {
-    let id = users.user_id(body.name).await?;
+    let id = users.login(body.name, body.password).await?;
     Ok(Json(id))
 }
 
@@ -583,7 +589,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_user_forwards_to_users() {
+    async fn login_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
         let (_, shutting_down) = watch::channel(false);
@@ -594,7 +600,7 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/users")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
             .await
@@ -602,17 +608,17 @@ mod tests {
 
         // Then
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(spy.take_user_id_record(), ["Alice"]);
+        assert_eq!(spy.take_login_record(), [("Alice".to_owned(), "secret".to_owned())]);
     }
 
     #[tokio::test]
-    async fn registering_a_user_returns_their_id() {
+    async fn logging_in_returns_user_id() {
         // Given
         let (_, shutting_down) = watch::channel(false);
         #[derive(Clone)]
         struct UsersStub;
         impl Users for UsersStub {
-            async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
+            async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
                 Ok(ALICE_ID)
             }
         }
@@ -623,7 +629,7 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/users")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
             .await
@@ -955,18 +961,18 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct UsersSpy {
-        user_id_record: Arc<Mutex<Vec<String>>>,
+        login_record: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     impl UsersSpy {
-        fn take_user_id_record(&self) -> Vec<String> {
-            take(&mut *self.user_id_record.lock().unwrap())
+        fn take_login_record(&self) -> Vec<(String, String)> {
+            take(&mut *self.login_record.lock().unwrap())
         }
     }
 
     impl Users for UsersSpy {
-        async fn user_id(&mut self, name: String) -> Result<Uuid, UsersError> {
-            self.user_id_record.lock().unwrap().push(name);
+        async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+            self.login_record.lock().unwrap().push((name, password));
             Ok(Uuid::nil())
         }
 
@@ -981,7 +987,7 @@ mod tests {
     struct UserDummy;
 
     impl Users for UserDummy {
-        async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
+        async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
         }
 
