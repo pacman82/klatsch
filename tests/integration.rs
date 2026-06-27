@@ -106,8 +106,8 @@ async fn health_check_returns_200_ok() {
 async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
     let server = TestServer::new(None).await;
-    let alice_id = server.register_user("Alice").await;
-    let bob_id = server.register_user("Bob").await;
+    let alice_id = server.register_alice().await;
+    let bob_id = server.register_bob().await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
         "sender": alice_id,
@@ -148,8 +148,8 @@ async fn persistence() {
     let persistence_dir = tempfile::tempdir().unwrap();
 
     let mut server = TestServer::new(Some(persistence_dir.path())).await;
-    let alice_id = server.register_user("Alice").await;
-    let bob_id = server.register_user("Bob").await;
+    let alice_id = server.register_alice().await;
+    let bob_id = server.register_bob().await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
         "sender": alice_id,
@@ -345,10 +345,10 @@ impl TestServer {
             .expect("Failed to parse user")
     }
 
-    async fn register_user(&self, name: &str) -> Uuid {
+    async fn register_user(&self, name: &str, password: &str) -> Uuid {
         self.client
             .post(format!("http://localhost:{}/api/v0/users", self.port))
-            .json(&json!({ "name": name }))
+            .json(&json!({ "name": name, "password": password }))
             .send()
             .await
             .expect("Failed to register user")
@@ -357,6 +357,14 @@ impl TestServer {
             .json::<Uuid>()
             .await
             .expect("Failed to parse user id")
+    }
+
+    async fn register_alice(&self) -> Uuid {
+        self.register_user("Alice", "alice_password").await
+    }
+
+    async fn register_bob(&self) -> Uuid {
+        self.register_user("Bob", "bob_password").await
     }
 
     async fn send_message(&self, message: serde_json::Value) {
