@@ -3,7 +3,7 @@ export type User = {
 };
 
 export function create_user_cache() {
-	const cache = $state<Record<string, User>>({});
+	const cache = $state<Record<string, User | null>>({});
 
 	// We use `fetching` to deduplicate requests fetching user info. This does not need reactivity.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
@@ -15,6 +15,10 @@ export function create_user_cache() {
 		while (!(id in cache)) {
 			try {
 				const response = await fetch(`/api/v0/users/${id}`);
+				if (response.status >= 400 && response.status < 500) {
+					cache[id] = null;
+					break;
+				}
 				if (!response.ok) throw new Error(`${response.status}`);
 				const data: { name: string } = await response.json();
 				cache[id] = { name: data.name };
@@ -27,8 +31,9 @@ export function create_user_cache() {
 
 	return {
 		// User info if already cached. If not triggers a fetch and returns undefined immediately.
+		// Returns null if the server confirmed the user does not exist (no retry).
 		// Svelte reactivity takes care of updating the result once the fetch completes.
-		resolve(id: string): User | undefined {
+		resolve(id: string): User | undefined | null {
 			if (!(id in cache)) void fetch_user(id);
 			return cache[id];
 		}

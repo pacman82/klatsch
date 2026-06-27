@@ -4,6 +4,10 @@
 
 	const user_info = $derived(user_cache.resolve(user.current!));
 
+	$effect(() => {
+		if (user_info === null) user.logout();
+	});
+
 	function logout() {
 		user.logout();
 	}

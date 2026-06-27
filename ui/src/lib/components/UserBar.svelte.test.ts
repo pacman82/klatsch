@@ -41,3 +41,11 @@ test('displays fetching user info while name is loading', async () => {
 
 	await expect.element(screen.getByText('Fetching user info...')).toBeVisible();
 });
+
+test('logs out when the current user is unknown to the server', async () => {
+	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
+
+	render(UserBar);
+
+	await vi.waitFor(() => expect(user.current).toBeNull());
+});
