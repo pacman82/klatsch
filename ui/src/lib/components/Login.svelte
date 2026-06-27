@@ -3,6 +3,7 @@
 
 	// Username used for login
 	let name = $state('');
+	let password = $state('');
 	// An error in case the last login attempt failed. Used to display an error message to the user.
 	let login_error = $state<string | null>(null);
 	// Whether to call the submit button "Retry" instead of "Join"
@@ -16,7 +17,7 @@
 		const response = await fetch('/api/v0/users', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: trimmed })
+			body: JSON.stringify({ name: trimmed, password })
 		});
 		if (!response.ok) {
 			login_error = `${response.status} ${response.statusText}`;
@@ -30,10 +31,9 @@
 <form onsubmit={join} class="login">
 	<h1>Klatsch</h1>
 	<label for="name">Enter your name to join</label>
-	<div class="login-controls">
-		<input id="name" bind:value={name} placeholder="Your name" maxlength="32" autocomplete="off" />
-		<button type="submit">{is_retry ? 'Retry' : 'Join'}</button>
-	</div>
+	<input id="name" bind:value={name} placeholder="Your name" maxlength="32" autocomplete="off" />
+	<input type="password" bind:value={password} placeholder="Password" autocomplete="off" />
+	<button type="submit">{is_retry ? 'Retry' : 'Join'}</button>
 	{#if login_error}
 		<p class="login-error">{login_error}</p>
 	{/if}
@@ -60,10 +60,6 @@
 		color: #dc2626;
 		font-size: 0.875rem;
 		margin: 0;
-	}
-	.login-controls {
-		display: flex;
-		gap: 0.5rem;
 	}
 	input {
 		flex: 1;

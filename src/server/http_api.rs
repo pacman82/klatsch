@@ -87,7 +87,7 @@ where
 
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
-        .route("/api/v0/users", post(register_user::<U>))
+        .route("/api/v0/users", post(login::<U>))
         .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
@@ -224,14 +224,20 @@ where
     Ok(())
 }
 
-async fn register_user<U>(
+#[derive(Deserialize)]
+struct LoginBody {
+    name: String,
+    password: String,
+}
+
+async fn login<U>(
     State(mut users): State<U>,
-    Json(body): Json<User>,
+    Json(body): Json<LoginBody>,
 ) -> Result<Json<Uuid>, HttpError>
 where
     U: Users,
 {
-    let id = users.login(body.name, "".to_owned()).await?;
+    let id = users.login(body.name, body.password).await?;
     Ok(Json(id))
 }
 
@@ -587,7 +593,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_user_forwards_to_users() {
+    async fn login_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
         let (_, shutting_down) = watch::channel(false);
@@ -598,7 +604,7 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/users")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
             .await
@@ -608,12 +614,12 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             spy.take_login_record(),
-            [("Alice".to_owned(), "".to_owned())]
+            [("Alice".to_owned(), "secret".to_owned())]
         );
     }
 
     #[tokio::test]
-    async fn registering_a_user_returns_their_id() {
+    async fn logging_in_returns_user_id() {
         // Given
         let (_, shutting_down) = watch::channel(false);
         #[derive(Clone)]
@@ -634,7 +640,7 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/users")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"name": "Alice"}"#))
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
             .await
