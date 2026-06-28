@@ -138,7 +138,8 @@ where
     conn.execute(
         "CREATE TABLE users (
             id BLOB PRIMARY KEY,
-            name TEXT NOT NULL
+            name TEXT NOT NULL,
+            password_hash TEXT
         )",
         (),
     )?;
