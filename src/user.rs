@@ -21,7 +21,11 @@ impl<P> PersistedUsers<P> {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Users {
-    fn user_id(&mut self, name: String) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
+    fn login(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
 
     fn user_by_id(&mut self, id: Uuid) -> impl Future<Output = Result<User, UsersError>> + Send;
 
@@ -32,7 +36,7 @@ impl<P> Users for PersistedUsers<P>
 where
     P: Persistence + Send,
 {
-    async fn user_id(&mut self, name: String) -> Result<Uuid, UsersError> {
+    async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
         let uuid = self
             .persistence
             .transaction(|conn| fetch_user_id(conn, name))
@@ -139,8 +143,14 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
 
-        let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
-        let bob_id = users.user_id("Bob".to_owned()).await.unwrap();
+        let alice_id = users
+            .login("Alice".to_owned(), "dummy".to_owned())
+            .await
+            .unwrap();
+        let bob_id = users
+            .login("Bob".to_owned(), "dummy".to_owned())
+            .await
+            .unwrap();
 
         assert_ne!(alice_id, bob_id)
     }
@@ -150,8 +160,14 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
 
-        let alice_id_1 = users.user_id("Alice".to_owned()).await.unwrap();
-        let alice_id_2 = users.user_id("Alice".to_owned()).await.unwrap();
+        let alice_id_1 = users
+            .login("Alice".to_owned(), "dummy".to_owned())
+            .await
+            .unwrap();
+        let alice_id_2 = users
+            .login("Alice".to_owned(), "dummy".to_owned())
+            .await
+            .unwrap();
 
         assert_eq!(alice_id_1, alice_id_2)
     }
@@ -161,7 +177,10 @@ mod tests {
         // Given
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
-        let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
+        let alice_id = users
+            .login("Alice".to_owned(), "dummy".to_owned())
+            .await
+            .unwrap();
 
         // When
         let user = users.user_by_id(alice_id).await.unwrap();
@@ -177,7 +196,10 @@ mod tests {
     async fn authenticate_known_user() {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
-        let alice_id = users.user_id("Alice".to_owned()).await.unwrap();
+        let alice_id = users
+            .login("Alice".to_owned(), "secret".to_owned())
+            .await
+            .unwrap();
 
         let result = users.authenticate(alice_id).await;
 
