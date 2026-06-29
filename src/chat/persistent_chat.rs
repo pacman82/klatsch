@@ -211,8 +211,7 @@ where
         VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             event_id,
-            // TODO: pass as Uuid
-            event.message.id.as_bytes().as_slice(),
+            event.message.id,
             &event.message.author,
             &event.message.content,
             event.timestamp_ms as i64,
