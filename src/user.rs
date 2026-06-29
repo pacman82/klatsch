@@ -37,12 +37,26 @@ where
     P: Persistence + Send,
 {
     async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
-        let uuid = self
+        let name_clone = name.clone();
+        let maybe_user_id = self
             .persistence
-            .transaction(|conn| fetch_user_id(conn, name))
+            .transaction(move |conn| fetch_user_id(conn, name_clone))
             .await
             .map_err(|_| UsersError::Internal)?;
-        Ok(uuid)
+
+        // User already exists, nothing more to do
+        if let Some(user_id) = maybe_user_id {
+            return Ok(user_id);
+        }
+
+        // User does not exist, create a new one
+        let user_id = Uuid::new_v4();
+        self.persistence
+            .transaction(move |conn| create_user(conn, user_id, name))
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        Ok(user_id)
     }
 
     async fn authenticate(&mut self, id: Uuid) -> Result<(), UsersError> {
@@ -76,7 +90,7 @@ pub enum UsersError {
     UnknownUser,
 }
 
-fn fetch_user_id<C>(conn: &C, name: String) -> Result<Uuid, C::Error>
+fn fetch_user_id<C>(conn: &C, name: String) -> Result<Option<Uuid>, C::Error>
 where
     C: ExecuteSql,
 {
@@ -85,19 +99,18 @@ where
             Ok(row.get_uuid(0))
         })?
         .pop();
-    let user_id = match maybe_user_id {
-        Some(user_id) => user_id,
-        None => {
-            let user_id = Uuid::new_v4();
-            conn.execute(
-                "INSERT INTO users (id, name) VALUES (?1, ?2)",
-                (&user_id, &name),
-            )?;
-            user_id
-        }
-    };
+    Ok(maybe_user_id)
+}
 
-    Ok(user_id)
+fn create_user<C>(conn: &C, user_id: Uuid, name: String) -> Result<(), C::Error>
+where
+    C: ExecuteSql,
+{
+    conn.execute(
+        "INSERT INTO users (id, name) VALUES (?1, ?2)",
+        (&user_id, &name),
+    )?;
+    Ok(())
 }
 
 fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
