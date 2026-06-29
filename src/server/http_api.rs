@@ -172,7 +172,7 @@ impl From<Event> for SseEvent {
             message:
                 Message {
                     id: message_id,
-                    sender_id,
+                    author: sender_id,
                     content,
                 },
             timestamp_ms,
@@ -213,7 +213,7 @@ where
     users.authenticate(sender).await?;
     chat.add_message(Message {
         id,
-        sender_id: sender,
+        author: sender,
         content,
     })
     .await?;
@@ -324,7 +324,7 @@ mod tests {
                         EventId(1),
                         Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                            sender_id: ALICE_ID,
+                            author: ALICE_ID,
                             content: "One".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531600000),
@@ -333,7 +333,7 @@ mod tests {
                         EventId(2),
                         Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
-                            sender_id: BOB_ID,
+                            author: BOB_ID,
                             content: "Two".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531601000),
@@ -342,7 +342,7 @@ mod tests {
                         EventId(3),
                         Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
-                            sender_id: ALICE_ID,
+                            author: ALICE_ID,
                             content: "Three".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531602000),
@@ -351,7 +351,7 @@ mod tests {
                         EventId(4),
                         Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
-                            sender_id: BOB_ID,
+                            author: BOB_ID,
                             content: "Four".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531603000),
@@ -541,7 +541,7 @@ mod tests {
             id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
                 .parse::<Uuid>()
                 .unwrap(),
-            sender_id: BOB_ID,
+            author: BOB_ID,
             content: "Hello, Alice!".to_owned(),
         };
         assert_eq!(spy.take_add_message_record(), &[expected_msg],);
@@ -862,7 +862,7 @@ mod tests {
                     EventId(1),
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        sender_id: Uuid::nil(),
+                        author: Uuid::nil(),
                         content: "dummy".to_owned(),
                     },
                     UNIX_EPOCH,
