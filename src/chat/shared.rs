@@ -234,7 +234,7 @@ mod tests {
                 EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                    sender_id: ALICE_ID,
+                    author: ALICE_ID,
                     content: "One".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -243,7 +243,7 @@ mod tests {
                 EventId(2),
                 Message {
                     id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-                    sender_id: BOB_ID,
+                    author: BOB_ID,
                     content: "Two".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
@@ -282,7 +282,7 @@ mod tests {
         // When
         let msg = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender_id: ALICE_ID,
+            author: ALICE_ID,
             content: "Hello".to_string(),
         };
         chat.client().add_message(msg.clone()).await.unwrap();
@@ -335,7 +335,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: duplicate_id,
-                sender_id: Uuid::nil(),
+                author: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -343,7 +343,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: fresh_id,
-                sender_id: Uuid::nil(),
+                author: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -379,7 +379,7 @@ mod tests {
             .client()
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                sender_id: Uuid::nil(),
+                author: Uuid::nil(),
                 content: "dummy".to_owned(),
             })
             .await;
@@ -438,7 +438,7 @@ mod tests {
                 EventId(1),
                 Message {
                     id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                    sender_id: ALICE_ID,
+                    author: ALICE_ID,
                     content: "One".to_string(),
                 },
                 SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -480,7 +480,7 @@ mod tests {
         // while the client is waiting another client sends a message.
         let live_msg = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-            sender_id: BOB_ID,
+            author: BOB_ID,
             content: "Two".to_string(),
         };
         chat.client().add_message(live_msg.clone()).await.unwrap();
@@ -513,7 +513,7 @@ mod tests {
                         EventId(1),
                         Message {
                             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                            sender_id: ALICE_ID,
+                            author: ALICE_ID,
                             content: "One".to_string(),
                         },
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -522,7 +522,7 @@ mod tests {
                         EventId(2),
                         Message {
                             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-                            sender_id: BOB_ID,
+                            author: BOB_ID,
                             content: "Two".to_string(),
                         },
                         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_001),
@@ -544,8 +544,8 @@ mod tests {
             .unwrap();
 
         // Then
-        assert_eq!(events[0].message.sender_id, ALICE_ID);
-        assert_eq!(events[1].message.sender_id, BOB_ID);
+        assert_eq!(events[0].message.author, ALICE_ID);
+        assert_eq!(events[1].message.author, BOB_ID);
 
         // Cleanup
         chat.shutdown().await;
@@ -581,12 +581,12 @@ mod tests {
         // When each client sends a message
         let msg_a = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            sender_id: ALICE_ID,
+            author: ALICE_ID,
             content: "From Alice".to_string(),
         };
         let msg_b = Message {
             id: "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap(),
-            sender_id: BOB_ID,
+            author: BOB_ID,
             content: "From Bob".to_string(),
         };
         client_a.add_message(msg_a.clone()).await.unwrap();
@@ -620,7 +620,7 @@ mod tests {
         sender_client
             .add_message(Message {
                 id: Uuid::now_v7(),
-                sender_id: ALICE_ID,
+                author: ALICE_ID,
                 content: "Initial message".to_string(),
             })
             .await
@@ -638,7 +638,7 @@ mod tests {
         for _ in 0..NUM_MESSAGES_IN_BURST {
             let msg = Message {
                 id: Uuid::now_v7(),
-                sender_id: BOB_ID,
+                author: BOB_ID,
                 content: "dummy".to_owned(),
             };
             sender_client.add_message(msg).await.unwrap();
@@ -698,7 +698,7 @@ mod tests {
                 last_event_id.successor(),
                 Message {
                     id: Uuid::nil(),
-                    sender_id: Uuid::nil(),
+                    author: Uuid::nil(),
                     content: "dummy".to_owned(),
                 },
                 SystemTime::UNIX_EPOCH,
