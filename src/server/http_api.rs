@@ -602,7 +602,10 @@ mod tests {
 
         // Then
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(spy.take_user_id_record(), ["Alice"]);
+        assert_eq!(
+            spy.take_login_record(),
+            [("Alice".to_owned(), "".to_owned())]
+        );
     }
 
     #[tokio::test]
@@ -959,18 +962,18 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct UsersSpy {
-        user_id_record: Arc<Mutex<Vec<String>>>,
+        login_record: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     impl UsersSpy {
-        fn take_user_id_record(&self) -> Vec<String> {
-            take(&mut *self.user_id_record.lock().unwrap())
+        fn take_login_record(&self) -> Vec<(String, String)> {
+            take(&mut *self.login_record.lock().unwrap())
         }
     }
 
     impl Users for UsersSpy {
         async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
-            self.user_id_record.lock().unwrap().push(name);
+            self.login_record.lock().unwrap().push((name, password));
             Ok(Uuid::nil())
         }
 
