@@ -133,7 +133,10 @@ mod tests {
 
     use crate::{
         persistence::{Persistence, SqlitePersistence},
-        user::{UsersError, migrate_users_persistence},
+        user::{
+            UsersError::{self, UnknownUser},
+            migrate_users_persistence,
+        },
     };
 
     use super::{PersistedUsers, User, Users};
@@ -172,6 +175,23 @@ mod tests {
         assert_eq!(alice_id_1, alice_id_2)
     }
 
+    #[should_panic] // Not implemented yet
+    #[tokio::test]
+    async fn reject_login_with_wrong_password() {
+        let persistence = persistence_fake().await;
+        let mut users = PersistedUsers::new(persistence);
+        let _alice_id = users
+            .login("Alice".to_owned(), "secret".to_owned())
+            .await
+            .unwrap();
+
+        let result = users
+            .login("Alice".to_owned(), "wrong-secret".to_owned())
+            .await;
+
+        assert_matches!(result, Err(UnknownUser))
+    }
+
     #[tokio::test]
     async fn fetch_user_by_id() {
         // Given
@@ -197,7 +217,7 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
         let alice_id = users
-            .login("Alice".to_owned(), "secret".to_owned())
+            .login("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 
