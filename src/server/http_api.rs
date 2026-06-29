@@ -227,7 +227,7 @@ async fn register_user<U>(
 where
     U: Users,
 {
-    let id = users.user_id(body.name).await?;
+    let id = users.login(body.name, "".to_owned()).await?;
     Ok(Json(id))
 }
 
@@ -612,7 +612,11 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
         impl Users for UsersStub {
-            async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
+            async fn login(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<Uuid, UsersError> {
                 Ok(ALICE_ID)
             }
         }
@@ -965,7 +969,7 @@ mod tests {
     }
 
     impl Users for UsersSpy {
-        async fn user_id(&mut self, name: String) -> Result<Uuid, UsersError> {
+        async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
             self.user_id_record.lock().unwrap().push(name);
             Ok(Uuid::nil())
         }
@@ -981,7 +985,7 @@ mod tests {
     struct UserDummy;
 
     impl Users for UserDummy {
-        async fn user_id(&mut self, _name: String) -> Result<Uuid, UsersError> {
+        async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
         }
 
