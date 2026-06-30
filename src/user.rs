@@ -1,3 +1,7 @@
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier as _,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -38,21 +42,38 @@ where
 {
     async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
         let name_clone = name.clone();
-        let maybe_user_id = self
+        let maybe_user = self
             .persistence
-            .transaction(move |conn| fetch_user_id(conn, name_clone))
+            .transaction(move |conn| fetch_user_id_and_hash(conn, name_clone))
             .await
             .map_err(|_| UsersError::Internal)?;
 
-        // User already exists, nothing more to do
-        if let Some(user_id) = maybe_user_id {
+        if let Some((user_id, maybe_password_hash)) = maybe_user {
+            if let Some(password_hash) = maybe_password_hash {
+                // Verify the password if the user has set one
+                let password_hash = PasswordHash::new(&password_hash)
+                    .expect("Persisted password hash must be valid, utf-8 encoded PHC hash");
+                Argon2::default()
+                    .verify_password(password.as_bytes(), &password_hash)
+                    .map_err(|_| UsersError::Unauthenticated)?;
+            }
+
+            // User already exists, nothing more to do
             return Ok(user_id);
         }
 
         // User does not exist, create a new one
         let user_id = Uuid::new_v4();
+        let password_hash = (!password.is_empty()).then(|| {
+            // let salt = SaltString::generate(rng());
+            let salt = SaltString::generate(OsRng);
+            Argon2::default()
+                .hash_password(password.as_bytes(), salt.as_salt())
+                .unwrap()
+                .to_string()
+        });
         self.persistence
-            .transaction(move |conn| create_user(conn, user_id, name))
+            .transaction(move |conn| create_user(conn, user_id, name, password_hash))
             .await
             .map_err(|_| UsersError::Internal)?;
 
@@ -88,27 +109,39 @@ pub enum UsersError {
     Internal,
     /// The user id does not belong to any user.
     UnknownUser,
+    /// Either name or password is incorrect.
+    Unauthenticated,
 }
 
-fn fetch_user_id<C>(conn: &C, name: String) -> Result<Option<Uuid>, C::Error>
+fn fetch_user_id_and_hash<C>(
+    conn: &C,
+    name: String,
+) -> Result<Option<(Uuid, Option<String>)>, C::Error>
 where
     C: ExecuteSql,
 {
-    let maybe_user_id = conn
-        .rows_vec("SELECT id FROM users WHERE name = ?1", &name, |row| {
-            Ok(row.get_uuid(0))
-        })?
+    let maybe_user_auth = conn
+        .rows_vec(
+            "SELECT id, password_hash FROM users WHERE name = ?1",
+            &name,
+            |row| Ok((row.get_uuid(0), row.get_text_opt(1))),
+        )?
         .pop();
-    Ok(maybe_user_id)
+    Ok(maybe_user_auth)
 }
 
-fn create_user<C>(conn: &C, user_id: Uuid, name: String) -> Result<(), C::Error>
+fn create_user<C>(
+    conn: &C,
+    user_id: Uuid,
+    name: String,
+    password_hash: Option<String>,
+) -> Result<(), C::Error>
 where
     C: ExecuteSql,
 {
     conn.execute(
-        "INSERT INTO users (id, name) VALUES (?1, ?2)",
-        (&user_id, &name),
+        "INSERT INTO users (id, name, password_hash) VALUES (?1, ?2, ?3)",
+        (&user_id, &name, password_hash.as_ref()),
     )?;
     Ok(())
 }
@@ -147,7 +180,7 @@ mod tests {
     use crate::{
         persistence::{Persistence, SqlitePersistence},
         user::{
-            UsersError::{self, UnknownUser},
+            UsersError::{self, Unauthenticated},
             migrate_users_persistence,
         },
     };
@@ -188,7 +221,6 @@ mod tests {
         assert_eq!(alice_id_1, alice_id_2)
     }
 
-    #[should_panic] // Not implemented yet
     #[tokio::test]
     async fn reject_login_with_wrong_password() {
         let persistence = persistence_fake().await;
@@ -202,11 +234,11 @@ mod tests {
             .login("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UnknownUser))
+        assert_matches!(result, Err(Unauthenticated))
     }
 
     #[tokio::test]
-    async fn fetch_user_by_id() {
+    async fn fetch_user_attributes_by_id() {
         // Given
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);

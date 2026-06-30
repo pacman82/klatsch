@@ -2,7 +2,10 @@ use super::{Argument, Arguments, ExecuteSql, FieldAccess, Persistence, Persisten
 use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
-    rusqlite::{self, Params, Row, ToSql, ffi, params_from_iter, types::ToSqlOutput},
+    rusqlite::{
+        self, Params, Row, ToSql, ffi, params_from_iter,
+        types::{ToSqlOutput, Value},
+    },
 };
 use fs2::{FileExt as _, lock_contended_error};
 use std::{fs::File, path::Path};
@@ -130,6 +133,12 @@ impl Persistence for SqlitePersistence {
     }
 }
 
+/// Convert arguments as defined by the persistent trait, into `Params` as defined by rusqlite.
+///
+/// Both of these have the same responsibility as in being a set of input values to a query
+/// which replace the values of the placeholders in the query with actual values. Yet `Arguments` is
+/// its expression independent of and belongs to the persistence trait. `Params` is its sqlite
+/// specific counterpart.
 fn to_rusqlite_params(params: &impl Arguments) -> impl Params {
     let it = (0..params.len()).map(|index| params.get(index));
     params_from_iter(it)
@@ -145,6 +154,10 @@ impl FieldAccess for rusqlite::Row<'_> {
     }
 
     fn get_text(&self, index: usize) -> String {
+        self.get(index).unwrap()
+    }
+
+    fn get_text_opt(&self, index: usize) -> Option<String> {
         self.get(index).unwrap()
     }
 
@@ -297,6 +310,7 @@ impl ToSql for Argument<'_> {
             Argument::I64(i) => i.to_sql(),
             Argument::Text(s) => s.to_sql(),
             Argument::Blob(b) => b.to_sql(),
+            Argument::Null => Ok(ToSqlOutput::Owned(Value::Null)),
         }
     }
 }

@@ -60,6 +60,10 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::NOT_FOUND,
                 message: "Unknown user".into(),
             },
+            UsersError::Unauthenticated => HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Either user name or password is incorrect".into(),
+            },
         }
     }
 }
