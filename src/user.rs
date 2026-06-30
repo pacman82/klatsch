@@ -44,7 +44,7 @@ where
         let name_clone = name.clone();
         let maybe_user = self
             .persistence
-            .transaction(move |conn| fetch_user_id_and_hash(conn, name_clone))
+            .transaction(move |conn| fetch_user_id_and_hash(conn, &name_clone))
             .await
             .map_err(|_| UsersError::Internal)?;
 
@@ -73,7 +73,7 @@ where
                 .to_string()
         });
         self.persistence
-            .transaction(move |conn| create_user(conn, user_id, name, password_hash))
+            .transaction(move |conn| create_user(conn, user_id, &name, password_hash.as_deref()))
             .await
             .map_err(|_| UsersError::Internal)?;
 
@@ -115,7 +115,7 @@ pub enum UsersError {
 
 fn fetch_user_id_and_hash<C>(
     conn: &C,
-    name: String,
+    name: &str,
 ) -> Result<Option<(Uuid, Option<String>)>, C::Error>
 where
     C: ExecuteSql,
@@ -123,7 +123,7 @@ where
     let maybe_user_auth = conn
         .rows_vec(
             "SELECT id, password_hash FROM users WHERE name = ?1",
-            &name,
+            name,
             |row| Ok((row.get_uuid(0), row.get_text_opt(1))),
         )?
         .pop();
@@ -133,15 +133,15 @@ where
 fn create_user<C>(
     conn: &C,
     user_id: Uuid,
-    name: String,
-    password_hash: Option<String>,
+    name: &str,
+    password_hash: Option<&str>,
 ) -> Result<(), C::Error>
 where
     C: ExecuteSql,
 {
     conn.execute(
         "INSERT INTO users (id, name, password_hash) VALUES (?1, ?2, ?3)",
-        (&user_id, &name, password_hash.as_ref()),
+        (user_id, name, password_hash),
     )?;
     Ok(())
 }
