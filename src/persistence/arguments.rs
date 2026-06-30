@@ -13,6 +13,7 @@ pub enum Argument<'a> {
     I64(i64),
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
+    Null,
 }
 
 /// Borrow `self` as an [`Argument`]. The produced [`Argument`] borrows from `self` for the
@@ -50,6 +51,18 @@ impl AsArgument for Uuid {
     fn as_argument(&self) -> Argument<'_> {
         let bytes = self.into_bytes().to_vec();
         Argument::Blob(Cow::Owned(bytes))
+    }
+}
+
+impl<T> AsArgument for Option<T>
+where
+    T: AsArgument,
+{
+    fn as_argument(&self) -> Argument<'_> {
+        match self {
+            Some(value) => value.as_argument(),
+            None => Argument::Null,
+        }
     }
 }
 

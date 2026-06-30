@@ -49,6 +49,7 @@ pub trait FieldAccess {
     fn get_i64(&self, index: usize) -> i64;
     fn get_i64_opt(&self, index: usize) -> Option<i64>;
     fn get_text(&self, index: usize) -> String;
+    fn get_text_opt(&self, index: usize) -> Option<String>;
 }
 
 #[cfg_attr(test, double_trait::dummies)]
