@@ -150,7 +150,7 @@ where
         let user_id = Uuid::new_v4();
         conn.execute(
             "INSERT INTO users (id, name) VALUES (?1, ?2)",
-            (user_id.as_bytes().as_slice(), sender),
+            (user_id, sender.as_str()),
         )?;
     }
     conn.execute("ALTER TABLE events RENAME TO events_old", ())?;
@@ -212,8 +212,8 @@ where
         (
             event_id,
             event.message.id,
-            &event.message.author,
-            &event.message.content,
+            event.message.author,
+            event.message.content.as_str(),
             event.timestamp_ms as i64,
         ),
     ) else {

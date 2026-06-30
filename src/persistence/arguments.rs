@@ -34,7 +34,13 @@ impl AsArgument for &[u8] {
     }
 }
 
-impl AsArgument for &String {
+impl AsArgument for &str {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::Text(Cow::Borrowed(*self))
+    }
+}
+
+impl AsArgument for String {
     fn as_argument(&self) -> Argument<'_> {
         Argument::Text(Cow::Borrowed(self.as_str()))
     }
