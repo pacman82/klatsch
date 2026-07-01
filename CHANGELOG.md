@@ -3,6 +3,30 @@
 `Klatsch` adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.2.0](https://github.com/pacman82/klatsch/compare/0.1.1...0.2.0) - 2026-07-01
+
+### 🚀 Features
+
+- *(ui)* Login button now always called Join, even if previous attempt
+- Use password for authentication
+- *(ui)* Log out automatically if current user is unknown
+- *(ui)* Display 'Fetching user info ...' in UserBar if info not yet
+- Registering user returns UUID
+- Introduce route POST /api/v0/users
+- Fetching User information with unknown id now yields 404.
+- Route GET /users/<id>
+
+
+### 🚜 Refactor
+
+- [**breaking**] Remove sender (name) from messages in event stream
+- [**breaking**] Messages in Events now return sender_id
+
+
+### 📚 Documentation
+
+- Compare links in changelog
+
 
 ## [0.1.1](https://github.com/pacman82/klatsch/compare/v0.1.0...v0.1.1) - 2026-04-23
 
