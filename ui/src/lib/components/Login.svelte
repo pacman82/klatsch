@@ -6,8 +6,6 @@
 	let password = $state('');
 	// An error in case the last login attempt failed. Used to display an error message to the user.
 	let login_error = $state<string | null>(null);
-	// Whether to call the submit button "Retry" instead of "Join"
-	let is_retry = $derived(login_error !== null);
 
 	async function join(e: SubmitEvent) {
 		e.preventDefault();
@@ -33,7 +31,7 @@
 	<label for="name">Enter your name to join</label>
 	<input id="name" bind:value={name} placeholder="Your name" maxlength="32" autocomplete="off" />
 	<input type="password" bind:value={password} placeholder="Password" autocomplete="off" />
-	<button type="submit">{is_retry ? 'Retry' : 'Join'}</button>
+	<button type="submit">Join</button>
 	{#if login_error}
 		<p class="login-error">{login_error}</p>
 	{/if}

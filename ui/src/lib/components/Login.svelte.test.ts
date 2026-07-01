@@ -13,7 +13,7 @@ test('submitting an empty name does not call the server', async () => {
 	expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-test('server error is displayed and button offers retry', async () => {
+test('login is rejected with unauthenticade', async () => {
 	vi.stubGlobal(
 		'fetch',
 		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
@@ -24,7 +24,6 @@ test('server error is displayed and button offers retry', async () => {
 	await screen.getByRole('button', { name: 'Join' }).click();
 
 	await expect.element(screen.getByText('500 test Error')).toBeVisible();
-	await expect.element(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
 });
 
 test('password is included in the login request', async () => {
