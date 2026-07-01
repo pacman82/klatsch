@@ -1,7 +1,5 @@
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier as _,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+mod password_hash;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -48,14 +46,11 @@ where
             .await
             .map_err(|_| UsersError::Internal)?;
 
-        if let Some((user_id, maybe_password_hash)) = maybe_user {
-            if let Some(password_hash) = maybe_password_hash {
-                // Verify the password if the user has set one
-                let password_hash = PasswordHash::new(&password_hash)
-                    .expect("Persisted password hash must be valid, utf-8 encoded PHC hash");
-                Argon2::default()
-                    .verify_password(password.as_bytes(), &password_hash)
-                    .map_err(|_| UsersError::Unauthenticated)?;
+        if let Some((user_id, maybe_hash)) = maybe_user {
+            if let Some(hash) = maybe_hash
+                && !password_hash::verify(&password, &hash)
+            {
+                return Err(UsersError::Unauthenticated);
             }
 
             // User already exists, nothing more to do
@@ -64,14 +59,7 @@ where
 
         // User does not exist, create a new one
         let user_id = Uuid::new_v4();
-        let password_hash = (!password.is_empty()).then(|| {
-            // let salt = SaltString::generate(rng());
-            let salt = SaltString::generate(OsRng);
-            Argon2::default()
-                .hash_password(password.as_bytes(), salt.as_salt())
-                .unwrap()
-                .to_string()
-        });
+        let password_hash = (!password.is_empty()).then(|| password_hash::generate(&password));
         self.persistence
             .transaction(move |conn| create_user(conn, user_id, &name, password_hash.as_deref()))
             .await
