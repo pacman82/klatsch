@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
-import { expect, test, vi } from 'vitest';
-import ChatMessages from './ChatMessages.svelte';
+import { expect, test, vi, beforeEach } from 'vitest';
 import { user } from '$lib/user.svelte';
+import type { User } from '$lib/user_cache.svelte';
 
 class EventSourcePuppet {
 	static last: EventSourcePuppet;
@@ -15,11 +15,32 @@ class EventSourcePuppet {
 	}
 }
 
+// User Stub
+let users: Record<string, User> = {};
+vi.mock('$lib/user_cache.svelte', () => ({
+	user_cache: {
+		resolve(id: string) {
+			return users[id];
+		}
+	}
+}));
+
+beforeEach(() => {
+	users = {};
+});
+
+import ChatMessages from './ChatMessages.svelte';
+
 test('my messages are displayed on the right, others on the left', async () => {
 	// Given Alice is logged in
 	const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 	user.login(ALICE_ID);
+	const BOB_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 	vi.stubGlobal('EventSource', EventSourcePuppet);
+	users = {
+		[ALICE_ID]: { name: 'Alice' },
+		[BOB_ID]: { name: 'Bob' }
+	};
 
 	const screen = render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
@@ -41,7 +62,7 @@ test('my messages are displayed on the right, others on the left', async () => {
 			data: JSON.stringify({
 				id: '2',
 				sender: 'Bob',
-				sender_id: 'other-id',
+				sender_id: BOB_ID,
 				content: 'theirs',
 				timestamp_ms: 0
 			})
