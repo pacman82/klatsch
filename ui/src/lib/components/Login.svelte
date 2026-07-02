@@ -4,8 +4,9 @@
 	// Username used for login
 	let name = $state('');
 	let password = $state('');
+	type LoginError = { kind: 'wrong_credentials' } | { kind: 'server_error' };
 	// An error in case the last login attempt failed. Used to display an error message to the user.
-	let login_error = $state<string | null>(null);
+	let login_error = $state<LoginError | null>(null);
 
 	async function join(e: SubmitEvent) {
 		e.preventDefault();
@@ -18,7 +19,9 @@
 			body: JSON.stringify({ name: trimmed, password })
 		});
 		if (!response.ok) {
-			login_error = `${response.status} ${response.statusText}`;
+			login_error = response.status === 401
+				? { kind: 'wrong_credentials' }
+				: { kind: 'server_error' };
 			return;
 		}
 		const id: string = await response.json();
@@ -33,7 +36,13 @@
 	<input type="password" bind:value={password} placeholder="Password" autocomplete="off" />
 	<button type="submit">Join</button>
 	{#if login_error}
-		<p class="login-error">{login_error}</p>
+		<p class="login-error">
+			{#if login_error.kind === 'wrong_credentials'}
+				User name or password is wrong
+			{:else}
+				Something went wrong, please try again
+			{/if}
+		</p>
 	{/if}
 </form>
 

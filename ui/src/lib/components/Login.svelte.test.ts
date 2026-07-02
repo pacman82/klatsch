@@ -13,17 +13,25 @@ test('submitting an empty name does not call the server', async () => {
 	expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-test('login is rejected with unauthenticade', async () => {
-	vi.stubGlobal(
-		'fetch',
-		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
-	);
+test('server error during authentication', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
 
 	const screen = render(Login);
 	await screen.getByPlaceholder('Your name').fill('Alice');
 	await screen.getByRole('button', { name: 'Join' }).click();
 
-	await expect.element(screen.getByText('500 test Error')).toBeVisible();
+	await expect.element(screen.getByText('Something went wrong, please try again')).toBeVisible();
+});
+
+test('wrong credentials show a user-friendly message', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+
+	const screen = render(Login);
+	await screen.getByPlaceholder('Your name').fill('Alice');
+	await screen.getByPlaceholder('Password').fill('wrong');
+	await screen.getByRole('button', { name: 'Join' }).click();
+
+	await expect.element(screen.getByText('User name or password is wrong')).toBeVisible();
 });
 
 test('password is included in the login request', async () => {
