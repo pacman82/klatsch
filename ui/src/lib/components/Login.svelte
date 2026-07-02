@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { user } from '$lib/user.svelte';
 
+	type LoginError = { kind: 'wrong_credentials' } | { kind: 'server_error' };
+
 	// Username used for login
 	let name = $state('');
 	let password = $state('');
-	type LoginError = { kind: 'wrong_credentials' } | { kind: 'server_error' };
 	// An error in case the last login attempt failed. Used to display an error message to the user.
 	let login_error = $state<LoginError | null>(null);
 
@@ -19,9 +20,8 @@
 			body: JSON.stringify({ name: trimmed, password })
 		});
 		if (!response.ok) {
-			login_error = response.status === 401
-				? { kind: 'wrong_credentials' }
-				: { kind: 'server_error' };
+			login_error =
+				response.status === 401 ? { kind: 'wrong_credentials' } : { kind: 'server_error' };
 			return;
 		}
 		const id: string = await response.json();
@@ -69,7 +69,6 @@
 		margin: 0;
 	}
 	input {
-		flex: 1;
 		padding: 0.5rem;
 		border-radius: 6px;
 		border: 1px solid #ccc;
