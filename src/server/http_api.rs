@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
+    sessions::Sessions,
     user::{User, Users, UsersError},
 };
 
@@ -74,10 +75,16 @@ impl From<UsersError> for HttpError {
 
 use super::{last_event_id::LastEventId, terminate_if::terminate_if};
 
-pub fn api_router<C, U>(chat: C, users: U, shutting_down: watch::Receiver<bool>) -> Router
+pub fn api_router<C, U, S>(
+    chat: C,
+    users: U,
+    sessions: S,
+    shutting_down: watch::Receiver<bool>,
+) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
+    S: Sessions + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -91,9 +98,10 @@ where
 
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
-        .route("/api/v0/signup", post(signup::<U>))
-        .route("/api/v0/login", post(login::<U>))
         .with_state(users.clone())
+        .route("/api/v0/signup", post(signup::<U, S>))
+        .route("/api/v0/login", post(login::<U, S>))
+        .with_state((users.clone(), sessions))
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
         .route("/api/v0/add_message", post(add_message::<C, U>))
@@ -235,35 +243,39 @@ struct LoginBody {
     password: String,
 }
 
-fn session_cookie() -> Cookie<'static> {
-    Cookie::build(("session", Uuid::nil().to_string()))
+fn session_cookie(session_id: Uuid) -> Cookie<'static> {
+    Cookie::build(("session", session_id.to_string()))
         .http_only(true)
         .same_site(SameSite::Strict)
         .build()
 }
 
-async fn signup<U>(
+async fn signup<U, S>(
     jar: CookieJar,
-    State(mut users): State<U>,
+    State((mut users, mut sessions)): State<(U, S)>,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<Uuid>), HttpError>
 where
     U: Users,
+    S: Sessions,
 {
-    let id = users.signup(body.name, body.password).await?;
-    Ok((jar.add(session_cookie()), Json(id)))
+    let user_id = users.signup(body.name, body.password).await?;
+    let session_id = sessions.create(user_id);
+    Ok((jar.add(session_cookie(session_id)), Json(user_id)))
 }
 
-async fn login<U>(
+async fn login<U, S>(
     jar: CookieJar,
-    State(mut users): State<U>,
+    State((mut users, mut sessions)): State<(U, S)>,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<Uuid>), HttpError>
 where
     U: Users,
+    S: Sessions,
 {
-    let id = users.login(body.name, body.password).await?;
-    Ok((jar.add(session_cookie()), Json(id)))
+    let user_id = users.login(body.name, body.password).await?;
+    let session_id = sessions.create(user_id);
+    Ok((jar.add(session_cookie(session_id)), Json(user_id)))
 }
 
 async fn user_info<U>(
@@ -343,6 +355,8 @@ mod tests {
         0x1c,
     ]);
 
+    const SOME_SESSION_ID: Uuid = Uuid::from_u128(1);
+
     #[tokio::test]
     async fn events_route_forwards_events_from_chat() {
         // Given
@@ -396,7 +410,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatStub, Dummy, shutting_down);
+        let app = api_router(ChatStub, Dummy, Dummy, shutting_down);
 
         // When
         let response = app
@@ -479,7 +493,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, Dummy, shutting_down);
+        let app = api_router(ChatSaboteur, Dummy, Dummy, shutting_down);
 
         // When requesting events
         let response = app
@@ -513,7 +527,7 @@ mod tests {
     async fn messages_should_return_content_type_event_stream() {
         // Given
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, Dummy, shutting_down);
+        let app = api_router(Dummy, Dummy, Dummy, shutting_down);
 
         // When
         let response = app
@@ -553,7 +567,7 @@ mod tests {
         }
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), UsersStub, shutting_down);
+        let app = api_router(spy.clone(), UsersStub, Dummy, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
             "sender": BOB_ID,
@@ -593,7 +607,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, UsersSaboteur, shutting_down);
+        let app = api_router(Dummy, UsersSaboteur, Dummy, shutting_down);
 
         // When a message is sent with an unknown sender
         let response = app
@@ -622,7 +636,7 @@ mod tests {
         // Given
         let spy = UsersSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, spy.clone(), shutting_down);
+        let app = api_router(Dummy, spy.clone(), SessionsDummy, shutting_down);
 
         // When
         let response = app
@@ -658,7 +672,7 @@ mod tests {
                 Ok(ALICE_ID)
             }
         }
-        let app = api_router(Dummy, UsersStub, shutting_down);
+        let app = api_router(Dummy, UsersStub, SessionsDummy, shutting_down);
 
         // When
         let response = app
@@ -680,8 +694,15 @@ mod tests {
     #[tokio::test]
     async fn login_sets_session_cookie() {
         // Given
+        #[derive(Clone)]
+        struct SessionsStub;
+        impl Sessions for SessionsStub {
+            fn create(&mut self, _user_id: Uuid) -> Uuid {
+                SOME_SESSION_ID
+            }
+        }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, UserDummy, shutting_down);
+        let app = api_router(Dummy, UserDummy, SessionsStub, shutting_down);
 
         // When
         let response = app
@@ -695,8 +716,13 @@ mod tests {
             .unwrap();
 
         // Then
-        let cookie = response.headers().get("set-cookie").unwrap().to_str().unwrap();
-        assert!(cookie.contains("session=00000000-0000-0000-0000-000000000000"));
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains(&format!("session={SOME_SESSION_ID}")));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
     }
@@ -704,8 +730,15 @@ mod tests {
     #[tokio::test]
     async fn signup_sets_session_cookie() {
         // Given
+        #[derive(Clone)]
+        struct SessionsStub;
+        impl Sessions for SessionsStub {
+            fn create(&mut self, _user_id: Uuid) -> Uuid {
+                SOME_SESSION_ID
+            }
+        }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, UserDummy, shutting_down);
+        let app = api_router(Dummy, UserDummy, SessionsStub, shutting_down);
 
         // When
         let response = app
@@ -719,8 +752,13 @@ mod tests {
             .unwrap();
 
         // Then
-        let cookie = response.headers().get("set-cookie").unwrap().to_str().unwrap();
-        assert!(cookie.contains("session=00000000-0000-0000-0000-000000000000"));
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains(&format!("session={SOME_SESSION_ID}")));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
     }
@@ -730,7 +768,7 @@ mod tests {
         // Given
         let spy = UsersSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, spy.clone(), shutting_down);
+        let app = api_router(Dummy, spy.clone(), SessionsDummy, shutting_down);
 
         // When
         let response = app
@@ -758,11 +796,15 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
         impl Users for UsersStub {
-            async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+            async fn login(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<Uuid, UsersError> {
                 Ok(ALICE_ID)
             }
         }
-        let app = api_router(Dummy, UsersStub, shutting_down);
+        let app = api_router(Dummy, UsersStub, SessionsDummy, shutting_down);
 
         // When
         let response = app
@@ -788,11 +830,15 @@ mod tests {
         #[derive(Clone)]
         struct UsersSaboteur;
         impl Users for UsersSaboteur {
-            async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+            async fn login(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<Uuid, UsersError> {
                 Err(UsersError::Unauthenticated)
             }
         }
-        let app = api_router(Dummy, UsersSaboteur, shutting_down);
+        let app = api_router(Dummy, UsersSaboteur, Dummy, shutting_down);
 
         // When
         let response = app
@@ -823,7 +869,7 @@ mod tests {
                 })
             }
         }
-        let app = api_router(Dummy, UsersStub, shutting_down);
+        let app = api_router(Dummy, UsersStub, Dummy, shutting_down);
 
         // When
         let response = app
@@ -866,7 +912,7 @@ mod tests {
                 Err(UsersError::UnknownUser)
             }
         }
-        let app = api_router(Dummy, UsersStub, shutting_down);
+        let app = api_router(Dummy, UsersStub, Dummy, shutting_down);
 
         // When
         let response = app
@@ -892,7 +938,7 @@ mod tests {
         // Given
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), Dummy, shutting_down);
+        let app = api_router(spy.clone(), Dummy, Dummy, shutting_down);
 
         // When: request with Last-Event-ID = 7
         let _response = app
@@ -925,7 +971,7 @@ mod tests {
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let app = api_router(PendingChatStub, Dummy, shutdown_rx);
+        let app = api_router(PendingChatStub, Dummy, Dummy, shutdown_rx);
 
         let response_body = app
             .oneshot(
@@ -961,7 +1007,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, UserDummy, shutting_down);
+        let app = api_router(ChatSaboteur, UserDummy, Dummy, shutting_down);
 
         // When a message is sent
         let response = app
@@ -990,7 +1036,7 @@ mod tests {
     async fn sabotaged_events_stream_receives_error_event() {
         // Given a server
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, Dummy, shutting_down);
+        let app = api_router(Dummy, Dummy, Dummy, shutting_down);
 
         // When sabotage is enabled and events are requested
         let _ = app
@@ -1045,7 +1091,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(OneEventThenPendingStub, Dummy, shutting_down);
+        let app = api_router(OneEventThenPendingStub, Dummy, Dummy, shutting_down);
         let response = app
             .clone()
             .oneshot(
@@ -1158,6 +1204,15 @@ mod tests {
             Ok(User {
                 name: "dummy".to_owned(),
             })
+        }
+    }
+
+    #[derive(Clone)]
+    struct SessionsDummy;
+
+    impl Sessions for SessionsDummy {
+        fn create(&mut self, _user_id: Uuid) -> Uuid {
+            Uuid::nil()
         }
     }
 

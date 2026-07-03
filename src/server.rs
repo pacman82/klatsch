@@ -19,7 +19,7 @@ use tokio::{
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{chat::SharedChat, user::Users};
+use crate::{chat::SharedChat, sessions::Sessions, user::Users};
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -37,6 +37,7 @@ impl Server {
         socket_address: impl ToSocketAddrs,
         chat: impl SharedChat + Send + Sync + Clone + 'static,
         users: impl Users + Send + Sync + Clone + 'static,
+        sessions: impl Sessions + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
 
@@ -58,7 +59,7 @@ impl Server {
         );
         let (shutting_down_sender, mut shutting_down_receiver) = watch::channel(false);
         let join_handle = tokio::spawn(async move {
-            let router = router(chat, users, shutting_down_receiver.clone());
+            let router = router(chat, users, sessions, shutting_down_receiver.clone());
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutting_down_receiver
@@ -82,14 +83,15 @@ impl Server {
     }
 }
 
-fn router<C, A>(chat: C, users: A, shutting_down: watch::Receiver<bool>) -> Router
+fn router<C, U, S>(chat: C, users: U, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: SharedChat + Send + Sync + Clone + 'static,
-    A: Users + Send + Sync + Clone + 'static,
+    U: Users + Send + Sync + Clone + 'static,
+    S: Sessions + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(chat, users, shutting_down))
+        .merge(api_router(chat, users, sessions, shutting_down))
         .merge(ui_router());
 
     add_tracing_layer(router)

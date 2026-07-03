@@ -271,9 +271,7 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
 
-        let result = users
-            .login("Alice".to_owned(), "secret".to_owned())
-            .await;
+        let result = users.login("Alice".to_owned(), "secret".to_owned()).await;
 
         assert_matches!(result, Err(Unauthenticated))
     }
