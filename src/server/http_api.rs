@@ -88,6 +88,7 @@ where
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
         .route("/api/v0/signup", post(signup::<U>))
+        .route("/api/v0/login", post(login::<U>))
         .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
@@ -238,6 +239,17 @@ where
     U: Users,
 {
     let id = users.signup(body.name, body.password).await?;
+    Ok(Json(id))
+}
+
+async fn login<U>(
+    State(mut users): State<U>,
+    Json(body): Json<LoginBody>,
+) -> Result<Json<Uuid>, HttpError>
+where
+    U: Users,
+{
+    let id = users.login(body.name, body.password).await?;
     Ok(Json(id))
 }
 
@@ -593,7 +605,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_forwards_to_users() {
+    async fn signup_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
         let (_, shutting_down) = watch::channel(false);
@@ -613,7 +625,7 @@ mod tests {
         // Then
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            spy.take_login_record(),
+            spy.take_signup_record(),
             [("Alice".to_owned(), "secret".to_owned())]
         );
     }
@@ -650,6 +662,90 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let id: Uuid = serde_json::from_slice(&body).unwrap();
         assert_eq!(id, ALICE_ID);
+    }
+
+    #[tokio::test]
+    async fn login_forwards_to_users() {
+        // Given
+        let spy = UsersSpy::default();
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, spy.clone(), shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            spy.take_login_record(),
+            [("Alice".to_owned(), "secret".to_owned())]
+        );
+    }
+
+    #[tokio::test]
+    async fn logging_in_returns_user_id() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        #[derive(Clone)]
+        struct UsersStub;
+        impl Users for UsersStub {
+            async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+                Ok(ALICE_ID)
+            }
+        }
+        let app = api_router(Dummy, UsersStub, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let id: Uuid = serde_json::from_slice(&body).unwrap();
+        assert_eq!(id, ALICE_ID);
+    }
+
+    #[tokio::test]
+    async fn wrong_credentials_returns_401() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        #[derive(Clone)]
+        struct UsersSaboteur;
+        impl Users for UsersSaboteur {
+            async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+                Err(UsersError::Unauthenticated)
+            }
+        }
+        let app = api_router(Dummy, UsersSaboteur, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -972,10 +1068,15 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct UsersSpy {
+        signup_record: Arc<Mutex<Vec<(String, String)>>>,
         login_record: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     impl UsersSpy {
+        fn take_signup_record(&self) -> Vec<(String, String)> {
+            take(&mut *self.signup_record.lock().unwrap())
+        }
+
         fn take_login_record(&self) -> Vec<(String, String)> {
             take(&mut *self.login_record.lock().unwrap())
         }
@@ -983,6 +1084,11 @@ mod tests {
 
     impl Users for UsersSpy {
         async fn signup(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+            self.signup_record.lock().unwrap().push((name, password));
+            Ok(Uuid::nil())
+        }
+
+        async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok(Uuid::nil())
         }
@@ -999,6 +1105,10 @@ mod tests {
 
     impl Users for UserDummy {
         async fn signup(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+            Ok(Uuid::nil())
+        }
+
+        async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
         }
 
