@@ -29,6 +29,12 @@ pub trait Users {
         password: String,
     ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
 
+    fn login(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
+
     fn user_by_id(&mut self, id: Uuid) -> impl Future<Output = Result<User, UsersError>> + Send;
 
     fn authenticate(&mut self, id: Uuid) -> impl Future<Output = Result<(), UsersError>> + Send;
@@ -64,6 +70,24 @@ where
             .transaction(move |conn| create_user(conn, user_id, &name, password_hash.as_deref()))
             .await
             .map_err(|_| UsersError::Internal)?;
+
+        Ok(user_id)
+    }
+
+    async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+        let maybe_user = self
+            .persistence
+            .transaction(move |conn| fetch_user_id_and_hash(conn, &name))
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::Unauthenticated)?;
+
+        if let Some(hash) = maybe_hash
+            && !password_hash::verify(&password, &hash)
+        {
+            return Err(UsersError::Unauthenticated);
+        }
 
         Ok(user_id)
     }
@@ -220,6 +244,51 @@ mod tests {
 
         let result = users
             .signup("Alice".to_owned(), "wrong-secret".to_owned())
+            .await;
+
+        assert_matches!(result, Err(Unauthenticated))
+    }
+
+    #[tokio::test]
+    async fn login_returns_same_uuid_as_signup() {
+        let persistence = persistence_fake().await;
+        let mut users = PersistedUsers::new(persistence);
+        let signup_id = users
+            .signup("Alice".to_owned(), "secret".to_owned())
+            .await
+            .unwrap();
+
+        let login_id = users
+            .login("Alice".to_owned(), "secret".to_owned())
+            .await
+            .unwrap();
+
+        assert_eq!(signup_id, login_id)
+    }
+
+    #[tokio::test]
+    async fn login_rejects_unknown_user() {
+        let persistence = persistence_fake().await;
+        let mut users = PersistedUsers::new(persistence);
+
+        let result = users
+            .login("Alice".to_owned(), "secret".to_owned())
+            .await;
+
+        assert_matches!(result, Err(Unauthenticated))
+    }
+
+    #[tokio::test]
+    async fn login_rejects_wrong_password() {
+        let persistence = persistence_fake().await;
+        let mut users = PersistedUsers::new(persistence);
+        let _alice_id = users
+            .signup("Alice".to_owned(), "secret".to_owned())
+            .await
+            .unwrap();
+
+        let result = users
+            .login("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
         assert_matches!(result, Err(Unauthenticated))
