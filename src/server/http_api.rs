@@ -7,6 +7,10 @@ use axum::{
     response::{IntoResponse, Response, Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
+use axum_extra::extract::{
+    CookieJar,
+    cookie::{Cookie, SameSite},
+};
 use futures_util::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -231,26 +235,35 @@ struct LoginBody {
     password: String,
 }
 
+fn session_cookie() -> Cookie<'static> {
+    Cookie::build(("session", Uuid::nil().to_string()))
+        .http_only(true)
+        .same_site(SameSite::Strict)
+        .build()
+}
+
 async fn signup<U>(
+    jar: CookieJar,
     State(mut users): State<U>,
     Json(body): Json<LoginBody>,
-) -> Result<Json<Uuid>, HttpError>
+) -> Result<(CookieJar, Json<Uuid>), HttpError>
 where
     U: Users,
 {
     let id = users.signup(body.name, body.password).await?;
-    Ok(Json(id))
+    Ok((jar.add(session_cookie()), Json(id)))
 }
 
 async fn login<U>(
+    jar: CookieJar,
     State(mut users): State<U>,
     Json(body): Json<LoginBody>,
-) -> Result<Json<Uuid>, HttpError>
+) -> Result<(CookieJar, Json<Uuid>), HttpError>
 where
     U: Users,
 {
     let id = users.login(body.name, body.password).await?;
-    Ok(Json(id))
+    Ok((jar.add(session_cookie()), Json(id)))
 }
 
 async fn user_info<U>(
@@ -662,6 +675,54 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let id: Uuid = serde_json::from_slice(&body).unwrap();
         assert_eq!(id, ALICE_ID);
+    }
+
+    #[tokio::test]
+    async fn login_sets_session_cookie() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, UserDummy, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let cookie = response.headers().get("set-cookie").unwrap().to_str().unwrap();
+        assert!(cookie.contains("session=00000000-0000-0000-0000-000000000000"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+    }
+
+    #[tokio::test]
+    async fn signup_sets_session_cookie() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, UserDummy, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/signup")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let cookie = response.headers().get("set-cookie").unwrap().to_str().unwrap();
+        assert!(cookie.contains("session=00000000-0000-0000-0000-000000000000"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
     }
 
     #[tokio::test]
