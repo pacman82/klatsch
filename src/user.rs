@@ -23,7 +23,7 @@ impl<P> PersistedUsers<P> {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Users {
-    fn login(
+    fn signup(
         &mut self,
         name: String,
         password: String,
@@ -38,7 +38,7 @@ impl<P> Users for PersistedUsers<P>
 where
     P: Persistence + Send,
 {
-    async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+    async fn signup(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
         let name_clone = name.clone();
         let maybe_user = self
             .persistence
@@ -181,11 +181,11 @@ mod tests {
         let mut users = PersistedUsers::new(persistence);
 
         let alice_id = users
-            .login("Alice".to_owned(), "dummy".to_owned())
+            .signup("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
         let bob_id = users
-            .login("Bob".to_owned(), "dummy".to_owned())
+            .signup("Bob".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 
@@ -198,11 +198,11 @@ mod tests {
         let mut users = PersistedUsers::new(persistence);
 
         let alice_id_1 = users
-            .login("Alice".to_owned(), "dummy".to_owned())
+            .signup("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
         let alice_id_2 = users
-            .login("Alice".to_owned(), "dummy".to_owned())
+            .signup("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 
@@ -214,12 +214,12 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
         let _alice_id = users
-            .login("Alice".to_owned(), "secret".to_owned())
+            .signup("Alice".to_owned(), "secret".to_owned())
             .await
             .unwrap();
 
         let result = users
-            .login("Alice".to_owned(), "wrong-secret".to_owned())
+            .signup("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
         assert_matches!(result, Err(Unauthenticated))
@@ -231,7 +231,7 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
         let alice_id = users
-            .login("Alice".to_owned(), "dummy".to_owned())
+            .signup("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 
@@ -250,7 +250,7 @@ mod tests {
         let persistence = persistence_fake().await;
         let mut users = PersistedUsers::new(persistence);
         let alice_id = users
-            .login("Alice".to_owned(), "dummy".to_owned())
+            .signup("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 

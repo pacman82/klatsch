@@ -47,7 +47,7 @@ test('password is included in the login request', async () => {
 	await screen.getByRole('button', { name: 'Join' }).click();
 
 	expect(fetchSpy).toHaveBeenCalledWith(
-		'/api/v0/users',
+		'/api/v0/signup',
 		expect.objectContaining({ body: JSON.stringify({ name: 'Alice', password: 'secret' }) })
 	);
 });

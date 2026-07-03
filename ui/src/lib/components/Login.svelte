@@ -14,7 +14,7 @@
 		const trimmed = name.trim();
 		if (!trimmed) return;
 		login_error = null;
-		const response = await fetch('/api/v0/users', {
+		const response = await fetch('/api/v0/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: trimmed, password })

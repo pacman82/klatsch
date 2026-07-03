@@ -347,7 +347,7 @@ impl TestServer {
 
     async fn register_user(&self, name: &str, password: &str) -> Uuid {
         self.client
-            .post(format!("http://localhost:{}/api/v0/users", self.port))
+            .post(format!("http://localhost:{}/api/v0/signup", self.port))
             .json(&json!({ "name": name, "password": password }))
             .send()
             .await
