@@ -5,7 +5,7 @@ use crate::{
     configuration::Configuration,
     persistence::{SqlitePersistence, migrate},
     server::Server,
-    sessions::NilSessions,
+    sessions::InMemorySessions,
     user::PersistedUsers,
 };
 
@@ -28,7 +28,7 @@ impl Klatsch {
         let chat = ChatRuntime::new(history);
 
         // Answer incoming HTTP requests
-        let server = Server::new(cfg.socket_addr(), chat.client(), users, NilSessions).await?;
+        let server = Server::new(cfg.socket_addr(), chat.client(), users, InMemorySessions).await?;
 
         Ok(Self { chat, server })
     }

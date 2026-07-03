@@ -108,18 +108,20 @@ async fn sent_messages_appear_in_event_stream() {
     let server = TestServer::new(None).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
+    let alice_session = server.login_alice().await;
+    let bob_session = server.login_bob().await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
         "sender": alice_id,
         "content": "Hello"
     });
-    server.send_message(msg).await;
+    server.send_message(msg, &alice_session).await;
     let msg = json!({
         "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
         "sender": bob_id,
         "content": "Hi there"
     });
-    server.send_message(msg).await;
+    server.send_message(msg, &bob_session).await;
 
     // When requesting the events stream
     let mut sse = server.events().await;
@@ -150,18 +152,20 @@ async fn persistence() {
     let mut server = TestServer::new(Some(persistence_dir.path())).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
+    let alice_session = server.login_alice().await;
+    let bob_session = server.login_bob().await;
     let msg = json!({
         "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
         "sender": alice_id,
         "content": "Hello"
     });
-    server.send_message(msg).await;
+    server.send_message(msg, &alice_session).await;
     let msg = json!({
         "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
         "sender": bob_id,
         "content": "Hi there"
     });
-    server.send_message(msg).await;
+    server.send_message(msg, &bob_session).await;
 
     // When restarting with the same database
     server.send_sigterm();
@@ -367,9 +371,34 @@ impl TestServer {
         self.register_user("Bob", "bob_password").await
     }
 
-    async fn send_message(&self, message: serde_json::Value) {
+    async fn login_alice(&self) -> String {
+        self.login("Alice", "alice_password").await
+    }
+
+    async fn login_bob(&self) -> String {
+        self.login("Bob", "bob_password").await
+    }
+
+    async fn login(&self, name: &str, password: &str) -> String {
+        let response = self
+            .client
+            .post(format!("http://localhost:{}/api/v0/login", self.port))
+            .json(&json!({ "name": name, "password": password }))
+            .send()
+            .await
+            .expect("Failed to login");
+        response
+            .cookies()
+            .find(|c| c.name() == "session")
+            .expect("Login response must set session cookie")
+            .value()
+            .to_owned()
+    }
+
+    async fn send_message(&self, message: serde_json::Value, session: &str) {
         self.client
             .post(format!("http://localhost:{}/api/v0/add_message", self.port))
+            .header("cookie", format!("session={session}"))
             .json(&message)
             .send()
             .await

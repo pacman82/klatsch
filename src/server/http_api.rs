@@ -101,11 +101,11 @@ where
         .with_state(users.clone())
         .route("/api/v0/signup", post(signup::<U, S>))
         .route("/api/v0/login", post(login::<U, S>))
-        .with_state((users.clone(), sessions))
+        .with_state((users, sessions.clone()))
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
-        .route("/api/v0/add_message", post(add_message::<C, U>))
-        .with_state((chat, users));
+        .route("/api/v0/add_message", post(add_message::<C, S>))
+        .with_state((chat, sessions));
 
     #[cfg(debug_assertions)]
     let router = router
@@ -210,28 +210,38 @@ impl From<Event> for SseEvent {
 #[derive(Deserialize)]
 struct NewMessage {
     id: Uuid,
-    sender: Uuid,
     content: String,
 }
 
-async fn add_message<C, A>(
-    State((mut chat, mut users)): State<(C, A)>,
+async fn add_message<C, S>(
+    jar: CookieJar,
+    State((mut chat, mut sessions)): State<(C, S)>,
     Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
     C: SharedChat,
-    A: Users,
+    S: Sessions,
 {
-    let NewMessage {
-        id,
-        sender,
-        content,
-    } = msg;
-    users.authenticate(sender).await?;
+    let session_id = jar
+        .get("session")
+        .ok_or(HttpError {
+            status_code: StatusCode::UNAUTHORIZED,
+            message: "Missing session".into(),
+        })?
+        .value()
+        .parse::<Uuid>()
+        .map_err(|_| HttpError {
+            status_code: StatusCode::UNAUTHORIZED,
+            message: "Invalid session".into(),
+        })?;
+    let user_id = sessions.lookup(session_id).ok_or(HttpError {
+        status_code: StatusCode::UNAUTHORIZED,
+        message: "Unknown session".into(),
+    })?;
     chat.add_message(Message {
-        id,
-        author: sender,
-        content,
+        id: msg.id,
+        author: user_id,
+        content: msg.content,
     })
     .await?;
     Ok(())
@@ -557,17 +567,15 @@ mod tests {
     async fn add_message_route_forwards_arguments_to_chat_api() {
         // Given
         #[derive(Clone)]
-        struct UsersStub;
-        impl Users for UsersStub {
-            async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
-                Ok(User {
-                    name: "Bob".to_owned(),
-                })
+        struct SessionsStub;
+        impl Sessions for SessionsStub {
+            fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+                Some(BOB_ID)
             }
         }
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(spy.clone(), UsersStub, Dummy, shutting_down);
+        let app = api_router(spy.clone(), Dummy, SessionsStub, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
             "sender": BOB_ID,
@@ -579,6 +587,7 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
+                    .header("cookie", format!("session={SOME_SESSION_ID}"))
                     .body(Body::from(new_message.to_string()))
                     .unwrap(),
             )
@@ -593,34 +602,23 @@ mod tests {
             author: BOB_ID,
             content: "Hello, Alice!".to_owned(),
         };
-        assert_eq!(spy.take_add_message_record(), &[expected_msg],);
+        assert_eq!(spy.take_add_message_record(), &[expected_msg]);
     }
 
     #[tokio::test]
-    async fn add_message_rejects_unauthenticated_users() {
-        // Given a users store that rejects authentication
-        #[derive(Clone)]
-        struct UsersSaboteur;
-        impl Users for UsersSaboteur {
-            async fn authenticate(&mut self, _id: Uuid) -> Result<(), UsersError> {
-                Err(UsersError::UnknownUser)
-            }
-        }
+    async fn add_message_rejects_missing_session() {
+        // Given
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(Dummy, UsersSaboteur, Dummy, shutting_down);
+        let app = api_router(Dummy, Dummy, Dummy, shutting_down);
 
-        // When a message is sent with an unknown sender
+        // When a message is sent without a session cookie
         let response = app
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        json!({
-                            "id": Uuid::nil(),
-                            "sender": BOB_ID,
-                            "content": "dummy"
-                        })
-                        .to_string(),
+                        json!({ "id": Uuid::nil(), "sender": Uuid::nil(), "content": "dummy" })
+                            .to_string(),
                     ))
                     .unwrap(),
             )
@@ -628,7 +626,39 @@ mod tests {
             .unwrap();
 
         // Then the request is rejected
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn add_message_rejects_unknown_session() {
+        // Given a sessions store with no sessions
+        #[derive(Clone)]
+        struct EmptySessionsStub;
+        impl Sessions for EmptySessionsStub {
+            fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+                None
+            }
+        }
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, Dummy, EmptySessionsStub, shutting_down);
+
+        // When a message is sent with an unrecognised session
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/add_message")
+                    .header("content-type", "application/json")
+                    .header("cookie", format!("session={SOME_SESSION_ID}"))
+                    .body(Body::from(
+                        json!({ "id": Uuid::nil(), "sender": Uuid::nil(), "content": "dummy" })
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then the request is rejected
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -1007,13 +1037,14 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = api_router(ChatSaboteur, UserDummy, Dummy, shutting_down);
+        let app = api_router(ChatSaboteur, Dummy, SessionsDummy, shutting_down);
 
         // When a message is sent
         let response = app
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
+                    .header("cookie", format!("session={SOME_SESSION_ID}"))
                     .body(Body::from(
                         json!({
                             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
@@ -1213,6 +1244,10 @@ mod tests {
     impl Sessions for SessionsDummy {
         fn create(&mut self, _user_id: Uuid) -> Uuid {
             Uuid::nil()
+        }
+
+        fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+            Some(Uuid::nil())
         }
     }
 
