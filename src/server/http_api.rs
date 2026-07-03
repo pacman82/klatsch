@@ -87,7 +87,7 @@ where
 
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
-        .route("/api/v0/users", post(login::<U>))
+        .route("/api/v0/signup", post(signup::<U>))
         .with_state(users.clone())
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
@@ -230,14 +230,14 @@ struct LoginBody {
     password: String,
 }
 
-async fn login<U>(
+async fn signup<U>(
     State(mut users): State<U>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<Uuid>, HttpError>
 where
     U: Users,
 {
-    let id = users.login(body.name, body.password).await?;
+    let id = users.signup(body.name, body.password).await?;
     Ok(Json(id))
 }
 
@@ -602,7 +602,7 @@ mod tests {
         // When
         let response = app
             .oneshot(
-                Request::post("/api/v0/users")
+                Request::post("/api/v0/signup")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
@@ -619,13 +619,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn logging_in_returns_user_id() {
+    async fn login_in_route_forwards_to_users() {
         // Given
         let (_, shutting_down) = watch::channel(false);
         #[derive(Clone)]
         struct UsersStub;
         impl Users for UsersStub {
-            async fn login(
+            async fn signup(
                 &mut self,
                 _name: String,
                 _password: String,
@@ -638,7 +638,7 @@ mod tests {
         // When
         let response = app
             .oneshot(
-                Request::post("/api/v0/users")
+                Request::post("/api/v0/signup")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
@@ -982,7 +982,7 @@ mod tests {
     }
 
     impl Users for UsersSpy {
-        async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+        async fn signup(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok(Uuid::nil())
         }
@@ -998,7 +998,7 @@ mod tests {
     struct UserDummy;
 
     impl Users for UserDummy {
-        async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
+        async fn signup(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
             Ok(Uuid::nil())
         }
 
