@@ -16,6 +16,7 @@ argon2 = { version = "0.5.3", features = ["std"] }
 async-sqlite = "0.6.0"
 async-stream = "0.3.6"
 axum = { version = "0.8.9", features = ["macros"] }
+axum-extra = { version = "0.12.6", features = ["cookie"] }
 dotenvy = "0.15.7"
 fs2 = "0.4.3"
 futures-util = "0.3.32"
