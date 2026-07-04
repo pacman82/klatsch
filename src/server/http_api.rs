@@ -1198,7 +1198,7 @@ mod tests {
                     EventId(1),
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        author: UserId::from_uuid(Uuid::nil()),
+                        author: UserId::nil(),
                         content: "dummy".to_owned(),
                     },
                     UNIX_EPOCH,
@@ -1308,12 +1308,12 @@ mod tests {
     impl Users for UsersSpy {
         async fn signup(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.signup_record.lock().unwrap().push((name, password));
-            Ok(UserId::from_uuid(Uuid::nil()))
+            Ok(UserId::nil())
         }
 
         async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
-            Ok(UserId::from_uuid(Uuid::nil()))
+            Ok(UserId::nil())
         }
 
         async fn user_by_id(&mut self, _id: UserId) -> Result<User, UsersError> {
@@ -1332,7 +1332,7 @@ mod tests {
         }
 
         fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
-            Some(UserId::from_uuid(Uuid::nil()))
+            Some(UserId::nil())
         }
     }
 
@@ -1341,11 +1341,11 @@ mod tests {
 
     impl Users for UserDummy {
         async fn signup(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
-            Ok(UserId::from_uuid(Uuid::nil()))
+            Ok(UserId::nil())
         }
 
         async fn login(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
-            Ok(UserId::from_uuid(Uuid::nil()))
+            Ok(UserId::nil())
         }
 
         async fn user_by_id(&mut self, _id: UserId) -> Result<User, UsersError> {

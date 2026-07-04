@@ -1,6 +1,6 @@
 use super::event::{Event, EventId, Message};
 use crate::{
-    persistence::{ExecuteSql, FieldAccess, Persistence, PersistenceError},
+    persistence::{ExecuteSql, GetField, GetFieldExt as _, Persistence, PersistenceError},
     user::UserId,
 };
 use std::future::Future;
@@ -48,7 +48,7 @@ where
             let event_id = row.get_i64(0);
             let event_id = EventId(event_id.try_into().unwrap());
             let message_id = row.get_uuid(1);
-            let author = UserId::from_uuid(row.get_uuid(2));
+            let author = row.get(2);
             let content = row.get_text(3);
             let timestamp_ms = row.get_i64(4);
             let timestamp_ms: u64 = timestamp_ms.try_into().unwrap();
@@ -236,7 +236,7 @@ where
         "SELECT author_id, content FROM events WHERE message_id = ?1",
         event.message.id.as_bytes().as_slice(),
         |row| {
-            let author = UserId::from_uuid(row.get_uuid(0));
+            let author: UserId = row.get(0);
             let content = row.get_text(1);
             Ok((author, content))
         },
@@ -273,7 +273,7 @@ mod tests {
         history
             .record_message(Message {
                 id: id_1,
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -281,7 +281,7 @@ mod tests {
         history
             .record_message(Message {
                 id: id_2,
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -289,7 +289,7 @@ mod tests {
         history
             .record_message(Message {
                 id: id_3,
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
             .await
@@ -365,7 +365,7 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: UserId::from_uuid(Uuid::nil()),
+            author: UserId::nil(),
             content: "dummy".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();

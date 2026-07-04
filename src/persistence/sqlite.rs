@@ -1,4 +1,4 @@
-use super::{Argument, Arguments, ExecuteSql, FieldAccess, Persistence, PersistenceError};
+use super::{Argument, Arguments, ExecuteSql, GetField, Persistence, PersistenceError};
 use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
@@ -144,7 +144,7 @@ fn to_rusqlite_params(params: &impl Arguments) -> impl Params {
     params_from_iter(it)
 }
 
-impl FieldAccess for rusqlite::Row<'_> {
+impl GetField for rusqlite::Row<'_> {
     fn get_i64(&self, index: usize) -> i64 {
         self.get(index).unwrap()
     }
@@ -317,9 +317,7 @@ impl ToSql for Argument<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ClientBuilder, FieldAccess, JournalMode, Persistence, SqlitePersistence, rusqlite,
-    };
+    use super::{ClientBuilder, GetField, JournalMode, Persistence, SqlitePersistence, rusqlite};
 
     #[tokio::test]
     async fn creates_missing_persistence_directory() {

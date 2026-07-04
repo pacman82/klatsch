@@ -3,7 +3,7 @@ mod user_id;
 
 use serde::{Deserialize, Serialize};
 
-use crate::persistence::{ExecuteSql, FieldAccess as _, Persistence};
+use crate::persistence::{ExecuteSql, GetField as _, Persistence};
 
 pub use self::user_id::UserId;
 
