@@ -62,6 +62,12 @@ impl FromField for Uuid {
     }
 }
 
+impl FromField for i64 {
+    fn from_at(row: &impl GetField, index: usize) -> Self {
+        row.get_i64(index)
+    }
+}
+
 pub trait GetFieldExt<T> {
     fn get(&self, index: usize) -> T;
 }
