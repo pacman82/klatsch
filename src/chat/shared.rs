@@ -9,7 +9,8 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use super::{
-    event::{Event, EventId, Message},
+    event::{Event, EventId},
+    message::Message,
     persistent_chat::{Chat, ChatError},
 };
 

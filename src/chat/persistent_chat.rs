@@ -1,4 +1,4 @@
-use super::event::{Event, EventId, Message};
+use super::{event::{Event, EventId}, message::Message};
 use crate::{
     persistence::{ExecuteSql, GetField as _, Persistence, PersistenceError},
     user::UserId,
