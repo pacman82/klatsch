@@ -215,6 +215,7 @@ mod tests {
     use crate::chat::event::EventId;
 
     use super::*;
+    use crate::user::UserId;
     use anyhow::bail;
     use double_trait::Dummy;
     use futures_util::{StreamExt, TryStreamExt};
@@ -335,7 +336,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: duplicate_id,
-                author: Uuid::nil(),
+                author: UserId::from_uuid(Uuid::nil()),
                 content: "dummy".to_owned(),
             })
             .await
@@ -343,7 +344,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: fresh_id,
-                author: Uuid::nil(),
+                author: UserId::from_uuid(Uuid::nil()),
                 content: "dummy".to_owned(),
             })
             .await
@@ -379,7 +380,7 @@ mod tests {
             .client()
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                author: Uuid::nil(),
+                author: UserId::from_uuid(Uuid::nil()),
                 content: "dummy".to_owned(),
             })
             .await;
@@ -698,7 +699,7 @@ mod tests {
                 last_event_id.successor(),
                 Message {
                     id: Uuid::nil(),
-                    author: Uuid::nil(),
+                    author: UserId::from_uuid(Uuid::nil()),
                     content: "dummy".to_owned(),
                 },
                 SystemTime::UNIX_EPOCH,
@@ -739,13 +740,13 @@ mod tests {
         }
     }
 
-    const ALICE_ID: Uuid = Uuid::from_bytes([
+    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
         0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
         0xb1,
-    ]);
+    ]));
 
-    const BOB_ID: Uuid = Uuid::from_bytes([
+    const BOB_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
         0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
         0x1c,
-    ]);
+    ]));
 }

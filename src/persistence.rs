@@ -6,7 +6,7 @@ mod sqlite;
 use uuid::Uuid;
 
 pub use self::{
-    arguments::{Argument, Arguments},
+    arguments::{Argument, Arguments, AsArgument},
     migrate::migrate,
     sqlite::SqlitePersistence,
 };

@@ -7,6 +7,8 @@ use std::{
 
 use uuid::Uuid;
 
+use crate::user::UserId;
+
 /// A message as it is stored and represented as part of a chat.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Event {
@@ -50,7 +52,7 @@ pub struct Message {
     /// UUID v7, because we care about newer messages more than older ones in the database.
     pub id: Uuid,
     /// User ID of the author.
-    pub author: Uuid,
+    pub author: UserId,
     /// Text content of the message. I.e. the actual message
     pub content: String,
 }

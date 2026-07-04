@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
     sessions::{SessionId, Sessions},
-    user::{User, Users, UsersError},
+    user::{User, UserId, Users, UsersError},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
@@ -176,7 +176,7 @@ pub struct HttpMessage {
     /// rendering messages.
     pub id: Uuid,
     /// User id of the author
-    pub sender_id: Uuid,
+    pub sender_id: UserId,
     /// Text content of the message. I.e. the actual message
     pub content: String,
     /// Unix timestamp of that message being received by the server. Milliseconds since epoch.
@@ -288,7 +288,7 @@ async fn signup<U, S>(
     jar: CookieJar,
     State((mut users, mut sessions)): State<(U, S)>,
     Json(body): Json<LoginBody>,
-) -> Result<(CookieJar, Json<Uuid>), HttpError>
+) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
     U: Users,
     S: Sessions,
@@ -302,7 +302,7 @@ async fn login<U, S>(
     jar: CookieJar,
     State((mut users, mut sessions)): State<(U, S)>,
     Json(body): Json<LoginBody>,
-) -> Result<(CookieJar, Json<Uuid>), HttpError>
+) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
     U: Users,
     S: Sessions,
@@ -314,7 +314,7 @@ where
 
 async fn user_info<U>(
     State(mut users): State<U>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<UserId>,
 ) -> Result<Json<User>, HttpError>
 where
     U: Users,
@@ -379,15 +379,15 @@ mod tests {
     use tokio_stream::pending;
     use tower::ServiceExt; // for `oneshot`
 
-    const ALICE_ID: Uuid = Uuid::from_bytes([
+    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
         0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
         0xb1,
-    ]);
+    ]));
 
-    const BOB_ID: Uuid = Uuid::from_bytes([
+    const BOB_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
         0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
         0x1c,
-    ]);
+    ]));
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
@@ -593,7 +593,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
+            fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 Some(BOB_ID)
             }
         }
@@ -658,7 +658,7 @@ mod tests {
         #[derive(Clone)]
         struct EmptySessionsStub;
         impl Sessions for EmptySessionsStub {
-            fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
+            fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 None
             }
         }
@@ -721,7 +721,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<Uuid, UsersError> {
+            ) -> Result<UserId, UsersError> {
                 Ok(ALICE_ID)
             }
         }
@@ -740,7 +740,7 @@ mod tests {
 
         // Then
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let id: Uuid = serde_json::from_slice(&body).unwrap();
+        let id: UserId = serde_json::from_slice(&body).unwrap();
         assert_eq!(id, ALICE_ID);
     }
 
@@ -750,7 +750,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: Uuid) -> SessionId {
+            fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -786,7 +786,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: Uuid) -> SessionId {
+            fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -916,7 +916,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<Uuid, UsersError> {
+            ) -> Result<UserId, UsersError> {
                 Ok(ALICE_ID)
             }
         }
@@ -935,7 +935,7 @@ mod tests {
 
         // Then
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let id: Uuid = serde_json::from_slice(&body).unwrap();
+        let id: UserId = serde_json::from_slice(&body).unwrap();
         assert_eq!(id, ALICE_ID);
     }
 
@@ -950,7 +950,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<Uuid, UsersError> {
+            ) -> Result<UserId, UsersError> {
                 Err(UsersError::Unauthenticated)
             }
         }
@@ -979,7 +979,7 @@ mod tests {
         struct UsersStub;
 
         impl Users for UsersStub {
-            async fn user_by_id(&mut self, _: Uuid) -> Result<User, UsersError> {
+            async fn user_by_id(&mut self, _: UserId) -> Result<User, UsersError> {
                 Ok(User {
                     name: "Alice".to_owned(),
                 })
@@ -1024,7 +1024,7 @@ mod tests {
         struct UsersStub;
 
         impl Users for UsersStub {
-            async fn user_by_id(&mut self, _: Uuid) -> Result<User, UsersError> {
+            async fn user_by_id(&mut self, _: UserId) -> Result<User, UsersError> {
                 Err(UsersError::UnknownUser)
             }
         }
@@ -1198,7 +1198,7 @@ mod tests {
                     EventId(1),
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        author: Uuid::nil(),
+                        author: UserId::from_uuid(Uuid::nil()),
                         content: "dummy".to_owned(),
                     },
                     UNIX_EPOCH,
@@ -1306,17 +1306,17 @@ mod tests {
     }
 
     impl Users for UsersSpy {
-        async fn signup(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+        async fn signup(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.signup_record.lock().unwrap().push((name, password));
-            Ok(Uuid::nil())
+            Ok(UserId::from_uuid(Uuid::nil()))
         }
 
-        async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+        async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
-            Ok(Uuid::nil())
+            Ok(UserId::from_uuid(Uuid::nil()))
         }
 
-        async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
+        async fn user_by_id(&mut self, _id: UserId) -> Result<User, UsersError> {
             Ok(User {
                 name: "dummy".to_owned(),
             })
@@ -1327,12 +1327,12 @@ mod tests {
     struct SessionsDummy;
 
     impl Sessions for SessionsDummy {
-        fn create(&mut self, _user_id: Uuid) -> SessionId {
+        fn create(&mut self, _user_id: UserId) -> SessionId {
             SessionId::from_uuid(Uuid::nil())
         }
 
-        fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
-            Some(Uuid::nil())
+        fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            Some(UserId::from_uuid(Uuid::nil()))
         }
     }
 
@@ -1340,15 +1340,15 @@ mod tests {
     struct UserDummy;
 
     impl Users for UserDummy {
-        async fn signup(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
-            Ok(Uuid::nil())
+        async fn signup(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
+            Ok(UserId::from_uuid(Uuid::nil()))
         }
 
-        async fn login(&mut self, _name: String, _password: String) -> Result<Uuid, UsersError> {
-            Ok(Uuid::nil())
+        async fn login(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
+            Ok(UserId::from_uuid(Uuid::nil()))
         }
 
-        async fn user_by_id(&mut self, _id: Uuid) -> Result<User, UsersError> {
+        async fn user_by_id(&mut self, _id: UserId) -> Result<User, UsersError> {
             Ok(User {
                 name: "dummy".to_owned(),
             })
