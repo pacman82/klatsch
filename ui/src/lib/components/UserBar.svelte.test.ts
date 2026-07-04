@@ -42,6 +42,18 @@ test('displays fetching user info while name is loading', async () => {
 	await expect.element(screen.getByText('Fetching user info...')).toBeVisible();
 });
 
+test('calls logout endpoint then clears local session', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+	vi.stubGlobal('fetch', fetchMock);
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = render(UserBar);
+	await screen.getByRole('button', { name: 'Log out' }).click();
+
+	expect(fetchMock).toHaveBeenCalledWith('/api/v0/logout', { method: 'POST' });
+	await vi.waitFor(() => expect(user.current).toBeNull());
+});
+
 test('logs out when the current user is unknown to the server', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
 

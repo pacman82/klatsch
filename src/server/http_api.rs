@@ -105,7 +105,8 @@ where
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
         .route("/api/v0/add_message", post(add_message::<C, S>))
-        .with_state((chat, sessions));
+        .with_state((chat, sessions))
+        .route("/api/v0/logout", post(logout));
 
     #[cfg(debug_assertions)]
     let router = router
@@ -245,6 +246,15 @@ where
     })
     .await?;
     Ok(())
+}
+
+async fn logout(jar: CookieJar) -> CookieJar {
+    jar.remove(
+        Cookie::build("session")
+            .http_only(true)
+            .same_site(SameSite::Strict)
+            .build(),
+    )
 }
 
 #[derive(Deserialize)]
@@ -792,6 +802,37 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(cookie.contains(&format!("session={SOME_SESSION_ID}")));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+    }
+
+    #[tokio::test]
+    async fn logout_clears_session_cookie() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, UserDummy, SessionsDummy, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/logout")
+                    .header("cookie", format!("session={SOME_SESSION_ID}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains("session="));
+        assert!(cookie.contains("Max-Age=0"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
     }

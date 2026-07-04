@@ -8,7 +8,8 @@
 		if (user_info === null) user.logout();
 	});
 
-	function logout() {
+	async function logout() {
+		await fetch('/api/v0/logout', { method: 'POST' });
 		user.logout();
 	}
 </script>
