@@ -11,7 +11,6 @@ pub use self::{
     sqlite::SqlitePersistence,
 };
 
-#[cfg_attr(test, double_trait::dummies)]
 pub trait Persistence {
     type Row<'a>: GetField;
     type Error: PersistenceError;
@@ -43,7 +42,6 @@ pub trait Persistence {
         O: Send + 'static;
 }
 
-#[cfg_attr(test, double_trait::dummies)]
 pub trait GetField {
     fn get_uuid(&self, index: usize) -> Uuid;
     fn get_i64(&self, index: usize) -> i64;
@@ -82,7 +80,6 @@ where
     }
 }
 
-#[cfg_attr(test, double_trait::dummies)]
 pub trait ExecuteSql {
     type Row<'a>: GetField;
     type Error: PersistenceError;
