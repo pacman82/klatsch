@@ -36,8 +36,6 @@ pub trait Users {
     ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
 
     fn user_by_id(&mut self, id: Uuid) -> impl Future<Output = Result<User, UsersError>> + Send;
-
-    fn authenticate(&mut self, id: Uuid) -> impl Future<Output = Result<(), UsersError>> + Send;
 }
 
 impl<P> Users for PersistedUsers<P>
@@ -90,15 +88,6 @@ where
         }
 
         Ok(user_id)
-    }
-
-    async fn authenticate(&mut self, id: Uuid) -> Result<(), UsersError> {
-        self.persistence
-            .rows_vec("SELECT 1 FROM users WHERE id = ?1", id, |_| Ok(()))
-            .await
-            .map_err(|_| UsersError::Internal)?
-            .pop()
-            .ok_or(UsersError::UnknownUser)
     }
 
     async fn user_by_id(&mut self, id: Uuid) -> Result<User, UsersError> {
@@ -310,30 +299,6 @@ mod tests {
             name: "Alice".to_owned(),
         };
         assert_eq!(expected, user);
-    }
-
-    #[tokio::test]
-    async fn authenticate_known_user() {
-        let persistence = persistence_fake().await;
-        let mut users = PersistedUsers::new(persistence);
-        let alice_id = users
-            .signup("Alice".to_owned(), "dummy".to_owned())
-            .await
-            .unwrap();
-
-        let result = users.authenticate(alice_id).await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn authenticate_unknown_user() {
-        let persistence = persistence_fake().await;
-        let mut users = PersistedUsers::new(persistence);
-
-        let result = users.authenticate(Uuid::new_v4()).await;
-
-        assert_matches!(result, Err(UsersError::UnknownUser));
     }
 
     #[tokio::test]
