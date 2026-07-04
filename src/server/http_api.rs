@@ -255,7 +255,11 @@ struct LoginBody {
 
 fn session_cookie(session_id: Uuid) -> Cookie<'static> {
     Cookie::build(("session", session_id.to_string()))
+        // Http only prevents JavaScript from interacting with the session cookie. Hardening against
+        // Cross site scripting attacks
         .http_only(true)
+        // Hardening against cross site request forgery. Prevents other sites from abusing the trust
+        // we put in the users browser.
         .same_site(SameSite::Strict)
         .build()
 }
