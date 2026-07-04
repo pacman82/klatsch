@@ -7,21 +7,48 @@ pub trait Sessions {
     fn destroy(&mut self, session_id: Uuid);
 }
 
-/// In-memory session store. Session ids are derived directly from the user id,
-/// so no storage is needed and sessions never expire or accumulate.
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 #[derive(Clone)]
-pub struct InMemorySessions;
+pub struct InMemorySessions {
+    sessions: Arc<Mutex<HashMap<Uuid, Uuid>>>,
+}
+
+impl InMemorySessions {
+    pub fn new() -> Self {
+        Self {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
 
 impl Sessions for InMemorySessions {
     fn create(&mut self, user_id: Uuid) -> Uuid {
-        user_id
+        let session_id = Uuid::new_v4();
+        self.sessions
+            .lock()
+            .expect("sessions lock must not be poisoned")
+            .insert(session_id, user_id);
+        session_id
     }
 
     fn lookup(&mut self, session_id: Uuid) -> Option<Uuid> {
-        Some(session_id)
+        self.sessions
+            .lock()
+            .expect("sessions lock must not be poisoned")
+            .get(&session_id)
+            .copied()
     }
 
-    fn destroy(&mut self, _session_id: Uuid) {}
+    fn destroy(&mut self, session_id: Uuid) {
+        self.sessions
+            .lock()
+            .expect("sessions lock must not be poisoned")
+            .remove(&session_id);
+    }
 }
 
 #[cfg(test)]
@@ -37,8 +64,22 @@ mod tests {
 
     #[test]
     fn lookup_returns_user_id_session_was_created_for() {
-        let mut sessions = InMemorySessions;
+        // Given
+        let mut sessions = InMemorySessions::new();
+        // When
         let session_id = sessions.create(ALICE_ID);
+        // Then
         assert_eq!(sessions.lookup(session_id), Some(ALICE_ID));
+    }
+
+    #[test]
+    fn destroyed_session_cannot_be_looked_up() {
+        // Given
+        let mut sessions = InMemorySessions::new();
+        let session_id = sessions.create(ALICE_ID);
+        // When
+        sessions.destroy(session_id);
+        // Then
+        assert_eq!(sessions.lookup(session_id), None);
     }
 }
