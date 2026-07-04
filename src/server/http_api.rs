@@ -1,5 +1,10 @@
 use std::{borrow::Cow, convert::Infallible};
 
+use crate::{
+    chat::{ChatError, Event, Message, MessageId, SharedChat},
+    sessions::{SessionId, Sessions},
+    user::{User, UserId, Users, UsersError},
+};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -14,11 +19,6 @@ use axum_extra::extract::{
 use futures_util::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
-use crate::{
-    chat::{ChatError, Event, Message, MessageId, SharedChat},
-    sessions::{SessionId, Sessions},
-    user::{User, UserId, Users, UsersError},
-};
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
 #[cfg(debug_assertions)]
@@ -279,6 +279,9 @@ fn session_cookie(session_id: SessionId) -> Cookie<'static> {
         // Hardening against cross site request forgery. Prevents other sites from abusing the trust
         // we put in the users browser.
         .same_site(SameSite::Strict)
+        // Secure `true` would prevent this cookie to be transported via http instead of https. This
+        // is great, **but**, we currently do not support https. So this stays `false` for now.
+        .secure(false)
         .build()
 }
 
