@@ -213,7 +213,7 @@ impl<H: Chat> Actor<H> {
 
 #[cfg(test)]
 mod tests {
-    use crate::chat::event::EventId;
+    use crate::chat::{event::EventId, message::MessageId};
 
     use super::*;
     use crate::user::UserId;
@@ -226,7 +226,6 @@ mod tests {
         time::{Duration, SystemTime},
     };
     use tokio::time::timeout;
-    use uuid::Uuid;
 
     #[tokio::test]
     async fn events_forwards_history() {
@@ -301,11 +300,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_message_is_not_broadcast() {
         // Given a history that treats one specific message ID as a duplicate
-        let duplicate_id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
-        let fresh_id: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        struct HistoryStub {
-            duplicate_id: Uuid,
-        }
+        struct HistoryStub;
         impl Chat for HistoryStub {
             async fn events_since(&self, _last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
                 Ok(Vec::new())
@@ -314,7 +309,7 @@ mod tests {
                 &mut self,
                 message: Message,
             ) -> Result<Option<Event>, ChatError> {
-                if message.id == self.duplicate_id {
+                if message.id == MessageId::ALPHA {
                     Ok(None)
                 } else {
                     Ok(Some(Event::with_timestamp(
@@ -325,7 +320,7 @@ mod tests {
                 }
             }
         }
-        let chat = ChatRuntime::new(HistoryStub { duplicate_id });
+        let chat = ChatRuntime::new(HistoryStub);
 
         // and a receiver subscribed to live broadcast
         let mut events = chat.client().events(EventId::before_all()).boxed();
@@ -336,7 +331,7 @@ mod tests {
         let mut sender = chat.client();
         sender
             .add_message(Message {
-                id: duplicate_id,
+                id: MessageId::ALPHA,
                 author: UserId::nil(),
                 content: "dummy".to_owned(),
             })
@@ -344,7 +339,7 @@ mod tests {
             .unwrap();
         sender
             .add_message(Message {
-                id: fresh_id,
+                id: MessageId::BETA,
                 author: UserId::nil(),
                 content: "dummy".to_owned(),
             })
@@ -357,7 +352,7 @@ mod tests {
             .expect("timed out waiting for event")
             .unwrap()
             .unwrap();
-        assert_eq!(event.message.id, fresh_id);
+        assert_eq!(event.message.id, MessageId::BETA);
 
         // Cleanup
         drop(sender);
@@ -621,7 +616,7 @@ mod tests {
         // And one message in the chat history
         sender_client
             .add_message(Message {
-                id: Uuid::now_v7(),
+                id: MessageId::new(),
                 author: UserId::ALICE,
                 content: "Initial message".to_string(),
             })
@@ -639,7 +634,7 @@ mod tests {
         const NUM_MESSAGES_IN_BURST: usize = 1000;
         for _ in 0..NUM_MESSAGES_IN_BURST {
             let msg = Message {
-                id: Uuid::now_v7(),
+                id: MessageId::new(),
                 author: UserId::BOB,
                 content: "dummy".to_owned(),
             };
@@ -699,7 +694,7 @@ mod tests {
             let events = vec![Event::with_timestamp(
                 last_event_id.successor(),
                 Message {
-                    id: Uuid::nil(),
+                    id: MessageId::nil(),
                     author: UserId::nil(),
                     content: "dummy".to_owned(),
                 },
