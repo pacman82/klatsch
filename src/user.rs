@@ -1,9 +1,51 @@
 mod password_hash;
 
+use std::{fmt, str::FromStr};
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::persistence::{ExecuteSql, FieldAccess as _, Persistence};
+use crate::persistence::{Argument, AsArgument, ExecuteSql, FieldAccess as _, Persistence};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UserId(Uuid);
+
+impl UserId {
+    pub const fn from_uuid(uuid: Uuid) -> Self {
+        UserId(uuid)
+    }
+
+    fn new() -> Self {
+        Self::from_uuid(Uuid::new_v4())
+    }
+}
+
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for UserId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(UserId)
+    }
+}
+
+impl AsArgument for UserId {
+    fn as_argument(&self) -> Argument<'_> {
+        self.0.as_argument()
+    }
+}
+
+impl AsArgument for &UserId {
+    fn as_argument(&self) -> Argument<'_> {
+        (&self.0).as_argument()
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
@@ -27,22 +69,22 @@ pub trait Users {
         &mut self,
         name: String,
         password: String,
-    ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
+    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
 
     fn login(
         &mut self,
         name: String,
         password: String,
-    ) -> impl Future<Output = Result<Uuid, UsersError>> + Send;
+    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
 
-    fn user_by_id(&mut self, id: Uuid) -> impl Future<Output = Result<User, UsersError>> + Send;
+    fn user_by_id(&mut self, id: UserId) -> impl Future<Output = Result<User, UsersError>> + Send;
 }
 
 impl<P> Users for PersistedUsers<P>
 where
     P: Persistence + Send,
 {
-    async fn signup(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+    async fn signup(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
         let name_clone = name.clone();
         let maybe_user = self
             .persistence
@@ -62,7 +104,7 @@ where
         }
 
         // User does not exist, create a new one
-        let user_id = Uuid::new_v4();
+        let user_id = UserId::new();
         let password_hash = (!password.is_empty()).then(|| password_hash::generate(&password));
         self.persistence
             .transaction(move |conn| create_user(conn, user_id, &name, password_hash.as_deref()))
@@ -72,7 +114,7 @@ where
         Ok(user_id)
     }
 
-    async fn login(&mut self, name: String, password: String) -> Result<Uuid, UsersError> {
+    async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
         let maybe_user = self
             .persistence
             .transaction(move |conn| fetch_user_id_and_hash(conn, &name))
@@ -90,7 +132,7 @@ where
         Ok(user_id)
     }
 
-    async fn user_by_id(&mut self, id: Uuid) -> Result<User, UsersError> {
+    async fn user_by_id(&mut self, id: UserId) -> Result<User, UsersError> {
         let mut users = self
             .persistence
             .rows_vec("SELECT name FROM users WHERE id = ?1", id, |row| {
@@ -117,7 +159,7 @@ pub enum UsersError {
 fn fetch_user_id_and_hash<C>(
     conn: &C,
     name: &str,
-) -> Result<Option<(Uuid, Option<String>)>, C::Error>
+) -> Result<Option<(UserId, Option<String>)>, C::Error>
 where
     C: ExecuteSql,
 {
@@ -125,7 +167,7 @@ where
         .rows_vec(
             "SELECT id, password_hash FROM users WHERE name = ?1",
             name,
-            |row| Ok((row.get_uuid(0), row.get_text_opt(1))),
+            |row| Ok((UserId::from_uuid(row.get_uuid(0)), row.get_text_opt(1))),
         )?
         .pop();
     Ok(maybe_user_auth)
@@ -133,7 +175,7 @@ where
 
 fn create_user<C>(
     conn: &C,
-    user_id: Uuid,
+    user_id: UserId,
     name: &str,
     password_hash: Option<&str>,
 ) -> Result<(), C::Error>
@@ -176,8 +218,6 @@ where
 mod tests {
     use std::assert_matches;
 
-    use uuid::Uuid;
-
     use crate::{
         persistence::{Persistence, SqlitePersistence},
         user::{
@@ -186,7 +226,7 @@ mod tests {
         },
     };
 
-    use super::{PersistedUsers, User, Users};
+    use super::{PersistedUsers, User, UserId, Users};
 
     #[tokio::test]
     async fn different_uuids_for_each_user() {
@@ -308,7 +348,7 @@ mod tests {
         let mut users = PersistedUsers::new(persistence);
 
         // When
-        let result = users.user_by_id(Uuid::new_v4()).await;
+        let result = users.user_by_id(UserId::new()).await;
 
         // Then
         assert_matches!(result, Err(UsersError::UnknownUser));

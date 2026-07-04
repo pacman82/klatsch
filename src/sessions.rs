@@ -7,6 +7,8 @@ use std::{
 
 use uuid::Uuid;
 
+use crate::user::UserId;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SessionId(Uuid);
 
@@ -36,14 +38,14 @@ impl FromStr for SessionId {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
-    fn create(&mut self, user_id: Uuid) -> SessionId;
-    fn lookup(&mut self, session_id: SessionId) -> Option<Uuid>;
+    fn create(&mut self, user_id: UserId) -> SessionId;
+    fn lookup(&mut self, session_id: SessionId) -> Option<UserId>;
     fn destroy(&mut self, session_id: SessionId);
 }
 
 #[derive(Clone)]
 pub struct InMemorySessions {
-    sessions: Arc<Mutex<HashMap<SessionId, Uuid>>>,
+    sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
 }
 
 impl InMemorySessions {
@@ -55,7 +57,7 @@ impl InMemorySessions {
 }
 
 impl Sessions for InMemorySessions {
-    fn create(&mut self, user_id: Uuid) -> SessionId {
+    fn create(&mut self, user_id: UserId) -> SessionId {
         let session_id = SessionId::new();
         self.sessions
             .lock()
@@ -64,7 +66,7 @@ impl Sessions for InMemorySessions {
         session_id
     }
 
-    fn lookup(&mut self, session_id: SessionId) -> Option<Uuid> {
+    fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
@@ -84,12 +86,14 @@ impl Sessions for InMemorySessions {
 mod tests {
     use uuid::Uuid;
 
+    use crate::user::UserId;
+
     use super::{InMemorySessions, Sessions as _};
 
-    const ALICE_ID: Uuid = Uuid::from_bytes([
+    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
         0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
         0xb1,
-    ]);
+    ]));
 
     #[test]
     fn lookup_returns_user_id_session_was_created_for() {
