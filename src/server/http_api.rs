@@ -105,8 +105,9 @@ where
         .route("/api/v0/events", get(events::<C>))
         .with_state(events_state)
         .route("/api/v0/add_message", post(add_message::<C, S>))
-        .with_state((chat, sessions))
-        .route("/api/v0/logout", post(logout));
+        .with_state((chat, sessions.clone()))
+        .route("/api/v0/logout", post(logout::<S>))
+        .with_state(sessions);
 
     #[cfg(debug_assertions)]
     let router = router
@@ -248,7 +249,16 @@ where
     Ok(())
 }
 
-async fn logout(jar: CookieJar) -> CookieJar {
+async fn logout<S>(jar: CookieJar, State(mut sessions): State<S>) -> CookieJar
+where
+    S: Sessions,
+{
+    if let Some(session_id) = jar
+        .get("session")
+        .and_then(|c| c.value().parse::<Uuid>().ok())
+    {
+        sessions.destroy(session_id);
+    }
     jar.remove(
         Cookie::build("session")
             .http_only(true)
@@ -835,6 +845,38 @@ mod tests {
         assert!(cookie.contains("Max-Age=0"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
+    }
+
+    #[tokio::test]
+    async fn logout_destroys_session() {
+        use std::sync::{Arc, Mutex};
+
+        // Given
+        #[derive(Clone, Default)]
+        struct SessionsSpy {
+            destroyed: Arc<Mutex<Vec<Uuid>>>,
+        }
+        impl Sessions for SessionsSpy {
+            fn destroy(&mut self, session_id: Uuid) {
+                self.destroyed.lock().unwrap().push(session_id);
+            }
+        }
+        let spy = SessionsSpy::default();
+        let (_, shutting_down) = watch::channel(false);
+        let app = api_router(Dummy, UserDummy, spy.clone(), shutting_down);
+
+        // When
+        app.oneshot(
+            Request::post("/api/v0/logout")
+                .header("cookie", format!("session={SOME_SESSION_ID}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        // Then
+        assert_eq!(*spy.destroyed.lock().unwrap(), [SOME_SESSION_ID]);
     }
 
     #[tokio::test]
