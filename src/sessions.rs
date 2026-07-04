@@ -4,6 +4,7 @@ use uuid::Uuid;
 pub trait Sessions {
     fn create(&mut self, user_id: Uuid) -> Uuid;
     fn lookup(&mut self, session_id: Uuid) -> Option<Uuid>;
+    fn destroy(&mut self, session_id: Uuid);
 }
 
 /// In-memory session store. Session ids are derived directly from the user id,
@@ -19,6 +20,8 @@ impl Sessions for InMemorySessions {
     fn lookup(&mut self, session_id: Uuid) -> Option<Uuid> {
         Some(session_id)
     }
+
+    fn destroy(&mut self, _session_id: Uuid) {}
 }
 
 #[cfg(test)]
