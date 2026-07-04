@@ -47,7 +47,6 @@ impl Klatsch {
 
         // Shutdown the chat and sessions runtimes after the http interface, since the http
         // interface relies on them.
-        self.chat.shutdown().await;
-        self.sessions.shutdown().await;
+        tokio::join!(self.chat.shutdown(), self.sessions.shutdown());
     }
 }
