@@ -578,7 +578,6 @@ mod tests {
         let app = api_router(spy.clone(), Dummy, SessionsStub, shutting_down);
         let new_message = json!({
             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
-            "sender": BOB_ID,
             "content": "Hello, Alice!"
         });
 
@@ -1048,7 +1047,6 @@ mod tests {
                     .body(Body::from(
                         json!({
                             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
-                            "sender": Uuid::nil(),
                             "content": "dummy"
                         })
                         .to_string(),

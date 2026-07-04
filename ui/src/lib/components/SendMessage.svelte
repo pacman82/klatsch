@@ -4,7 +4,6 @@
 
 	type SendMessage = {
 		id: string;
-		sender: string;
 		content: string;
 	};
 
@@ -26,14 +25,11 @@
 		const content = message_content.trim();
 		if (!content) return;
 
-		const sender = user.current;
-		if (!sender) throw new Error("SendMessage rendered without a logged-in user");
-
 		const id = is_retry ? last_attempt!.id : v7();
 		last_attempt = { id, content };
 		send_error = null;
 		try {
-			const msg: SendMessage = { id, sender, content };
+			const msg: SendMessage = { id, content };
 			const response = await fetch('/api/v0/add_message', {
 				method: 'POST',
 				headers: {

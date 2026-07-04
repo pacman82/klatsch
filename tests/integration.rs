@@ -110,17 +110,9 @@ async fn sent_messages_appear_in_event_stream() {
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
     let bob_session = server.login_bob().await;
-    let msg = json!({
-        "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
-        "sender": alice_id,
-        "content": "Hello"
-    });
+    let msg = json!({ "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "content": "Hello" });
     server.send_message(msg, &alice_session).await;
-    let msg = json!({
-        "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
-        "sender": bob_id,
-        "content": "Hi there"
-    });
+    let msg = json!({ "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995", "content": "Hi there" });
     server.send_message(msg, &bob_session).await;
 
     // When requesting the events stream
@@ -154,17 +146,9 @@ async fn persistence() {
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
     let bob_session = server.login_bob().await;
-    let msg = json!({
-        "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a",
-        "sender": alice_id,
-        "content": "Hello"
-    });
+    let msg = json!({ "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "content": "Hello" });
     server.send_message(msg, &alice_session).await;
-    let msg = json!({
-        "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995",
-        "sender": bob_id,
-        "content": "Hi there"
-    });
+    let msg = json!({ "id": "019c0ab6-9d11-7a5b-abde-cb349e5fd995", "content": "Hi there" });
     server.send_message(msg, &bob_session).await;
 
     // When restarting with the same database
