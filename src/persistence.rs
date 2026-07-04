@@ -12,7 +12,7 @@ pub use self::{
 };
 
 pub trait Persistence {
-    type Row<'a>: GetField;
+    type Row<'a>: GetFieldNative;
     type Error: PersistenceError;
     type Connection: ExecuteSql<Error = Self::Error>;
 
@@ -42,38 +42,27 @@ pub trait Persistence {
         O: Send + 'static;
 }
 
-pub trait GetField {
-    fn get_uuid(&self, index: usize) -> Uuid;
-    fn get_i64(&self, index: usize) -> i64;
-    fn get_i64_opt(&self, index: usize) -> Option<i64>;
-    fn get_text(&self, index: usize) -> String;
-    fn get_text_opt(&self, index: usize) -> Option<String>;
+/// Rows allow access to types natively supported by persistence
+pub trait GetFieldNative:
+    GetField<i64> + GetField<Uuid> + GetField<Option<i64>> + GetField<String> + GetField<Option<String>>
+{
 }
 
+/// A trait intended to be implemented by types more native to the domain than persistence. There is
+/// a blanket implementation implementing [`GetField`] for any `T` implementing [`FromField`]
 pub trait FromField {
-    fn from_at(row: &impl GetField, index: usize) -> Self;
+    fn from_at(row: &impl GetFieldNative, index: usize) -> Self;
 }
 
-impl FromField for Uuid {
-    fn from_at(row: &impl GetField, index: usize) -> Self {
-        row.get_uuid(index)
-    }
-}
-
-impl FromField for i64 {
-    fn from_at(row: &impl GetField, index: usize) -> Self {
-        row.get_i64(index)
-    }
-}
-
-pub trait GetFieldExt<T> {
+/// Access fields of type `T` of a row.
+pub trait GetField<T> {
     fn get(&self, index: usize) -> T;
 }
 
-impl<T, R> GetFieldExt<T> for R
+impl<T, R> GetField<T> for R
 where
     T: FromField,
-    R: GetField,
+    R: GetFieldNative,
 {
     fn get(&self, index: usize) -> T {
         T::from_at(self, index)
@@ -81,7 +70,7 @@ where
 }
 
 pub trait ExecuteSql {
-    type Row<'a>: GetField;
+    type Row<'a>: GetFieldNative;
     type Error: PersistenceError;
 
     fn execute(&self, query: &str, args: impl Arguments) -> Result<(), Self::Error>;
