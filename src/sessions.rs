@@ -96,7 +96,6 @@ impl Sessions for SessionsClient {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::user::UserId;
