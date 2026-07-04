@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::persistence::{Argument, AsArgument, FromField, GetField, GetFieldExt as _};
+use crate::persistence::{Argument, AsArgument, FromField, GetFieldNative};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -63,7 +63,7 @@ impl AsArgument for &UserId {
 }
 
 impl FromField for UserId {
-    fn from_at(row: &impl GetField, index: usize) -> Self {
+    fn from_at(row: &impl GetFieldNative, index: usize) -> Self {
         UserId::from_uuid(row.get(index))
     }
 }

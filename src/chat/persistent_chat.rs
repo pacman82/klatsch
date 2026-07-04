@@ -1,6 +1,6 @@
 use super::event::{Event, EventId, Message};
 use crate::{
-    persistence::{ExecuteSql, GetField, GetFieldExt as _, Persistence, PersistenceError},
+    persistence::{ExecuteSql, GetField as _, Persistence, PersistenceError},
     user::UserId,
 };
 use std::future::Future;
@@ -48,8 +48,8 @@ where
             let event_id = row.get(0);
             let message_id = row.get(1);
             let author = row.get(2);
-            let content = row.get_text(3);
-            let timestamp_ms = row.get_i64(4);
+            let content = row.get(3);
+            let timestamp_ms: i64 = row.get(4);
             let timestamp_ms: u64 = timestamp_ms.try_into().unwrap();
             let message = Message {
                 id: message_id,
@@ -100,10 +100,8 @@ where
     pub async fn new(persistence: P) -> anyhow::Result<Self> {
         let last_event_id = persistence
             .row("SELECT MAX(id) FROM events", (), |row| {
-                let event_id = row
-                    .get_i64_opt(0)
-                    .map(|event_id| EventId(event_id.try_into().unwrap()))
-                    .unwrap_or_else(EventId::before_all);
+                let maybe_event_id: Option<EventId> = row.get(0);
+                let event_id = maybe_event_id.unwrap_or_else(EventId::before_all);
                 Ok(event_id)
             })
             .await?;
@@ -144,8 +142,8 @@ where
         )",
         (),
     )?;
-    let senders = conn.rows_vec("SELECT DISTINCT sender FROM events", (), |row| {
-        Ok(row.get_text(0))
+    let senders: Vec<String> = conn.rows_vec("SELECT DISTINCT sender FROM events", (), |row| {
+        Ok(row.get(0))
     })?;
     for sender in &senders {
         let user_id = Uuid::new_v4();
@@ -231,10 +229,10 @@ where
     // So it is a unique constraint violation, but is it a duplicate or a conflict?
     let (author, content) = conn.row(
         "SELECT author_id, content FROM events WHERE message_id = ?1",
-        event.message.id.as_bytes().as_slice(),
+        event.message.id,
         |row| {
             let author: UserId = row.get(0);
-            let content = row.get_text(1);
+            let content: String = row.get(1);
             Ok((author, content))
         },
     )?;

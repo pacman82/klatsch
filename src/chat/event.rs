@@ -8,7 +8,7 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    persistence::{Argument, AsArgument, FromField, GetField},
+    persistence::{Argument, AsArgument, FromField, GetFieldNative},
     user::UserId,
 };
 
@@ -88,13 +88,28 @@ impl FromStr for EventId {
 }
 
 impl FromField for EventId {
-    fn from_at(row: &impl GetField, index: usize) -> Self {
-        EventId(row.get_i64(index).try_into().unwrap())
+    fn from_at(row: &impl GetFieldNative, index: usize) -> EventId {
+        let id: i64 = row.get(index);
+        let id: u64 = id.try_into().expect("event id must be non-negative");
+        EventId(id)
+    }
+}
+
+impl FromField for Option<EventId> {
+    fn from_at(row: &impl GetFieldNative, index: usize) -> Option<EventId> {
+        let maybe_id: Option<i64> = row.get(index);
+        let id = maybe_id?;
+        let id: u64 = id.try_into().expect("event id must be non-negative");
+        Some(EventId(id))
     }
 }
 
 impl AsArgument for EventId {
     fn as_argument(&self) -> Argument<'_> {
-        Argument::I64(self.0.try_into().unwrap())
+        Argument::I64(
+            self.0
+                .try_into()
+                .expect("event id must fit in signed 64Bit integer"),
+        )
     }
 }

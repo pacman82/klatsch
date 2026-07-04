@@ -1,4 +1,6 @@
-use super::{Argument, Arguments, ExecuteSql, GetField, Persistence, PersistenceError};
+use crate::persistence::GetField;
+
+use super::{Argument, Arguments, ExecuteSql, GetFieldNative, Persistence, PersistenceError};
 use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
@@ -144,24 +146,34 @@ fn to_rusqlite_params(params: &impl Arguments) -> impl Params {
     params_from_iter(it)
 }
 
-impl GetField for rusqlite::Row<'_> {
-    fn get_i64(&self, index: usize) -> i64 {
+impl GetFieldNative for rusqlite::Row<'_> {}
+
+impl GetField<i64> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> i64 {
         self.get(index).unwrap()
     }
+}
 
-    fn get_i64_opt(&self, index: usize) -> Option<i64> {
+impl GetField<Option<i64>> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> Option<i64> {
         self.get(index).unwrap()
     }
+}
 
-    fn get_text(&self, index: usize) -> String {
+impl GetField<String> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> String {
         self.get(index).unwrap()
     }
+}
 
-    fn get_text_opt(&self, index: usize) -> Option<String> {
+impl GetField<Option<String>> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> Option<String> {
         self.get(index).unwrap()
     }
+}
 
-    fn get_uuid(&self, index: usize) -> Uuid {
+impl GetField<Uuid> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> Uuid {
         let bytes = self.get(index).unwrap();
         Uuid::from_bytes(bytes)
     }
@@ -317,7 +329,9 @@ impl ToSql for Argument<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientBuilder, GetField, JournalMode, Persistence, SqlitePersistence, rusqlite};
+    use crate::persistence::GetField;
+
+    use super::{ClientBuilder, JournalMode, Persistence, SqlitePersistence, rusqlite};
 
     #[tokio::test]
     async fn creates_missing_persistence_directory() {
@@ -421,7 +435,10 @@ mod tests {
 
         let after = persistence
             .rows_vec("SELECT id, data FROM my_table", (), |row| {
-                Ok((row.get_i64(0), row.get_text(1)))
+                // Avoid confusion with rusqlite::Row::get
+                let id: i64 = <rusqlite::Row as GetField<i64>>::get(row, 0);
+                let data: String = <rusqlite::Row as GetField<String>>::get(row, 1);
+                Ok((id, data))
             })
             .await
             .unwrap();
