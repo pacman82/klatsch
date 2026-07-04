@@ -3,7 +3,7 @@ mod user_id;
 
 use serde::{Deserialize, Serialize};
 
-use crate::persistence::{ExecuteSql, GetField as _, Persistence};
+use crate::persistence::{ExecuteSql, GetField as _, GetFieldExt as _, Persistence};
 
 pub use self::user_id::UserId;
 
@@ -127,7 +127,11 @@ where
         .rows_vec(
             "SELECT id, password_hash FROM users WHERE name = ?1",
             name,
-            |row| Ok((UserId::from_uuid(row.get_uuid(0)), row.get_text_opt(1))),
+            |row| {
+                let user_id = row.get(0);
+                let password_hash = row.get_text_opt(1);
+                Ok((user_id, password_hash))
+            },
         )?
         .pop();
     Ok(maybe_user_auth)

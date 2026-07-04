@@ -379,16 +379,6 @@ mod tests {
     use tokio_stream::pending;
     use tower::ServiceExt; // for `oneshot`
 
-    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
-        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
-        0xb1,
-    ]));
-
-    const BOB_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
-        0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
-        0x1c,
-    ]));
-
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
     #[tokio::test]
@@ -407,7 +397,7 @@ mod tests {
                         EventId(1),
                         Message {
                             id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                            author: ALICE_ID,
+                            author: UserId::ALICE,
                             content: "One".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531600000),
@@ -416,7 +406,7 @@ mod tests {
                         EventId(2),
                         Message {
                             id: "019c0051-c29d-7968-b953-4adc898b1360".parse().unwrap(),
-                            author: BOB_ID,
+                            author: UserId::BOB,
                             content: "Two".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531601000),
@@ -425,7 +415,7 @@ mod tests {
                         EventId(3),
                         Message {
                             id: "019c0051-e50d-7ea7-8a0e-f7df4176dd93".parse().unwrap(),
-                            author: ALICE_ID,
+                            author: UserId::ALICE,
                             content: "Three".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531602000),
@@ -434,7 +424,7 @@ mod tests {
                         EventId(4),
                         Message {
                             id: "019c0052-09b0-73be-a145-3767cb10cdf6".parse().unwrap(),
-                            author: BOB_ID,
+                            author: UserId::BOB,
                             content: "Four".to_owned(),
                         },
                         UNIX_EPOCH + Duration::from_millis(1704531603000),
@@ -477,7 +467,7 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0050-e4d7-7447-9d8f-81cde690f4a1",
-                    "sender_id": ALICE_ID,
+                    "sender_id": UserId::ALICE,
                     "content": "One",
                     "timestamp_ms": 1704531600000u64
                 }),
@@ -487,7 +477,7 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0051-c29d-7968-b953-4adc898b1360",
-                    "sender_id": BOB_ID,
+                    "sender_id": UserId::BOB,
                     "content": "Two",
                     "timestamp_ms": 1704531601000u64
                 }),
@@ -497,7 +487,7 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0051-e50d-7ea7-8a0e-f7df4176dd93",
-                    "sender_id": ALICE_ID,
+                    "sender_id": UserId::ALICE,
                     "content": "Three",
                     "timestamp_ms": 1704531602000u64
                 }),
@@ -507,7 +497,7 @@ mod tests {
                 "message".to_owned(),
                 json!({
                     "id": "019c0052-09b0-73be-a145-3767cb10cdf6",
-                    "sender_id": BOB_ID,
+                    "sender_id": UserId::BOB,
                     "content": "Four",
                     "timestamp_ms": 1704531603000u64
                 }),
@@ -594,7 +584,7 @@ mod tests {
         struct SessionsStub;
         impl Sessions for SessionsStub {
             fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
-                Some(BOB_ID)
+                Some(UserId::BOB)
             }
         }
         let spy = ChatSpy::default();
@@ -622,7 +612,7 @@ mod tests {
             id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
                 .parse::<Uuid>()
                 .unwrap(),
-            author: BOB_ID,
+            author: UserId::BOB,
             content: "Hello, Alice!".to_owned(),
         };
         assert_eq!(spy.take_add_message_record(), &[expected_msg]);
@@ -722,7 +712,7 @@ mod tests {
                 _name: String,
                 _password: String,
             ) -> Result<UserId, UsersError> {
-                Ok(ALICE_ID)
+                Ok(UserId::ALICE)
             }
         }
         let app = api_router(Dummy, UsersStub, SessionsDummy, shutting_down);
@@ -741,7 +731,7 @@ mod tests {
         // Then
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let id: UserId = serde_json::from_slice(&body).unwrap();
-        assert_eq!(id, ALICE_ID);
+        assert_eq!(id, UserId::ALICE);
     }
 
     #[tokio::test]
@@ -917,7 +907,7 @@ mod tests {
                 _name: String,
                 _password: String,
             ) -> Result<UserId, UsersError> {
-                Ok(ALICE_ID)
+                Ok(UserId::ALICE)
             }
         }
         let app = api_router(Dummy, UsersStub, SessionsDummy, shutting_down);
@@ -936,7 +926,7 @@ mod tests {
         // Then
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let id: UserId = serde_json::from_slice(&body).unwrap();
-        assert_eq!(id, ALICE_ID);
+        assert_eq!(id, UserId::ALICE);
     }
 
     #[tokio::test]
