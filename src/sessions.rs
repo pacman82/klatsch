@@ -84,32 +84,25 @@ impl Sessions for InMemorySessions {
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use crate::user::UserId;
 
     use super::{InMemorySessions, Sessions as _};
-
-    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
-        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
-        0xb1,
-    ]));
 
     #[test]
     fn lookup_returns_user_id_session_was_created_for() {
         // Given
         let mut sessions = InMemorySessions::new();
         // When
-        let session_id = sessions.create(ALICE_ID);
+        let session_id = sessions.create(UserId::ALICE);
         // Then
-        assert_eq!(sessions.lookup(session_id), Some(ALICE_ID));
+        assert_eq!(sessions.lookup(session_id), Some(UserId::ALICE));
     }
 
     #[test]
     fn destroyed_session_cannot_be_looked_up() {
         // Given
         let mut sessions = InMemorySessions::new();
-        let session_id = sessions.create(ALICE_ID);
+        let session_id = sessions.create(UserId::ALICE);
         // When
         sessions.destroy(session_id);
         // Then

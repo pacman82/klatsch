@@ -10,18 +10,30 @@ use crate::persistence::{Argument, AsArgument, FromField, GetField, GetFieldExt 
 pub struct UserId(Uuid);
 
 impl UserId {
-    #[cfg(test)]
-    pub const fn nil() -> Self {
-        Self::from_uuid(Uuid::nil())
-    }
-
-    pub const fn from_uuid(uuid: Uuid) -> Self {
+    const fn from_uuid(uuid: Uuid) -> Self {
         UserId(uuid)
     }
 
     pub fn new() -> Self {
         Self::from_uuid(Uuid::new_v4())
     }
+
+    #[cfg(test)]
+    pub const fn nil() -> Self {
+        Self::from_uuid(Uuid::nil())
+    }
+
+    #[cfg(test)]
+    pub const ALICE: UserId = UserId::from_uuid(Uuid::from_bytes([
+        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
+        0xb1,
+    ]));
+
+    #[cfg(test)]
+    pub const BOB: UserId = UserId::from_uuid(Uuid::from_bytes([
+        0x01, 0x96, 0x52, 0x3e, 0xf3, 0x61, 0x7c, 0x62, 0xb4, 0x88, 0xad, 0x5a, 0x9a, 0x30, 0x02,
+        0x1c,
+    ]));
 }
 
 impl fmt::Display for UserId {

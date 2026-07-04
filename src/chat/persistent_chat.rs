@@ -312,7 +312,7 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: ALICE_ID,
+            author: UserId::ALICE,
             content: "Hello".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();
@@ -321,7 +321,7 @@ mod tests {
         let maybe_event = history
             .record_message(Message {
                 id,
-                author: ALICE_ID,
+                author: UserId::ALICE,
                 content: "Hello".to_owned(),
             })
             .await
@@ -339,7 +339,7 @@ mod tests {
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: ALICE_ID,
+            author: UserId::ALICE,
             content: "Hello".to_owned(),
         };
         history.record_message(message.clone()).await.unwrap();
@@ -348,7 +348,7 @@ mod tests {
         let result = history
             .record_message(Message {
                 id,
-                author: ALICE_ID,
+                author: UserId::ALICE,
                 content: "Goodbye".to_owned(),
             })
             .await;
@@ -390,7 +390,7 @@ mod tests {
         // When inserting a new record
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: ALICE_ID,
+            author: UserId::ALICE,
             content: "Hi".to_owned(),
         };
         let event = history.record_message(message.clone()).await.unwrap();
@@ -419,7 +419,7 @@ mod tests {
         // When inserting a new record ...
         let message = Message {
             id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: ALICE_ID,
+            author: UserId::ALICE,
             content: "Hi".to_owned(),
         };
         let _event = history.record_message(message.clone()).await.unwrap();
@@ -458,9 +458,4 @@ mod tests {
         migrate_chat_persistence(conn, from_version)?;
         Ok(())
     }
-
-    const ALICE_ID: UserId = UserId::from_uuid(Uuid::from_bytes([
-        0xab, 0x70, 0xb6, 0xca, 0x41, 0x39, 0x49, 0x9f, 0xa6, 0x6d, 0x15, 0xe8, 0x8f, 0x08, 0x1f,
-        0xb1,
-    ]));
 }
