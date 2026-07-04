@@ -1,20 +1,49 @@
-use uuid::Uuid;
-
-#[cfg_attr(test, double_trait::dummies)]
-pub trait Sessions {
-    fn create(&mut self, user_id: Uuid) -> Uuid;
-    fn lookup(&mut self, session_id: Uuid) -> Option<Uuid>;
-    fn destroy(&mut self, session_id: Uuid);
-}
-
 use std::{
     collections::HashMap,
+    fmt,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
+use uuid::Uuid;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SessionId(Uuid);
+
+impl SessionId {
+    pub const fn from_uuid(uuid: Uuid) -> Self {
+        SessionId(uuid)
+    }
+
+    fn new() -> Self {
+        Self::from_uuid(Uuid::new_v4())
+    }
+}
+
+impl fmt::Display for SessionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for SessionId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(SessionId)
+    }
+}
+
+#[cfg_attr(test, double_trait::dummies)]
+pub trait Sessions {
+    fn create(&mut self, user_id: Uuid) -> SessionId;
+    fn lookup(&mut self, session_id: SessionId) -> Option<Uuid>;
+    fn destroy(&mut self, session_id: SessionId);
+}
+
 #[derive(Clone)]
 pub struct InMemorySessions {
-    sessions: Arc<Mutex<HashMap<Uuid, Uuid>>>,
+    sessions: Arc<Mutex<HashMap<SessionId, Uuid>>>,
 }
 
 impl InMemorySessions {
@@ -26,8 +55,8 @@ impl InMemorySessions {
 }
 
 impl Sessions for InMemorySessions {
-    fn create(&mut self, user_id: Uuid) -> Uuid {
-        let session_id = Uuid::new_v4();
+    fn create(&mut self, user_id: Uuid) -> SessionId {
+        let session_id = SessionId::new();
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
@@ -35,7 +64,7 @@ impl Sessions for InMemorySessions {
         session_id
     }
 
-    fn lookup(&mut self, session_id: Uuid) -> Option<Uuid> {
+    fn lookup(&mut self, session_id: SessionId) -> Option<Uuid> {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
@@ -43,7 +72,7 @@ impl Sessions for InMemorySessions {
             .copied()
     }
 
-    fn destroy(&mut self, session_id: Uuid) {
+    fn destroy(&mut self, session_id: SessionId) {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")

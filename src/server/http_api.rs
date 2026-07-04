@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     chat::{ChatError, Event, Message, SharedChat},
-    sessions::Sessions,
+    sessions::{SessionId, Sessions},
     user::{User, Users, UsersError},
 };
 
@@ -231,7 +231,7 @@ where
             message: "Missing session".into(),
         })?
         .value()
-        .parse::<Uuid>()
+        .parse::<SessionId>()
         .map_err(|_| HttpError {
             status_code: StatusCode::UNAUTHORIZED,
             message: "Invalid session".into(),
@@ -255,7 +255,7 @@ where
 {
     if let Some(session_id) = jar
         .get("session")
-        .and_then(|c| c.value().parse::<Uuid>().ok())
+        .and_then(|c| c.value().parse::<SessionId>().ok())
     {
         sessions.destroy(session_id);
     }
@@ -273,7 +273,7 @@ struct LoginBody {
     password: String,
 }
 
-fn session_cookie(session_id: Uuid) -> Cookie<'static> {
+fn session_cookie(session_id: SessionId) -> Cookie<'static> {
     Cookie::build(("session", session_id.to_string()))
         // Http only prevents JavaScript from interacting with the session cookie. Hardening against
         // Cross site scripting attacks
@@ -389,7 +389,7 @@ mod tests {
         0x1c,
     ]);
 
-    const SOME_SESSION_ID: Uuid = Uuid::from_u128(1);
+    const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
     #[tokio::test]
     async fn events_route_forwards_events_from_chat() {
@@ -593,7 +593,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+            fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
                 Some(BOB_ID)
             }
         }
@@ -658,7 +658,7 @@ mod tests {
         #[derive(Clone)]
         struct EmptySessionsStub;
         impl Sessions for EmptySessionsStub {
-            fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+            fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
                 None
             }
         }
@@ -750,7 +750,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: Uuid) -> Uuid {
+            fn create(&mut self, _user_id: Uuid) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -786,7 +786,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: Uuid) -> Uuid {
+            fn create(&mut self, _user_id: Uuid) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -854,10 +854,10 @@ mod tests {
         // Given
         #[derive(Clone, Default)]
         struct SessionsSpy {
-            destroyed: Arc<Mutex<Vec<Uuid>>>,
+            destroyed: Arc<Mutex<Vec<SessionId>>>,
         }
         impl Sessions for SessionsSpy {
-            fn destroy(&mut self, session_id: Uuid) {
+            fn destroy(&mut self, session_id: SessionId) {
                 self.destroyed.lock().unwrap().push(session_id);
             }
         }
@@ -1327,11 +1327,11 @@ mod tests {
     struct SessionsDummy;
 
     impl Sessions for SessionsDummy {
-        fn create(&mut self, _user_id: Uuid) -> Uuid {
-            Uuid::nil()
+        fn create(&mut self, _user_id: Uuid) -> SessionId {
+            SessionId::from_uuid(Uuid::nil())
         }
 
-        fn lookup(&mut self, _session_id: Uuid) -> Option<Uuid> {
+        fn lookup(&mut self, _session_id: SessionId) -> Option<Uuid> {
             Some(Uuid::nil())
         }
     }
