@@ -14,10 +14,8 @@ use axum_extra::extract::{
 use futures_util::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
-use uuid::Uuid;
-
 use crate::{
-    chat::{ChatError, Event, Message, SharedChat},
+    chat::{ChatError, Event, Message, MessageId, SharedChat},
     sessions::{SessionId, Sessions},
     user::{User, UserId, Users, UsersError},
 };
@@ -174,7 +172,7 @@ pub struct HttpMessage {
     /// Sender generated unique identifier for the message. It is used to recover from errors
     /// sending messages. It also a key for the UI to efficiently update data structures then
     /// rendering messages.
-    pub id: Uuid,
+    pub id: MessageId,
     /// User id of the author
     pub sender_id: UserId,
     /// Text content of the message. I.e. the actual message
@@ -211,7 +209,7 @@ impl From<Event> for SseEvent {
 /// A message as submitted by the client via the add_message endpoint.
 #[derive(Deserialize)]
 struct NewMessage {
-    id: Uuid,
+    id: MessageId,
     content: String,
 }
 
@@ -360,6 +358,8 @@ mod tests {
         sync::{Arc, Mutex},
         time::{Duration, UNIX_EPOCH},
     };
+
+    use uuid::Uuid;
 
     use crate::{
         chat::{Event, EventId},
@@ -591,7 +591,7 @@ mod tests {
         let (_, shutting_down) = watch::channel(false);
         let app = api_router(spy.clone(), Dummy, SessionsStub, shutting_down);
         let new_message = json!({
-            "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
+            "id": MessageId::ALPHA,
             "content": "Hello, Alice!"
         });
 
@@ -609,9 +609,7 @@ mod tests {
 
         // Then
         let expected_msg = Message {
-            id: "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09"
-                .parse::<Uuid>()
-                .unwrap(),
+            id: MessageId::ALPHA,
             author: UserId::BOB,
             content: "Hello, Alice!".to_owned(),
         };

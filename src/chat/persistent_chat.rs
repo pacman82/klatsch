@@ -251,23 +251,19 @@ mod tests {
 
     use super::{Chat as _, PersistentChat};
     use crate::{
-        chat::{ChatError, EventId, Message, migrate_chat_persistence},
+        chat::{ChatError, EventId, Message, MessageId, migrate_chat_persistence},
         persistence::{ExecuteSql, Persistence, SqlitePersistence},
         user::UserId,
     };
-    use uuid::Uuid;
 
     #[tokio::test]
     async fn events_since_excludes_events_up_to_last_event_id() {
         // Given a history with three events
-        let id_1: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd994".parse().unwrap();
-        let id_2: Uuid = "019c0ab6-9d11-7a5b-abde-cb349e5fd995".parse().unwrap();
-        let id_3: Uuid = "019c0ab6-9d11-7fff-abde-cb349e5fd996".parse().unwrap();
         let persistence = persistence_fake().await;
         let mut history = PersistentChat::new(persistence).await.unwrap();
         history
             .record_message(Message {
-                id: id_1,
+                id: MessageId::ALPHA,
                 author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -275,7 +271,7 @@ mod tests {
             .unwrap();
         history
             .record_message(Message {
-                id: id_2,
+                id: MessageId::BETA,
                 author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -283,7 +279,7 @@ mod tests {
             .unwrap();
         history
             .record_message(Message {
-                id: id_3,
+                id: MessageId::GAMMA,
                 author: UserId::nil(),
                 content: "Dummy".to_owned(),
             })
@@ -295,18 +291,17 @@ mod tests {
 
         // Then only events 2 and 3 are returned
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].message.id, id_2);
-        assert_eq!(events[1].message.id, id_3);
+        assert_eq!(events[0].message.id, MessageId::BETA);
+        assert_eq!(events[1].message.id, MessageId::GAMMA);
     }
 
     #[tokio::test]
     async fn duplicate_same_id_same_message() {
         // Given a message id that already exists with the same content
-        let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let persistence = persistence_fake().await;
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            id: MessageId::ALPHA,
             author: UserId::ALICE,
             content: "Hello".to_owned(),
         };
@@ -315,7 +310,7 @@ mod tests {
         // When recording a duplicate message
         let maybe_event = history
             .record_message(Message {
-                id,
+                id: MessageId::ALPHA,
                 author: UserId::ALICE,
                 content: "Hello".to_owned(),
             })
@@ -329,11 +324,10 @@ mod tests {
     #[tokio::test]
     async fn conflict_same_id_different_message() {
         // Given a message id that already exists with the same content
-        let id: Uuid = "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap();
         let persistence = persistence_fake().await;
         let mut history = PersistentChat::new(persistence).await.unwrap();
         let message = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            id: MessageId::ALPHA,
             author: UserId::ALICE,
             content: "Hello".to_owned(),
         };
@@ -342,7 +336,7 @@ mod tests {
         // When recording a message whose id already exists with different content
         let result = history
             .record_message(Message {
-                id,
+                id: MessageId::ALPHA,
                 author: UserId::ALICE,
                 content: "Goodbye".to_owned(),
             })
