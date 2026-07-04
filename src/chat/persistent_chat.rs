@@ -45,9 +45,8 @@ where
             WHERE events.id > ?1 ORDER BY events.id";
 
         let map = |row: &P::Row<'_>| {
-            let event_id = row.get_i64(0);
-            let event_id = EventId(event_id.try_into().unwrap());
-            let message_id = row.get_uuid(1);
+            let event_id = row.get(0);
+            let message_id = row.get(1);
             let author = row.get(2);
             let content = row.get_text(3);
             let timestamp_ms = row.get_i64(4);
@@ -65,7 +64,6 @@ where
             Ok(event)
         };
 
-        let last_event_id: i64 = last_event_id.0.try_into().unwrap();
         self.persistence.rows_vec(query, last_event_id, map).await
     }
 
@@ -208,12 +206,11 @@ fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
 where
     C: ExecuteSql,
 {
-    let event_id: i64 = event.id.0.try_into().unwrap();
     let Err(err) = conn.execute(
         "INSERT INTO events (id, message_id, author_id, content, timestamp_ms) \
         VALUES (?1, ?2, ?3, ?4, ?5)",
         (
-            event_id,
+            event.id,
             event.message.id,
             event.message.author,
             event.message.content.as_str(),

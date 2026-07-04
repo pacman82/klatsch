@@ -7,7 +7,10 @@ use std::{
 
 use uuid::Uuid;
 
-use crate::user::UserId;
+use crate::{
+    persistence::{Argument, AsArgument, FromField, GetField},
+    user::UserId,
+};
 
 /// A message as it is stored and represented as part of a chat.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -81,5 +84,17 @@ impl FromStr for EventId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<u64>().map(EventId)
+    }
+}
+
+impl FromField for EventId {
+    fn from_at(row: &impl GetField, index: usize) -> Self {
+        EventId(row.get_i64(index).try_into().unwrap())
+    }
+}
+
+impl AsArgument for EventId {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::I64(self.0.try_into().unwrap())
     }
 }
