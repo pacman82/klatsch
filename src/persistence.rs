@@ -13,7 +13,7 @@ pub use self::{
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Persistence {
-    type Row<'a>: FieldAccess;
+    type Row<'a>: GetField;
     type Error: PersistenceError;
     type Connection: ExecuteSql<Error = Self::Error>;
 
@@ -44,7 +44,7 @@ pub trait Persistence {
 }
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait FieldAccess {
+pub trait GetField {
     fn get_uuid(&self, index: usize) -> Uuid;
     fn get_i64(&self, index: usize) -> i64;
     fn get_i64_opt(&self, index: usize) -> Option<i64>;
@@ -52,9 +52,33 @@ pub trait FieldAccess {
     fn get_text_opt(&self, index: usize) -> Option<String>;
 }
 
+pub trait FromField {
+    fn from_at(row: &impl GetField, index: usize) -> Self;
+}
+
+impl FromField for Uuid {
+    fn from_at(row: &impl GetField, index: usize) -> Self {
+        row.get_uuid(index)
+    }
+}
+
+pub trait GetFieldExt<T> {
+    fn get(&self, index: usize) -> T;
+}
+
+impl<T, R> GetFieldExt<T> for R
+where
+    T: FromField,
+    R: GetField,
+{
+    fn get(&self, index: usize) -> T {
+        T::from_at(self, index)
+    }
+}
+
 #[cfg_attr(test, double_trait::dummies)]
 pub trait ExecuteSql {
-    type Row<'a>: FieldAccess;
+    type Row<'a>: GetField;
     type Error: PersistenceError;
 
     fn execute(&self, query: &str, args: impl Arguments) -> Result<(), Self::Error>;

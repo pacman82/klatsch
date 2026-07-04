@@ -3,13 +3,18 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::persistence::{Argument, AsArgument};
+use crate::persistence::{Argument, AsArgument, FromField, GetField, GetFieldExt as _};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct UserId(Uuid);
 
 impl UserId {
+    #[cfg(test)]
+    pub const fn nil() -> Self {
+        Self::from_uuid(Uuid::nil())
+    }
+
     pub const fn from_uuid(uuid: Uuid) -> Self {
         UserId(uuid)
     }
@@ -42,5 +47,11 @@ impl AsArgument for UserId {
 impl AsArgument for &UserId {
     fn as_argument(&self) -> Argument<'_> {
         (&self.0).as_argument()
+    }
+}
+
+impl FromField for UserId {
+    fn from_at(row: &impl GetField, index: usize) -> Self {
+        UserId::from_uuid(row.get(index))
     }
 }

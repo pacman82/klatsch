@@ -336,7 +336,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: duplicate_id,
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -344,7 +344,7 @@ mod tests {
         sender
             .add_message(Message {
                 id: fresh_id,
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "dummy".to_owned(),
             })
             .await
@@ -380,7 +380,7 @@ mod tests {
             .client()
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                author: UserId::from_uuid(Uuid::nil()),
+                author: UserId::nil(),
                 content: "dummy".to_owned(),
             })
             .await;
@@ -699,7 +699,7 @@ mod tests {
                 last_event_id.successor(),
                 Message {
                     id: Uuid::nil(),
-                    author: UserId::from_uuid(Uuid::nil()),
+                    author: UserId::nil(),
                     content: "dummy".to_owned(),
                 },
                 SystemTime::UNIX_EPOCH,
