@@ -43,12 +43,11 @@ pub trait Sessions {
     fn destroy(&mut self, session_id: SessionId);
 }
 
-#[derive(Clone)]
-pub struct InMemorySessions {
+pub struct SessionsRuntime {
     sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
 }
 
-impl InMemorySessions {
+impl SessionsRuntime {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -56,7 +55,22 @@ impl InMemorySessions {
     }
 }
 
-impl Sessions for InMemorySessions {
+impl SessionsRuntime {
+    pub async fn shutdown(self) {}
+
+    pub fn client(&self) -> SessionsClient {
+        SessionsClient {
+            sessions: Arc::clone(&self.sessions),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SessionsClient {
+    sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
+}
+
+impl Sessions for SessionsClient {
     fn create(&mut self, user_id: UserId) -> SessionId {
         let session_id = SessionId::new();
         self.sessions
@@ -82,16 +96,17 @@ impl Sessions for InMemorySessions {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use crate::user::UserId;
 
-    use super::{InMemorySessions, Sessions as _};
+    use super::{Sessions as _, SessionsRuntime};
 
     #[test]
     fn lookup_returns_user_id_session_was_created_for() {
         // Given
-        let mut sessions = InMemorySessions::new();
+        let mut sessions = SessionsRuntime::new().client();
         // When
         let session_id = sessions.create(UserId::ALICE);
         // Then
@@ -101,7 +116,7 @@ mod tests {
     #[test]
     fn destroyed_session_cannot_be_looked_up() {
         // Given
-        let mut sessions = InMemorySessions::new();
+        let mut sessions = SessionsRuntime::new().client();
         let session_id = sessions.create(UserId::ALICE);
         // When
         sessions.destroy(session_id);
