@@ -5,12 +5,13 @@ use crate::{
     configuration::Configuration,
     persistence::{SqlitePersistence, migrate},
     server::Server,
-    sessions::InMemorySessions,
+    sessions::SessionsRuntime,
     user::PersistedUsers,
 };
 
 pub struct Klatsch {
     chat: ChatRuntime,
+    sessions: SessionsRuntime,
     server: Server,
 }
 
@@ -27,24 +28,26 @@ impl Klatsch {
         // Forward messages between peers in the chat
         let chat = ChatRuntime::new(history);
 
-        // Answer incoming HTTP requests
-        let server = Server::new(
-            cfg.socket_addr(),
-            chat.client(),
-            users,
-            InMemorySessions::new(),
-        )
-        .await?;
+        let sessions = SessionsRuntime::new();
 
-        Ok(Self { chat, server })
+        // Answer incoming HTTP requests
+        let server =
+            Server::new(cfg.socket_addr(), chat.client(), users, sessions.client()).await?;
+
+        Ok(Self {
+            chat,
+            server,
+            sessions,
+        })
     }
 
     pub async fn shutdown(self) {
         // Gracefully shutdown the http server.
         self.server.shutdown().await;
 
-        // Let's shutdown the chat runtime as well. After the http interface, since the http interface
-        // relies on it.
+        // Shutdown the chat and sessions runtimes after the http interface, since the http
+        // interface relies on them.
         self.chat.shutdown().await;
+        self.sessions.shutdown().await;
     }
 }
