@@ -44,7 +44,12 @@ pub struct ChatRuntime {
 }
 
 impl ChatRuntime {
-    pub fn with_chat_store(history: impl ChatStore + Send + 'static) -> Self {
+    /// Construct runtime with any chat store.
+    ///
+    /// This flexibility makes it well testable and enforces the implementation of runtime aspects
+    /// to be independent of `ChatStore`'s implemenation. The visibility is super since the decision
+    /// which `ChatStore` to use in production, belongs to the `chat` parent module.
+    pub(super) fn with_chat_store(history: impl ChatStore + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel(5);
         let actor = Actor::new(history, receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
