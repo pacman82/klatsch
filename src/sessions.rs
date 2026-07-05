@@ -1,13 +1,13 @@
 mod sessions_id;
+mod sessions_store;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use tokio::task::JoinHandle;
 
 use crate::user::UserId;
+
+use self::sessions_store::SessionStore;
 
 pub use self::sessions_id::SessionId;
 
@@ -19,13 +19,13 @@ pub trait Sessions {
 }
 
 pub struct SessionsRuntime {
-    sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
+    sessions: Arc<Mutex<SessionStore>>,
     handle: JoinHandle<()>,
 }
 
 impl SessionsRuntime {
     pub fn new() -> Self {
-        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let sessions = Arc::new(Mutex::new(SessionStore::new()));
         let handle = tokio::spawn(async {});
         Self { sessions, handle }
     }
@@ -45,32 +45,29 @@ impl SessionsRuntime {
 
 #[derive(Clone)]
 pub struct SessionsClient {
-    sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
+    sessions: Arc<Mutex<SessionStore>>,
 }
 
 impl Sessions for SessionsClient {
     fn create(&mut self, user_id: UserId) -> SessionId {
-        let session_id = SessionId::new();
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
-            .insert(session_id, user_id);
-        session_id
+            .create(user_id)
     }
 
     fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
-            .get(&session_id)
-            .copied()
+            .lookup(session_id)
     }
 
     fn destroy(&mut self, session_id: SessionId) {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
-            .remove(&session_id);
+            .destroy(session_id);
     }
 }
 
