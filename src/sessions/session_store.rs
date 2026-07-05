@@ -13,7 +13,12 @@ pub trait SessionStore {
     fn destroy(&mut self, session_id: SessionId);
     /// The earliest point in time at which a session will expire, or `None` if there are no
     /// active sessions.
+    #[cfg(not(test))]
     fn next_expiry(&self) -> Option<Instant>;
+    #[cfg(test)]
+    fn next_expiry(&self) -> Option<Instant> {
+        None
+    }
     /// Remove all sessions whose lease has expired.
     fn remove_expired(&mut self, now: Instant);
 }
