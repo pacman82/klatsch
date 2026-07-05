@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    chat::{ChatRuntime, PersistentChat},
+    chat::ChatRuntime,
     configuration::Configuration,
     persistence::{SqlitePersistence, migrate},
     server::Server,
@@ -23,10 +23,9 @@ impl Klatsch {
         let persistence = Arc::new(persistence);
 
         let users = PersistedUsers::new(persistence.clone());
-        let history = PersistentChat::new(persistence).await?;
 
         // Forward messages between peers in the chat
-        let chat = ChatRuntime::new(history);
+        let chat = ChatRuntime::new(persistence).await?;
 
         let sessions = SessionsRuntime::new();
 

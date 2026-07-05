@@ -1,7 +1,7 @@
 use std::{borrow::Cow, convert::Infallible};
 
 use crate::{
-    chat::{ChatError, Event, Message, MessageId, SharedChat},
+    chat::{Chat, ChatError, Event, Message, MessageId},
     sessions::{SessionId, Sessions},
     user::{User, UserId, Users, UsersError},
 };
@@ -80,7 +80,7 @@ pub fn api_router<C, U, S>(
     shutting_down: watch::Receiver<bool>,
 ) -> Router
 where
-    C: SharedChat + Send + Sync + Clone + 'static,
+    C: Chat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
     S: Sessions + Send + Sync + Clone + 'static,
 {
@@ -137,7 +137,7 @@ async fn events<C>(
     last_event_id: LastEventId,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
-    C: SharedChat + Send + 'static,
+    C: Chat + Send + 'static,
 {
     let EventsState {
         chat,
@@ -219,7 +219,7 @@ async fn add_message<C, S>(
     Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
-    C: SharedChat,
+    C: Chat,
     S: Sessions,
 {
     let session_id = jar
@@ -390,7 +390,7 @@ mod tests {
         #[derive(Clone)]
         struct ChatStub;
 
-        impl SharedChat for ChatStub {
+        impl Chat for ChatStub {
             fn events(
                 self,
                 _last_event_id: EventId,
@@ -514,7 +514,7 @@ mod tests {
         // Given a chat that fails immediately
         #[derive(Clone)]
         struct ChatSaboteur;
-        impl SharedChat for ChatSaboteur {
+        impl Chat for ChatSaboteur {
             fn events(self, _: EventId) -> impl Stream<Item = anyhow::Result<Event>> + Send {
                 tokio_stream::iter(vec![Err(anyhow::anyhow!("test error"))])
             }
@@ -1068,7 +1068,7 @@ mod tests {
         // Given a pending chat and an open request to events
         #[derive(Clone)]
         struct PendingChatStub;
-        impl SharedChat for PendingChatStub {
+        impl Chat for PendingChatStub {
             fn events(
                 self,
                 _last_event_id: EventId,
@@ -1108,7 +1108,7 @@ mod tests {
         // Given a chat that reports any message as a conflict
         #[derive(Clone)]
         struct ChatSaboteur;
-        impl SharedChat for ChatSaboteur {
+        impl Chat for ChatSaboteur {
             async fn add_message(&mut self, _: Message) -> Result<(), ChatError> {
                 Err(ChatError::Conflict)
             }
@@ -1183,7 +1183,7 @@ mod tests {
         // Given a client receiving events from a server
         #[derive(Clone)]
         struct OneEventThenPendingStub;
-        impl SharedChat for OneEventThenPendingStub {
+        impl Chat for OneEventThenPendingStub {
             fn events(self, _: EventId) -> impl Stream<Item = anyhow::Result<Event>> + Send {
                 tokio_stream::iter(vec![Ok(Event::with_timestamp(
                     EventId(1),
@@ -1255,7 +1255,7 @@ mod tests {
         events_record: Arc<Mutex<Vec<EventId>>>,
     }
 
-    impl SharedChat for ChatSpy {
+    impl Chat for ChatSpy {
         fn events(
             self,
             last_event_id: EventId,

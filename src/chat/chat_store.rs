@@ -10,7 +10,7 @@ use std::future::Future;
 use uuid::Uuid;
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait Chat {
+pub trait ChatStore {
     /// All events since the event with the given `last_event_id` (exclusive).
     fn events_since(
         &self,
@@ -38,7 +38,7 @@ pub enum ChatError {
     Internal,
 }
 
-impl<P> Chat for PersistentChat<P>
+impl<P> ChatStore for PersistentChat<P>
 where
     P: Persistence + Sync + Send,
 {
@@ -252,7 +252,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{Chat as _, PersistentChat};
+    use super::{ChatStore as _, PersistentChat};
     use crate::{
         chat::{ChatError, EventId, Message, MessageId, migrate_chat_persistence},
         persistence::{ExecuteSql, Persistence, SqlitePersistence},
