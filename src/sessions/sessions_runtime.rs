@@ -5,6 +5,8 @@ use tokio::{
 
 use crate::user::UserId;
 
+use std::time::Instant;
+
 use super::{SessionId, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -94,7 +96,7 @@ impl<S: SessionStore> SessionActor<S> {
     fn handle(&mut self, msg: SessionMsg) {
         match msg {
             SessionMsg::Create { user_id, reply } => {
-                let _ = reply.send(self.store.create(user_id));
+                let _ = reply.send(self.store.create(user_id, Instant::now()));
             }
             SessionMsg::Lookup { session_id, reply } => {
                 let _ = reply.send(self.store.lookup(session_id));
@@ -124,7 +126,7 @@ enum SessionMsg {
 mod tests {
     use std::{
         sync::{Arc, Mutex},
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use double_trait::Dummy;
@@ -149,7 +151,7 @@ mod tests {
             created_with: Arc<Mutex<Option<UserId>>>,
         }
         impl SessionStore for Spy {
-            fn create(&mut self, user_id: UserId) -> SessionId {
+            fn create(&mut self, user_id: UserId, _now: Instant) -> SessionId {
                 *self.created_with.lock().unwrap() = Some(user_id);
                 SessionId::ALPHA
             }
@@ -176,7 +178,7 @@ mod tests {
             looked_up: Arc<Mutex<Option<SessionId>>>,
         }
         impl SessionStore for Spy {
-            fn lookup(&self, session_id: SessionId) -> Option<UserId> {
+            fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
                 *self.looked_up.lock().unwrap() = Some(session_id);
                 Some(UserId::ALICE)
             }
