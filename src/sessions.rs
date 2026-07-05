@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use tokio::task::JoinHandle;
+
 use crate::user::UserId;
 
 pub use self::sessions_id::SessionId;
@@ -18,18 +20,21 @@ pub trait Sessions {
 
 pub struct SessionsRuntime {
     sessions: Arc<Mutex<HashMap<SessionId, UserId>>>,
+    handle: JoinHandle<()>,
 }
 
 impl SessionsRuntime {
     pub fn new() -> Self {
-        Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-        }
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let handle = tokio::spawn(async {});
+        Self { sessions, handle }
     }
 }
 
 impl SessionsRuntime {
-    pub async fn shutdown(self) {}
+    pub async fn shutdown(self) {
+        self.handle.await.unwrap();
+    }
 
     pub fn client(&self) -> SessionsClient {
         SessionsClient {
@@ -75,24 +80,34 @@ mod tests {
 
     use super::{Sessions as _, SessionsRuntime};
 
-    #[test]
-    fn lookup_returns_user_id_session_was_created_for() {
+    #[tokio::test]
+    async fn lookup_returns_user_id_session_was_created_for() {
         // Given
-        let mut sessions = SessionsRuntime::new().client();
+        let runtime = SessionsRuntime::new();
+        let mut sessions = runtime.client();
         // When
         let session_id = sessions.create(UserId::ALICE);
+        let user_id_after_lookup = sessions.lookup(session_id);
         // Then
-        assert_eq!(sessions.lookup(session_id), Some(UserId::ALICE));
+        assert_eq!(user_id_after_lookup, Some(UserId::ALICE));
+        // Cleanup
+        drop(sessions);
+        runtime.shutdown().await
     }
 
-    #[test]
-    fn destroyed_session_cannot_be_looked_up() {
+    #[tokio::test]
+    async fn destroyed_session_cannot_be_looked_up() {
         // Given
-        let mut sessions = SessionsRuntime::new().client();
+        let runtime = SessionsRuntime::new();
+        let mut sessions = runtime.client();
         let session_id = sessions.create(UserId::ALICE);
         // When
         sessions.destroy(session_id);
+        let user_id_after_lookup = sessions.lookup(session_id);
         // Then
-        assert_eq!(sessions.lookup(session_id), None);
+        assert_eq!(user_id_after_lookup, None);
+        // Cleanup
+        drop(sessions);
+        runtime.shutdown().await
     }
 }
