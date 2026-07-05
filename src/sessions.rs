@@ -1,5 +1,5 @@
-mod sessions_id;
-mod sessions_store;
+mod session_id;
+mod session_store;
 
 use tokio::{
     sync::{mpsc, oneshot},
@@ -8,9 +8,9 @@ use tokio::{
 
 use crate::user::UserId;
 
-use self::sessions_store::SessionStore;
+use self::session_store::SessionStore;
 
-pub use self::sessions_id::SessionId;
+pub use self::session_id::SessionId;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
