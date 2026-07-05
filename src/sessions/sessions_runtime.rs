@@ -5,7 +5,7 @@ use tokio::{
 
 use crate::user::UserId;
 
-use std::time::Instant;
+use tokio::time::Instant;
 
 use super::{SessionId, SessionStore};
 
@@ -126,8 +126,10 @@ enum SessionMsg {
 mod tests {
     use std::{
         sync::{Arc, Mutex},
-        time::{Duration, Instant},
+        time::Duration,
     };
+
+    use tokio::time::Instant;
 
     use double_trait::Dummy;
     use tokio::time::timeout;
@@ -143,16 +145,17 @@ mod tests {
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn forward_create_to_session_store() {
         // Given
+        let now = Instant::now();
         #[derive(Clone, Default)]
         struct Spy {
-            created_with: Arc<Mutex<Option<UserId>>>,
+            record: Arc<Mutex<Option<(UserId, Instant)>>>,
         }
         impl SessionStore for Spy {
-            fn create(&mut self, user_id: UserId, _now: Instant) -> SessionId {
-                *self.created_with.lock().unwrap() = Some(user_id);
+            fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
+                *self.record.lock().unwrap() = Some((user_id, now));
                 SessionId::ALPHA
             }
         }
@@ -165,7 +168,7 @@ mod tests {
 
         // Then
         assert_eq!(session_id, SessionId::ALPHA);
-        assert_eq!(*store.created_with.lock().unwrap(), Some(UserId::ALICE));
+        assert_eq!(*store.record.lock().unwrap(), Some((UserId::ALICE, now)));
         // Cleanup
         drop(client);
         runtime.shutdown().await;
