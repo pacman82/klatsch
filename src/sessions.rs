@@ -1,9 +1,10 @@
 mod sessions_id;
 mod sessions_store;
 
-use std::sync::{Arc, Mutex};
-
-use tokio::task::JoinHandle;
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 
 use crate::user::UserId;
 
@@ -19,63 +20,130 @@ pub trait Sessions {
 }
 
 pub struct SessionsRuntime {
-    sessions: Arc<Mutex<SessionStore>>,
+    sender: mpsc::Sender<SessionMsg>,
     handle: JoinHandle<()>,
 }
 
 impl SessionsRuntime {
     pub fn new() -> Self {
-        let sessions = Arc::new(Mutex::new(SessionStore::new()));
-        let handle = tokio::spawn(async {});
-        Self { sessions, handle }
+        let (sender, receiver) = mpsc::channel(16);
+        let actor = SessionActor::new(receiver);
+        let handle = tokio::spawn(async move { actor.run().await });
+        Self { sender, handle }
     }
-}
 
-impl SessionsRuntime {
     pub async fn shutdown(self) {
+        drop(self.sender);
         self.handle.await.unwrap();
     }
 
     pub fn client(&self) -> SessionsClient {
         SessionsClient {
-            sessions: Arc::clone(&self.sessions),
+            sender: self.sender.clone(),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct SessionsClient {
-    sessions: Arc<Mutex<SessionStore>>,
+    sender: mpsc::Sender<SessionMsg>,
 }
 
 impl Sessions for SessionsClient {
     async fn create(&mut self, user_id: UserId) -> SessionId {
-        self.sessions
-            .lock()
-            .expect("sessions lock must not be poisoned")
-            .create(user_id)
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(SessionMsg::Create { user_id, reply })
+            .await
+            .expect("SessionsRuntime must outlive its clients.");
+        response
+            .await
+            .expect("SessionsRuntime must outlive its clients.")
     }
 
     async fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
-        self.sessions
-            .lock()
-            .expect("sessions lock must not be poisoned")
-            .lookup(session_id)
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(SessionMsg::Lookup { session_id, reply })
+            .await
+            .expect("SessionsRuntime must outlive its clients.");
+        response
+            .await
+            .expect("SessionsRuntime must outlive its clients.")
     }
 
     async fn destroy(&mut self, session_id: SessionId) {
-        self.sessions
-            .lock()
-            .expect("sessions lock must not be poisoned")
-            .destroy(session_id);
+        self.sender
+            .send(SessionMsg::Destroy { session_id })
+            .await
+            .expect("SessionsRuntime must outlive its clients.");
     }
+}
+
+struct SessionActor {
+    store: SessionStore,
+    receiver: mpsc::Receiver<SessionMsg>,
+}
+
+impl SessionActor {
+    fn new(receiver: mpsc::Receiver<SessionMsg>) -> Self {
+        SessionActor {
+            store: SessionStore::new(),
+            receiver,
+        }
+    }
+
+    async fn run(mut self) {
+        while let Some(msg) = self.receiver.recv().await {
+            self.handle(msg);
+        }
+    }
+
+    fn handle(&mut self, msg: SessionMsg) {
+        match msg {
+            SessionMsg::Create { user_id, reply } => {
+                let _ = reply.send(self.store.create(user_id));
+            }
+            SessionMsg::Lookup { session_id, reply } => {
+                let _ = reply.send(self.store.lookup(session_id));
+            }
+            SessionMsg::Destroy { session_id } => {
+                self.store.destroy(session_id);
+            }
+        }
+    }
+}
+
+enum SessionMsg {
+    Create {
+        user_id: UserId,
+        reply: oneshot::Sender<SessionId>,
+    },
+    Lookup {
+        session_id: SessionId,
+        reply: oneshot::Sender<Option<UserId>>,
+    },
+    Destroy {
+        session_id: SessionId,
+    },
 }
 
 #[cfg(test)]
 mod tests {
+    use tokio::time::timeout;
+
     use crate::user::UserId;
 
+    use std::time::Duration;
+
     use super::{Sessions as _, SessionsRuntime};
+
+    #[tokio::test]
+    async fn shutdown_completes_within_one_second() {
+        let runtime = SessionsRuntime::new();
+        let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
+        assert!(result.is_ok(), "Shutdown did not complete within 1 second");
+    }
 
     #[tokio::test]
     async fn lookup_returns_user_id_session_was_created_for() {
