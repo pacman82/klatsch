@@ -5,10 +5,7 @@ use tokio::{
 
 use crate::user::UserId;
 
-use super::{
-    SessionId,
-    session_store::{InMemorySessionStore, SessionStore},
-};
+use super::{SessionId, session_store::SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
@@ -28,10 +25,6 @@ impl SessionsRuntime {
         let actor = SessionActor::new(store, receiver);
         let handle = tokio::spawn(async move { actor.run().await });
         Self { sender, handle }
-    }
-
-    pub fn new() -> Self {
-        Self::with_session_store(InMemorySessionStore::new())
     }
 
     pub async fn shutdown(self) {
@@ -135,11 +128,11 @@ mod tests {
 
     use std::time::Duration;
 
-    use super::{Sessions as _, SessionsRuntime};
+    use super::{super::session_store::InMemorySessionStore, Sessions as _, SessionsRuntime};
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
-        let runtime = SessionsRuntime::new();
+        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
         let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
@@ -147,7 +140,7 @@ mod tests {
     #[tokio::test]
     async fn lookup_returns_user_id_session_was_created_for() {
         // Given
-        let runtime = SessionsRuntime::new();
+        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
         let mut sessions = runtime.client();
         // When
         let session_id = sessions.create(UserId::ALICE).await;
@@ -162,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn destroyed_session_cannot_be_looked_up() {
         // Given
-        let runtime = SessionsRuntime::new();
+        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
         let mut sessions = runtime.client();
         let session_id = sessions.create(UserId::ALICE).await;
         // When
