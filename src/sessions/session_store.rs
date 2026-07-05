@@ -4,6 +4,7 @@ use crate::user::UserId;
 
 use super::SessionId;
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait SessionStore {
     fn create(&mut self, user_id: UserId) -> SessionId;
     fn lookup(&self, session_id: SessionId) -> Option<UserId>;

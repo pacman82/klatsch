@@ -5,7 +5,7 @@ use tokio::{
 
 use crate::user::UserId;
 
-use super::{SessionId, session_store::SessionStore};
+use super::{SessionId, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
@@ -122,49 +122,97 @@ enum SessionMsg {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+
+    use double_trait::Dummy;
     use tokio::time::timeout;
 
     use crate::user::UserId;
 
-    use std::time::Duration;
-
-    use super::{super::session_store::InMemorySessionStore, Sessions as _, SessionsRuntime};
+    use super::{SessionId, SessionStore, Sessions as _, SessionsRuntime};
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
-        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
+        let runtime = SessionsRuntime::with_session_store(Dummy);
         let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
 
     #[tokio::test]
-    async fn lookup_returns_user_id_session_was_created_for() {
+    async fn forward_create_to_session_store() {
         // Given
-        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
-        let mut sessions = runtime.client();
+        #[derive(Clone, Default)]
+        struct Spy {
+            created_with: Arc<Mutex<Option<UserId>>>,
+        }
+        impl SessionStore for Spy {
+            fn create(&mut self, user_id: UserId) -> SessionId {
+                *self.created_with.lock().unwrap() = Some(user_id);
+                SessionId::ALPHA
+            }
+        }
+        let store = Spy::default();
+        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let mut client = runtime.client();
+
         // When
-        let session_id = sessions.create(UserId::ALICE).await;
-        let user_id_after_lookup = sessions.lookup(session_id).await;
+        let session_id = client.create(UserId::ALICE).await;
+
         // Then
-        assert_eq!(user_id_after_lookup, Some(UserId::ALICE));
+        assert_eq!(session_id, SessionId::ALPHA);
+        assert_eq!(*store.created_with.lock().unwrap(), Some(UserId::ALICE));
         // Cleanup
-        drop(sessions);
-        runtime.shutdown().await
+        drop(client);
+        runtime.shutdown().await;
     }
 
     #[tokio::test]
-    async fn destroyed_session_cannot_be_looked_up() {
-        // Given
-        let runtime = SessionsRuntime::with_session_store(InMemorySessionStore::new());
-        let mut sessions = runtime.client();
-        let session_id = sessions.create(UserId::ALICE).await;
-        // When
-        sessions.destroy(session_id).await;
-        let user_id_after_lookup = sessions.lookup(session_id).await;
-        // Then
-        assert_eq!(user_id_after_lookup, None);
-        // Cleanup
-        drop(sessions);
-        runtime.shutdown().await
+    async fn lookup_forwards_session_id_to_store_and_returns_user_id() {
+        #[derive(Clone, Default)]
+        struct Spy {
+            looked_up: Arc<Mutex<Option<SessionId>>>,
+        }
+        impl SessionStore for Spy {
+            fn lookup(&self, session_id: SessionId) -> Option<UserId> {
+                *self.looked_up.lock().unwrap() = Some(session_id);
+                Some(UserId::ALICE)
+            }
+        }
+        let store = Spy::default();
+        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let mut client = runtime.client();
+
+        let returned = client.lookup(SessionId::ALPHA).await;
+
+        assert_eq!(returned, Some(UserId::ALICE));
+        assert_eq!(*store.looked_up.lock().unwrap(), Some(SessionId::ALPHA));
+        drop(client);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn destroy_forwards_session_id_to_store() {
+        #[derive(Clone, Default)]
+        struct Spy {
+            destroyed: Arc<Mutex<Option<SessionId>>>,
+        }
+        impl SessionStore for Spy {
+            fn destroy(&mut self, session_id: SessionId) {
+                *self.destroyed.lock().unwrap() = Some(session_id);
+            }
+        }
+        let store = Spy::default();
+        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let mut client = runtime.client();
+
+        client.destroy(SessionId::ALPHA).await;
+        // Destroy has no reply channel; shutdown drains the actor's queue before returning.
+        drop(client);
+        runtime.shutdown().await;
+
+        assert_eq!(*store.destroyed.lock().unwrap(), Some(SessionId::ALPHA));
     }
 }
