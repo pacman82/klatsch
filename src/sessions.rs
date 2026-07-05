@@ -1,40 +1,13 @@
+mod sessions_id;
+
 use std::{
     collections::HashMap,
-    fmt,
-    str::FromStr,
     sync::{Arc, Mutex},
 };
 
-use uuid::Uuid;
-
 use crate::user::UserId;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SessionId(Uuid);
-
-impl SessionId {
-    pub const fn from_uuid(uuid: Uuid) -> Self {
-        SessionId(uuid)
-    }
-
-    fn new() -> Self {
-        Self::from_uuid(Uuid::new_v4())
-    }
-}
-
-impl fmt::Display for SessionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl FromStr for SessionId {
-    type Err = uuid::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(SessionId)
-    }
-}
+pub use self::sessions_id::SessionId;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
