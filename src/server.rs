@@ -19,7 +19,7 @@ use tokio::{
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{chat::SharedChat, sessions::Sessions, user::Users};
+use crate::{chat::Chat, sessions::Sessions, user::Users};
 
 use self::{http_api::api_router, ui::ui_router};
 
@@ -35,7 +35,7 @@ impl Server {
     /// its own thread, the TCP socket is already opened and listened to once this function returns.
     pub async fn new(
         socket_address: impl ToSocketAddrs,
-        chat: impl SharedChat + Send + Sync + Clone + 'static,
+        chat: impl Chat + Send + Sync + Clone + 'static,
         users: impl Users + Send + Sync + Clone + 'static,
         sessions: impl Sessions + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
@@ -85,7 +85,7 @@ impl Server {
 
 fn router<C, U, S>(chat: C, users: U, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
 where
-    C: SharedChat + Send + Sync + Clone + 'static,
+    C: Chat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
     S: Sessions + Send + Sync + Clone + 'static,
 {

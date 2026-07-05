@@ -9,15 +9,15 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use super::{
+    chat_store::{ChatError, ChatStore},
     event::{Event, EventId},
     message::Message,
-    persistent_chat::{Chat, ChatError},
 };
 
 /// A shared chat. Allows multiple clients to communicate with each other by writing and reading
 /// messages to the same chat.
 #[cfg_attr(test, double_trait::dummies)]
-pub trait SharedChat: Sized {
+pub trait Chat: Sized {
     /// A stream which yields future and past events of the chat.
     ///
     /// # Parameters
@@ -44,7 +44,7 @@ pub struct ChatRuntime {
 }
 
 impl ChatRuntime {
-    pub fn new(history: impl Chat + Send + 'static) -> Self {
+    pub fn with_chat_store(history: impl ChatStore + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel(5);
         let actor = Actor::new(history, receiver);
         let join_handle = tokio::spawn(async move { actor.run().await });
@@ -81,7 +81,7 @@ pub struct ChatClient {
     sender: mpsc::Sender<ActorMsg>,
 }
 
-impl SharedChat for ChatClient {
+impl Chat for ChatClient {
     fn events(
         self,
         mut last_event_id: EventId,
@@ -158,7 +158,7 @@ struct Actor<H> {
     receiver: mpsc::Receiver<ActorMsg>,
 }
 
-impl<H: Chat> Actor<H> {
+impl<H: ChatStore> Actor<H> {
     pub fn new(history: H, receiver: mpsc::Receiver<ActorMsg>) -> Self {
         let (current, _) = broadcast::channel(10);
         Actor {
@@ -251,12 +251,12 @@ mod tests {
             ),
         ];
         struct HistoryStub(Vec<Event>);
-        impl Chat for HistoryStub {
+        impl ChatStore for HistoryStub {
             async fn events_since(&self, _last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
                 Ok(self.0.clone())
             }
         }
-        let chat = ChatRuntime::new(HistoryStub(canned.clone()));
+        let chat = ChatRuntime::with_chat_store(HistoryStub(canned.clone()));
 
         // When
         let events: Vec<_> = chat
@@ -278,7 +278,7 @@ mod tests {
     async fn add_message_forwards_to_history() {
         // Given
         let history = HistorySpy::new();
-        let chat = ChatRuntime::new(history.clone());
+        let chat = ChatRuntime::with_chat_store(history.clone());
 
         // When
         let msg = Message {
@@ -301,7 +301,7 @@ mod tests {
     async fn duplicate_message_is_not_broadcast() {
         // Given a history that treats one specific message ID as a duplicate
         struct HistoryStub;
-        impl Chat for HistoryStub {
+        impl ChatStore for HistoryStub {
             async fn events_since(&self, _last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
                 Ok(Vec::new())
             }
@@ -320,7 +320,7 @@ mod tests {
                 }
             }
         }
-        let chat = ChatRuntime::new(HistoryStub);
+        let chat = ChatRuntime::with_chat_store(HistoryStub);
 
         // and a receiver subscribed to live broadcast
         let mut events = chat.client().events(EventId::before_all()).boxed();
@@ -364,12 +364,12 @@ mod tests {
     async fn conflict_error_is_forwarded_to_client() {
         // Given a chat that reports any message as a conflict
         struct ChatSaboteur;
-        impl Chat for ChatSaboteur {
+        impl ChatStore for ChatSaboteur {
             async fn record_message(&mut self, _: Message) -> Result<Option<Event>, ChatError> {
                 Err(ChatError::Conflict)
             }
         }
-        let chat = ChatRuntime::new(ChatSaboteur);
+        let chat = ChatRuntime::with_chat_store(ChatSaboteur);
 
         // When a message is sent
         let result = chat
@@ -392,12 +392,12 @@ mod tests {
     async fn events_stream_forwards_error_from_history() {
         // Given a history that fails to read events
         struct SaboteurHistory;
-        impl Chat for SaboteurHistory {
+        impl ChatStore for SaboteurHistory {
             async fn events_since(&self, _: EventId) -> anyhow::Result<Vec<Event>> {
                 bail!("test error")
             }
         }
-        let chat = ChatRuntime::new(SaboteurHistory);
+        let chat = ChatRuntime::with_chat_store(SaboteurHistory);
 
         // When requesting events
         let result = chat
@@ -418,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
         // Given
-        let chat = ChatRuntime::new(Dummy);
+        let chat = ChatRuntime::with_chat_store(Dummy);
 
         // When
         let result = timeout(Duration::from_secs(1), chat.shutdown()).await;
@@ -443,7 +443,7 @@ mod tests {
         }
 
         struct HistoryDouble;
-        impl Chat for HistoryDouble {
+        impl ChatStore for HistoryDouble {
             async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
                 if last_event_id == EventId::before_all() {
                     Ok(vec![canned_event()])
@@ -462,7 +462,7 @@ mod tests {
                 )))
             }
         }
-        let chat = ChatRuntime::new(HistoryDouble);
+        let chat = ChatRuntime::with_chat_store(HistoryDouble);
 
         // When a client subscribes and consume the historic event
         let mut events_stream = chat.client().events(EventId::before_all()).boxed();
@@ -503,7 +503,7 @@ mod tests {
     async fn events_stream_delivers_new_history_on_re_request() {
         // Given: a history that grows between requests
         struct HistoryStub;
-        impl Chat for HistoryStub {
+        impl ChatStore for HistoryStub {
             async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
                 let events = match last_event_id {
                     EventId(0) => vec![Event::with_timestamp(
@@ -529,7 +529,7 @@ mod tests {
                 Ok(events)
             }
         }
-        let chat = ChatRuntime::new(HistoryStub);
+        let chat = ChatRuntime::with_chat_store(HistoryStub);
 
         // When
         let events: Vec<_> = chat
@@ -553,7 +553,7 @@ mod tests {
         // Given
         let history = HistorySpy::new();
         let spy = history.clone();
-        let chat = ChatRuntime::new(history);
+        let chat = ChatRuntime::with_chat_store(history);
 
         // When requesting events with last_event_id = 42
         let _event = chat.client().events(EventId(42)).boxed().next().await;
@@ -571,7 +571,7 @@ mod tests {
         // Given two clients from the same runtime
         let history = HistorySpy::new();
         let spy = history.clone();
-        let chat = ChatRuntime::new(history);
+        let chat = ChatRuntime::with_chat_store(history);
         let mut client_a = chat.client();
         let mut client_b = chat.client();
 
@@ -609,7 +609,7 @@ mod tests {
     #[tokio::test]
     async fn slow_receiver() {
         // Given: a chat and two clients
-        let chat = ChatRuntime::new(FakeHistory::new());
+        let chat = ChatRuntime::with_chat_store(FakeHistory::new());
         let mut sender_client = chat.client();
         let receiver_client = chat.client();
 
@@ -685,7 +685,7 @@ mod tests {
         }
     }
 
-    impl Chat for HistorySpy {
+    impl ChatStore for HistorySpy {
         async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
             self.observed_last_event_ids
                 .lock()
@@ -719,7 +719,7 @@ mod tests {
         }
     }
 
-    impl Chat for FakeHistory {
+    impl ChatStore for FakeHistory {
         async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
             let start = (last_event_id.0 as usize).min(self.events.len());
             Ok(self.events[start..].to_vec())
