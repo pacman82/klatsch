@@ -9,6 +9,12 @@ use std::{
 pub struct SessionId(Uuid);
 
 impl SessionId {
+    #[cfg(test)]
+    pub const ALPHA: SessionId = Self::from_uuid(Uuid::from_bytes([
+        0x22, 0x49, 0x05, 0x20, 0x73, 0x6d, 0x42, 0x2d, 0xa9, 0x62, 0x70, 0x70, 0x0a, 0xdd, 0x96,
+        0x4c,
+    ]));
+
     pub const fn from_uuid(uuid: Uuid) -> Self {
         SessionId(uuid)
     }

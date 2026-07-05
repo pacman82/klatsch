@@ -7,7 +7,7 @@ pub use self::{
     sessions_runtime::{Sessions, SessionsRuntime},
 };
 
-use self::session_store::InMemorySessionStore;
+use self::session_store::{InMemorySessionStore, SessionStore};
 
 impl SessionsRuntime {
     pub fn new() -> Self {
