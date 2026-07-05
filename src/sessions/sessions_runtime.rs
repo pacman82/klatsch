@@ -1,6 +1,10 @@
+use std::future::pending;
+
 use tokio::{
+    select,
     sync::{mpsc, oneshot},
     task::JoinHandle,
+    time::sleep_until,
 };
 
 use crate::user::UserId;
@@ -88,8 +92,24 @@ impl<S: SessionStore> SessionActor<S> {
     }
 
     async fn run(mut self) {
-        while let Some(msg) = self.receiver.recv().await {
-            self.handle(msg);
+        loop {
+            let next_expiry = self.store.next_expiry();
+            let sleep_until_sessions_expire = async {
+                if let Some(next_expiry) = next_expiry {
+                    sleep_until(next_expiry).await;
+                } else {
+                    pending().await
+                }
+            };
+            select! {
+                msg = self.receiver.recv() => match msg {
+                    Some(msg) => self.handle(msg),
+                    None => return,
+                },
+                () = sleep_until_sessions_expire => {
+                    self.store.remove_expired(Instant::now());
+                }
+            }
         }
     }
 
@@ -129,7 +149,10 @@ mod tests {
         time::Duration,
     };
 
-    use tokio::time::Instant;
+    use tokio::{
+        sync::mpsc,
+        time::{self, Instant},
+    };
 
     use double_trait::Dummy;
     use tokio::time::timeout;
@@ -219,5 +242,42 @@ mod tests {
         runtime.shutdown().await;
 
         assert_eq!(*store.destroyed.lock().unwrap(), Some(SessionId::ALPHA));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn remove_expired_when_next_expiry_is_reached() {
+        // Given
+        const TTL: Duration = Duration::from_secs(10);
+        let start = Instant::now();
+        let (tx, mut rx) = mpsc::channel(1);
+        #[derive(Clone)]
+        struct SessionStoreDouble {
+            start: Instant,
+            tx: mpsc::Sender<Instant>,
+        }
+        impl SessionStore for SessionStoreDouble {
+            fn next_expiry(&self) -> Option<Instant> {
+                Some(self.start + TTL)
+            }
+            fn remove_expired(&mut self, now: Instant) {
+                let _ = self.tx.try_send(now);
+            }
+        }
+        let runtime = SessionsRuntime::with_session_store(SessionStoreDouble { start, tx });
+        let client = runtime.client();
+
+        // When
+        time::advance(TTL).await;
+
+        // Then
+        let removed_at = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("remove_expired was not called within one second")
+            .unwrap();
+        assert_eq!(removed_at, start + TTL);
+
+        // Cleanup
+        drop(client);
+        runtime.shutdown().await;
     }
 }
