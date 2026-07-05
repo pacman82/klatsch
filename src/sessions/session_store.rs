@@ -1,4 +1,6 @@
-use std::{collections::HashMap, time::Instant};
+use std::collections::HashMap;
+
+use tokio::time::Instant;
 
 use crate::user::UserId;
 
@@ -54,7 +56,7 @@ impl SessionStore for InMemorySessionStore {
 mod tests {
     use crate::user::UserId;
 
-    use std::time::Instant;
+    use tokio::time::Instant;
 
     use super::{InMemorySessionStore, SessionStore as _};
 
