@@ -234,7 +234,7 @@ where
             status_code: StatusCode::UNAUTHORIZED,
             message: "Invalid session".into(),
         })?;
-    let user_id = sessions.lookup(session_id).ok_or(HttpError {
+    let user_id = sessions.lookup(session_id).await.ok_or(HttpError {
         status_code: StatusCode::UNAUTHORIZED,
         message: "Unknown session".into(),
     })?;
@@ -255,7 +255,7 @@ where
         .get("session")
         .and_then(|c| c.value().parse::<SessionId>().ok())
     {
-        sessions.destroy(session_id);
+        sessions.destroy(session_id).await;
     }
     jar.remove(
         Cookie::build("session")
@@ -295,7 +295,7 @@ where
     S: Sessions,
 {
     let user_id = users.signup(body.name, body.password).await?;
-    let session_id = sessions.create(user_id);
+    let session_id = sessions.create(user_id).await;
     Ok((jar.add(session_cookie(session_id)), Json(user_id)))
 }
 
@@ -309,7 +309,7 @@ where
     S: Sessions,
 {
     let user_id = users.login(body.name, body.password).await?;
-    let session_id = sessions.create(user_id);
+    let session_id = sessions.create(user_id).await;
     Ok((jar.add(session_cookie(session_id)), Json(user_id)))
 }
 
@@ -586,7 +586,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 Some(UserId::BOB)
             }
         }
@@ -649,7 +649,7 @@ mod tests {
         #[derive(Clone)]
         struct EmptySessionsStub;
         impl Sessions for EmptySessionsStub {
-            fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 None
             }
         }
@@ -741,7 +741,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: UserId) -> SessionId {
+            async fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -777,7 +777,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl Sessions for SessionsStub {
-            fn create(&mut self, _user_id: UserId) -> SessionId {
+            async fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
         }
@@ -848,7 +848,7 @@ mod tests {
             destroyed: Arc<Mutex<Vec<SessionId>>>,
         }
         impl Sessions for SessionsSpy {
-            fn destroy(&mut self, session_id: SessionId) {
+            async fn destroy(&mut self, session_id: SessionId) {
                 self.destroyed.lock().unwrap().push(session_id);
             }
         }
@@ -1318,11 +1318,11 @@ mod tests {
     struct SessionsDummy;
 
     impl Sessions for SessionsDummy {
-        fn create(&mut self, _user_id: UserId) -> SessionId {
+        async fn create(&mut self, _user_id: UserId) -> SessionId {
             SessionId::from_uuid(Uuid::nil())
         }
 
-        fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+        async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
             Some(UserId::nil())
         }
     }

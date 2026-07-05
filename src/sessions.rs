@@ -13,9 +13,9 @@ pub use self::sessions_id::SessionId;
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Sessions {
-    fn create(&mut self, user_id: UserId) -> SessionId;
-    fn lookup(&mut self, session_id: SessionId) -> Option<UserId>;
-    fn destroy(&mut self, session_id: SessionId);
+    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send;
+    fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
+    fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 }
 
 pub struct SessionsRuntime {
@@ -49,21 +49,21 @@ pub struct SessionsClient {
 }
 
 impl Sessions for SessionsClient {
-    fn create(&mut self, user_id: UserId) -> SessionId {
+    async fn create(&mut self, user_id: UserId) -> SessionId {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
             .create(user_id)
     }
 
-    fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
+    async fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
             .lookup(session_id)
     }
 
-    fn destroy(&mut self, session_id: SessionId) {
+    async fn destroy(&mut self, session_id: SessionId) {
         self.sessions
             .lock()
             .expect("sessions lock must not be poisoned")
@@ -83,8 +83,8 @@ mod tests {
         let runtime = SessionsRuntime::new();
         let mut sessions = runtime.client();
         // When
-        let session_id = sessions.create(UserId::ALICE);
-        let user_id_after_lookup = sessions.lookup(session_id);
+        let session_id = sessions.create(UserId::ALICE).await;
+        let user_id_after_lookup = sessions.lookup(session_id).await;
         // Then
         assert_eq!(user_id_after_lookup, Some(UserId::ALICE));
         // Cleanup
@@ -97,10 +97,10 @@ mod tests {
         // Given
         let runtime = SessionsRuntime::new();
         let mut sessions = runtime.client();
-        let session_id = sessions.create(UserId::ALICE);
+        let session_id = sessions.create(UserId::ALICE).await;
         // When
-        sessions.destroy(session_id);
-        let user_id_after_lookup = sessions.lookup(session_id);
+        sessions.destroy(session_id).await;
+        let user_id_after_lookup = sessions.lookup(session_id).await;
         // Then
         assert_eq!(user_id_after_lookup, None);
         // Cleanup
