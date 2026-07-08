@@ -43,7 +43,9 @@ impl SessionStore for InMemorySessionStore {
     }
 
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
-        self.sessions.get(&session_id).map(|(user_id, _)| *user_id)
+        let (user_id, expiry) = self.sessions.get_mut(&session_id)?;
+        *expiry = now + SLIDING_SESSION_TTL;
+        Some(*user_id)
     }
 
     fn destroy(&mut self, session_id: SessionId) {
@@ -93,6 +95,24 @@ mod tests {
 
         // Then
         assert_eq!(store.next_expiry(), Some(now + SLIDING_SESSION_TTL));
+    }
+
+    #[test]
+    fn lookup_extends_expiry() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        let session_id = store.create(UserId::ALICE, now);
+
+        // When
+        let one_day_later = now + Duration::from_hours(24);
+        store.lookup(session_id, one_day_later);
+
+        // Then
+        assert_eq!(
+            store.next_expiry(),
+            Some(one_day_later + SLIDING_SESSION_TTL)
+        );
     }
 
     #[test]
