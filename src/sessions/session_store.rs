@@ -44,7 +44,7 @@ impl SessionStore for InMemorySessionStore {
 
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
         let info = self.sessions.get_mut(&session_id)?;
-        info.extend_expiry(now);
+        info.last_activity = now;
         Some(info.user_id)
     }
 
@@ -53,7 +53,7 @@ impl SessionStore for InMemorySessionStore {
     }
 
     fn next_expiry(&self) -> Option<Instant> {
-        self.sessions.values().map(|info| info.valid_until).min()
+        self.sessions.values().map(|info| info.valid_until()).min()
     }
 
     fn remove_expired(&mut self, now: Instant) {
@@ -63,23 +63,23 @@ impl SessionStore for InMemorySessionStore {
 
 struct SessionInfo {
     user_id: UserId,
-    valid_until: Instant,
+    last_activity: Instant,
 }
 
 impl SessionInfo {
     fn new(user_id: UserId, now: Instant) -> Self {
         Self {
             user_id,
-            valid_until: now + SLIDING_SESSION_TTL,
+            last_activity: now,
         }
     }
 
-    fn extend_expiry(&mut self, now: Instant) {
-        self.valid_until = now + SLIDING_SESSION_TTL;
+    fn valid_until(&self) -> Instant {
+        self.last_activity + SLIDING_SESSION_TTL
     }
 
     fn is_valid(&self, now: Instant) -> bool {
-        now <= self.valid_until
+        now <= self.valid_until()
     }
 }
 
