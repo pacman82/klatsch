@@ -23,7 +23,7 @@ pub trait SessionStore {
 }
 
 pub struct InMemorySessionStore {
-    sessions: HashMap<SessionId, (UserId, Instant)>,
+    sessions: HashMap<SessionId, SessionInfo>,
 }
 
 impl InMemorySessionStore {
@@ -37,15 +37,15 @@ impl InMemorySessionStore {
 impl SessionStore for InMemorySessionStore {
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
         let session_id = SessionId::new();
-        self.sessions
-            .insert(session_id, (user_id, now + SLIDING_SESSION_TTL));
+        let session_info = SessionInfo::new(user_id, now);
+        self.sessions.insert(session_id, session_info);
         session_id
     }
 
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
-        let (user_id, expiry) = self.sessions.get_mut(&session_id)?;
-        *expiry = now + SLIDING_SESSION_TTL;
-        Some(*user_id)
+        let info = self.sessions.get_mut(&session_id)?;
+        info.extend_expiry(now);
+        Some(info.user_id)
     }
 
     fn destroy(&mut self, session_id: SessionId) {
@@ -53,10 +53,34 @@ impl SessionStore for InMemorySessionStore {
     }
 
     fn next_expiry(&self) -> Option<Instant> {
-        self.sessions.values().map(|(_, expiry)| *expiry).min()
+        self.sessions.values().map(|info| info.valid_until).min()
     }
 
-    fn remove_expired(&mut self, now: Instant) {}
+    fn remove_expired(&mut self, now: Instant) {
+        self.sessions.retain(|_, info| info.is_valid(now));
+    }
+}
+
+struct SessionInfo {
+    user_id: UserId,
+    valid_until: Instant,
+}
+
+impl SessionInfo {
+    fn new(user_id: UserId, now: Instant) -> Self {
+        Self {
+            user_id,
+            valid_until: now + SLIDING_SESSION_TTL,
+        }
+    }
+
+    fn extend_expiry(&mut self, now: Instant) {
+        self.valid_until = now + SLIDING_SESSION_TTL;
+    }
+
+    fn is_valid(&self, now: Instant) -> bool {
+        now <= self.valid_until
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +137,23 @@ mod tests {
             store.next_expiry(),
             Some(one_day_later + SLIDING_SESSION_TTL)
         );
+    }
+
+    #[test]
+    fn remove_expired_removes_expired_sessions_leaving_active_ones() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        let expired = store.create(UserId::ALICE, now);
+        let active = store.create(UserId::BOB, now + Duration::from_hours(24));
+
+        // When — past Alice's expiry, but 24 hours before Bob's
+        let sweep_time = now + SLIDING_SESSION_TTL + Duration::from_secs(1);
+        store.remove_expired(sweep_time);
+
+        // Then
+        assert_eq!(store.lookup(expired, sweep_time), None);
+        assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
     }
 
     #[test]
