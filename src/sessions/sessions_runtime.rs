@@ -119,7 +119,7 @@ impl<S: SessionStore> SessionActor<S> {
                 let _ = reply.send(self.store.create(user_id, Instant::now()));
             }
             SessionMsg::Lookup { session_id, reply } => {
-                let _ = reply.send(self.store.lookup(session_id));
+                let _ = reply.send(self.store.lookup(session_id, Instant::now()));
             }
             SessionMsg::Destroy { session_id } => {
                 self.store.destroy(session_id);
@@ -197,15 +197,17 @@ mod tests {
         runtime.shutdown().await;
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn lookup_forwards_session_id_to_store_and_returns_user_id() {
+        // Given
+        let now = Instant::now();
         #[derive(Clone, Default)]
         struct Spy {
-            looked_up: Arc<Mutex<Option<SessionId>>>,
+            record: Arc<Mutex<Option<(SessionId, Instant)>>>,
         }
         impl SessionStore for Spy {
-            fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
-                *self.looked_up.lock().unwrap() = Some(session_id);
+            fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
+                *self.record.lock().unwrap() = Some((session_id, now));
                 Some(UserId::ALICE)
             }
         }
@@ -213,10 +215,13 @@ mod tests {
         let runtime = SessionsRuntime::with_session_store(store.clone());
         let mut client = runtime.client();
 
+        // When
         let returned = client.lookup(SessionId::ALPHA).await;
 
+        // Then
         assert_eq!(returned, Some(UserId::ALICE));
-        assert_eq!(*store.looked_up.lock().unwrap(), Some(SessionId::ALPHA));
+        assert_eq!(*store.record.lock().unwrap(), Some((SessionId::ALPHA, now)));
+        // Cleanup
         drop(client);
         runtime.shutdown().await;
     }
