@@ -9,7 +9,7 @@ use super::SessionId;
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionStore {
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId;
-    fn lookup(&mut self, session_id: SessionId) -> Option<UserId>;
+    fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId>;
     fn destroy(&mut self, session_id: SessionId);
     /// The earliest point in time at which a session will expire, or `None` if there are no
     /// active sessions.
@@ -38,7 +38,7 @@ impl SessionStore for InMemorySessionStore {
         session_id
     }
 
-    fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
+    fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
         self.sessions.get(&session_id).copied()
     }
 
@@ -67,7 +67,7 @@ mod tests {
         let mut store = InMemorySessionStore::new();
         // When
         let session_id = store.create(UserId::ALICE, Instant::now());
-        let looked_up_session_id = store.lookup(session_id);
+        let looked_up_session_id = store.lookup(session_id, Instant::now());
         // Then
         assert_eq!(looked_up_session_id, Some(UserId::ALICE));
     }
@@ -79,7 +79,7 @@ mod tests {
         let session_id = store.create(UserId::ALICE, Instant::now());
         // When
         store.destroy(session_id);
-        let looked_up_session_id = store.lookup(session_id);
+        let looked_up_session_id = store.lookup(session_id, Instant::now());
         // Then
         assert_eq!(looked_up_session_id, None);
     }
