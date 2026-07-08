@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
+
+/// Delay session expiration for this interval after each access.
+const SLIDING_SESSION_TTL: Duration = Duration::from_hours(30 * 24);
 
 use tokio::time::Instant;
 
@@ -20,7 +23,7 @@ pub trait SessionStore {
 }
 
 pub struct InMemorySessionStore {
-    sessions: HashMap<SessionId, UserId>,
+    sessions: HashMap<SessionId, (UserId, Instant)>,
 }
 
 impl InMemorySessionStore {
@@ -34,12 +37,13 @@ impl InMemorySessionStore {
 impl SessionStore for InMemorySessionStore {
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
         let session_id = SessionId::new();
-        self.sessions.insert(session_id, user_id);
+        self.sessions
+            .insert(session_id, (user_id, now + SLIDING_SESSION_TTL));
         session_id
     }
 
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
-        self.sessions.get(&session_id).copied()
+        self.sessions.get(&session_id).map(|(user_id, _)| *user_id)
     }
 
     fn destroy(&mut self, session_id: SessionId) {
@@ -47,7 +51,7 @@ impl SessionStore for InMemorySessionStore {
     }
 
     fn next_expiry(&self) -> Option<Instant> {
-        None
+        self.sessions.values().map(|(_, expiry)| *expiry).min()
     }
 
     fn remove_expired(&mut self, now: Instant) {}
@@ -57,9 +61,39 @@ impl SessionStore for InMemorySessionStore {
 mod tests {
     use crate::user::UserId;
 
+    use std::time::Duration;
+
     use tokio::time::Instant;
 
-    use super::{InMemorySessionStore, SessionStore as _};
+    use super::{InMemorySessionStore, SLIDING_SESSION_TTL, SessionStore as _};
+
+    #[test]
+    fn session_expries_after_sliding_session_ttl() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+
+        // When
+        store.create(UserId::ALICE, now);
+        let next_expiry = store.next_expiry();
+
+        // Then
+        assert_eq!(next_expiry, Some(now + SLIDING_SESSION_TTL));
+    }
+
+    #[test]
+    fn next_expiry_reflects_earliest_session_only() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        store.create(UserId::ALICE, now);
+
+        // When
+        store.create(UserId::BOB, now + Duration::from_secs(1));
+
+        // Then
+        assert_eq!(store.next_expiry(), Some(now + SLIDING_SESSION_TTL));
+    }
 
     #[test]
     fn lookup_returns_user_id_session_was_created_for() {
