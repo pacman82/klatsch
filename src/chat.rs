@@ -1,11 +1,14 @@
+mod chat_http;
 mod chat_runtime;
 mod chat_store;
 mod event;
 mod message;
+mod terminate_if;
 
 use crate::persistence::Persistence;
 
 pub use self::{
+    chat_http::chat_routes,
     chat_runtime::{Chat, ChatRuntime},
     chat_store::{ChatError, migrate_chat_persistence},
     event::{Event, EventId},

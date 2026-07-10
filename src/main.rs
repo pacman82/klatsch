@@ -1,5 +1,7 @@
 mod chat;
 mod configuration;
+mod http;
+
 mod klatsch;
 mod persistence;
 mod server;

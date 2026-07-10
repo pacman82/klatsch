@@ -1,6 +1,4 @@
 mod http_api;
-mod last_event_id;
-mod terminate_if;
 mod ui;
 
 use std::time::Duration;
