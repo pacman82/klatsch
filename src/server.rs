@@ -1,4 +1,4 @@
-mod http_api;
+mod api;
 mod ui;
 
 use std::time::Duration;
@@ -19,7 +19,7 @@ use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{chat::Chat, sessions::Sessions, user::Users};
 
-use self::{http_api::api_router, ui::ui_router};
+use self::{api::api_router, ui::ui_router};
 
 pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams
