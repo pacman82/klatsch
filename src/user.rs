@@ -1,11 +1,12 @@
 mod password_hash;
+mod user_http;
 mod user_id;
 
 use serde::{Deserialize, Serialize};
 
 use crate::persistence::{ExecuteSql, GetField as _, Persistence};
 
-pub use self::user_id::UserId;
+pub use self::{user_http::user_routes, user_id::UserId};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {

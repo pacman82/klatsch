@@ -235,7 +235,10 @@ async fn set_sabotage(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        Chat, ChatError, Event, EventId, Message, MessageId, SessionId, Sessions, UserId,
+        chat_routes,
+    };
     use std::{
         mem::take,
         sync::{Arc, Mutex},
@@ -243,15 +246,10 @@ mod tests {
     };
 
     use eventsource_stream::Eventsource as _;
-    use futures_util::{Stream, stream::pending};
+    use futures_util::{Stream, StreamExt as _, stream::pending};
     use http_body_util::{BodyExt as _, BodyStream};
-    use tokio::time::timeout;
+    use tokio::{sync::watch, time::timeout};
     use uuid::Uuid;
-
-    use crate::{
-        chat::{Event, EventId},
-        user::UserId,
-    };
 
     use axum::{
         body::Body,
@@ -523,6 +521,36 @@ mod tests {
             ),
         ];
         assert_eq!(expected.as_slice(), &actual);
+    }
+
+    #[tokio::test]
+    async fn events_should_return_content_type_event_stream() {
+        // Given
+        let (_, shutting_down) = watch::channel(false);
+        let app = chat_routes(Dummy, Dummy, shutting_down);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            content_type.starts_with("text/event-stream"),
+            "Expected SSE content-type, got: {}",
+            content_type
+        );
     }
 
     #[tokio::test]
