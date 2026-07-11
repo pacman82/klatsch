@@ -2,8 +2,8 @@ use std::convert::Infallible;
 
 use axum::{
     Json, Router,
-    extract::State,
-    http::StatusCode,
+    extract::{FromRequestParts, State},
+    http::{StatusCode, request::Parts},
     response::{Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
@@ -75,6 +75,54 @@ struct ChatState<C, S> {
     sabotaged: watch::Receiver<bool>,
 }
 
+impl<C: Clone + Send + Sync, S: Sessions + Clone> Sessions for ChatState<C, S> {
+    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send {
+        self.sessions.create(user_id)
+    }
+
+    fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
+        self.sessions.lookup(session_id)
+    }
+
+    fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send {
+        self.sessions.destroy(session_id)
+    }
+}
+
+struct AuthenticatedUser(UserId);
+
+impl<S> FromRequestParts<S> for AuthenticatedUser
+where
+    S: Sessions + Clone + Send + Sync,
+{
+    type Rejection = HttpError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, HttpError> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        let session_id = jar
+            .get("session")
+            .ok_or(HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Missing session".into(),
+            })?
+            .value()
+            .parse::<SessionId>()
+            .map_err(|_| HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Invalid session".into(),
+            })?;
+        let user_id = state
+            .clone()
+            .lookup(session_id)
+            .await
+            .ok_or(HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Unknown session".into(),
+            })?;
+        Ok(AuthenticatedUser(user_id))
+    }
+}
+
 /// A message as submitted by the client via the add_message endpoint.
 #[derive(Deserialize)]
 struct NewMessage {
@@ -83,32 +131,15 @@ struct NewMessage {
 }
 
 async fn add_message<C, S>(
-    jar: CookieJar,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     State(state): State<ChatState<C, S>>,
     Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
     C: Chat,
-    S: Sessions,
+    S: Sessions + Clone + Send + Sync,
 {
     let mut chat = state.chat;
-    let mut sessions = state.sessions;
-    let session_id = jar
-        .get("session")
-        .ok_or(HttpError {
-            status_code: StatusCode::UNAUTHORIZED,
-            message: "Missing session".into(),
-        })?
-        .value()
-        .parse::<SessionId>()
-        .map_err(|_| HttpError {
-            status_code: StatusCode::UNAUTHORIZED,
-            message: "Invalid session".into(),
-        })?;
-    let user_id = sessions.lookup(session_id).await.ok_or(HttpError {
-        status_code: StatusCode::UNAUTHORIZED,
-        message: "Unknown session".into(),
-    })?;
     chat.add_message(Message {
         id: msg.id,
         author: user_id,
