@@ -35,8 +35,9 @@ where
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
 
-    let events_state = EventsState {
-        chat: chat.clone(),
+    let state = ChatState {
+        chat,
+        sessions,
         shutting_down,
         #[cfg(debug_assertions)]
         sabotaged: sabotage_rx,
@@ -44,9 +45,8 @@ where
 
     let router = Router::new()
         .route("/api/v0/add_message", post(add_message::<C, S>))
-        .with_state((chat, sessions.clone()))
-        .route("/api/v0/events", get(events::<C>))
-        .with_state(events_state);
+        .route("/api/v0/events", get(events::<C, S>))
+        .with_state(state);
 
     #[cfg(debug_assertions)]
     let router = router
@@ -56,11 +56,13 @@ where
     router
 }
 
-/// State for the events route.
+/// Shared state for all chat API routes.
 #[derive(Clone)]
-struct EventsState<C> {
+struct ChatState<C, S> {
     /// The chat which provides the events we want to stream to our client
     chat: C,
+    /// Session store used to authenticate and identify users.
+    sessions: S,
     /// We terminate the events stream in case of a shutdown. So the request finishes cleanly for
     /// clients. Also graceful shutdown in Axum waits for requests to finish, yet events never
     /// finish on their own (as there could always be a new message), so graceful shutdown would use
@@ -82,13 +84,15 @@ struct NewMessage {
 
 async fn add_message<C, S>(
     jar: CookieJar,
-    State((mut chat, mut sessions)): State<(C, S)>,
+    State(state): State<ChatState<C, S>>,
     Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
     C: Chat,
     S: Sessions,
 {
+    let mut chat = state.chat;
+    let mut sessions = state.sessions;
     let session_id = jar
         .get("session")
         .ok_or(HttpError {
@@ -129,23 +133,18 @@ impl From<ChatError> for HttpError {
     }
 }
 
-async fn events<C>(
-    state: State<EventsState<C>>,
+async fn events<C, S>(
+    State(state): State<ChatState<C, S>>,
     last_event_id: LastEventId<EventId>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
     C: Chat + Send + 'static,
+    S: Send + 'static,
 {
-    let EventsState {
-        chat,
-        shutting_down,
-        #[cfg(debug_assertions)]
-        sabotaged,
-    } = state.0;
     let last_event_id = last_event_id.0;
 
     // Convert chat events into SSE events
-    let events = chat.events(last_event_id).map(|chat_event| {
+    let events = state.chat.events(last_event_id).map(|chat_event| {
         let sse_event = match chat_event {
             Ok(event) => event.into(),
             Err(_) => SseEvent::default()
@@ -156,9 +155,9 @@ where
     });
 
     #[cfg(debug_assertions)]
-    let events = maybe_sabotage(sabotaged, events);
+    let events = maybe_sabotage(state.sabotaged, events);
 
-    let events = terminate_if(events, shutting_down);
+    let events = terminate_if(events, state.shutting_down);
 
     Sse::new(events)
 }
