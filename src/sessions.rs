@@ -4,7 +4,7 @@ mod sessions_runtime;
 
 pub use self::{
     session_id::SessionId,
-    sessions_runtime::{Sessions, SessionsRuntime},
+    sessions_runtime::{SessionLookup, SessionLifecycle, SessionsRuntime},
 };
 
 use self::session_store::{InMemorySessionStore, SessionStore};

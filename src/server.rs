@@ -17,7 +17,11 @@ use tokio::{
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{chat::Chat, sessions::Sessions, user::Users};
+use crate::{
+    chat::Chat,
+    sessions::{SessionLifecycle, SessionLookup},
+    user::Users,
+};
 
 use self::{api::api_router, ui::ui_router};
 
@@ -35,7 +39,7 @@ impl Server {
         socket_address: impl ToSocketAddrs,
         chat: impl Chat + Send + Sync + Clone + 'static,
         users: impl Users + Send + Sync + Clone + 'static,
-        sessions: impl Sessions + Send + Sync + Clone + 'static,
+        sessions: impl SessionLifecycle + SessionLookup + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let listener = TcpListener::bind(socket_address).await?;
 
@@ -85,7 +89,7 @@ fn router<C, U, S>(chat: C, users: U, sessions: S, shutting_down: watch::Receive
 where
     C: Chat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
-    S: Sessions + Send + Sync + Clone + 'static,
+    S: SessionLifecycle + SessionLookup + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))

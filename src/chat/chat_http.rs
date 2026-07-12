@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use crate::{
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
-    sessions::{SessionId, Sessions},
+    sessions::{SessionId, SessionLifecycle, SessionLookup},
     user::UserId,
 };
 
@@ -30,7 +30,7 @@ use super::{Chat, ChatError, Event, EventId, Message, MessageId};
 pub fn chat_routes<C, S>(chat: C, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
-    S: Sessions + Send + Sync + Clone + 'static,
+    S: SessionLookup + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -75,13 +75,15 @@ struct ChatState<C, S> {
     sabotaged: watch::Receiver<bool>,
 }
 
-impl<C: Clone + Send + Sync, S: Sessions + Clone> Sessions for ChatState<C, S> {
-    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send {
-        self.sessions.create(user_id)
-    }
-
+impl<C: Clone + Send + Sync, S: SessionLookup + Clone> SessionLookup for ChatState<C, S> {
     fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
         self.sessions.lookup(session_id)
+    }
+}
+
+impl<C: Clone + Send + Sync, S: SessionLifecycle + Clone> SessionLifecycle for ChatState<C, S> {
+    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send {
+        self.sessions.create(user_id)
     }
 
     fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send {
@@ -93,7 +95,7 @@ struct AuthenticatedUser(UserId);
 
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
-    S: Sessions + Clone + Send + Sync,
+    S: SessionLookup + Clone + Send + Sync,
 {
     type Rejection = HttpError;
 
@@ -111,14 +113,10 @@ where
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Invalid session".into(),
             })?;
-        let user_id = state
-            .clone()
-            .lookup(session_id)
-            .await
-            .ok_or(HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Unknown session".into(),
-            })?;
+        let user_id = state.clone().lookup(session_id).await.ok_or(HttpError {
+            status_code: StatusCode::UNAUTHORIZED,
+            message: "Unknown session".into(),
+        })?;
         Ok(AuthenticatedUser(user_id))
     }
 }
@@ -137,7 +135,7 @@ async fn add_message<C, S>(
 ) -> Result<(), HttpError>
 where
     C: Chat,
-    S: Sessions + Clone + Send + Sync,
+    S: SessionLookup + Clone + Send + Sync,
 {
     let mut chat = state.chat;
     chat.add_message(Message {
@@ -265,9 +263,10 @@ async fn set_sabotage(
 
 #[cfg(test)]
 mod tests {
+    use crate::sessions::SessionLookup;
+
     use super::{
-        Chat, ChatError, Event, EventId, Message, MessageId, SessionId, Sessions, UserId,
-        chat_routes,
+        Chat, ChatError, Event, EventId, Message, MessageId, SessionId, UserId, chat_routes,
     };
     use std::{
         mem::take,
@@ -296,7 +295,7 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct SessionsStub;
-        impl Sessions for SessionsStub {
+        impl SessionLookup for SessionsStub {
             async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 Some(UserId::BOB)
             }
@@ -362,7 +361,7 @@ mod tests {
         // Given a sessions store with no sessions
         #[derive(Clone)]
         struct EmptySessionsStub;
-        impl Sessions for EmptySessionsStub {
+        impl SessionLookup for EmptySessionsStub {
             async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
                 None
             }
@@ -800,11 +799,7 @@ mod tests {
     #[derive(Clone)]
     struct SessionsDummy;
 
-    impl Sessions for SessionsDummy {
-        async fn create(&mut self, _user_id: UserId) -> SessionId {
-            SessionId::from_uuid(Uuid::nil())
-        }
-
+    impl SessionLookup for SessionsDummy {
         async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
             Some(UserId::nil())
         }

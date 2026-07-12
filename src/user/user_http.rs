@@ -1,6 +1,6 @@
 use crate::{
     http::HttpError,
-    sessions::{SessionId, Sessions},
+    sessions::{SessionId, SessionLifecycle},
 };
 
 use super::{User, UserId, Users, UsersError};
@@ -20,7 +20,7 @@ use serde::Deserialize;
 pub fn user_routes<U, S>(users: U, sessions: S) -> Router
 where
     U: Users + Send + Sync + Clone + 'static,
-    S: Sessions + Send + Sync + Clone + 'static,
+    S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U>))
@@ -36,7 +36,7 @@ where
 
 async fn logout<S>(jar: CookieJar, State(mut sessions): State<S>) -> CookieJar
 where
-    S: Sessions,
+    S: SessionLifecycle,
 {
     if let Some(session_id) = jar
         .get("session")
@@ -79,7 +79,7 @@ async fn signup<U, S>(
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
     U: Users,
-    S: Sessions,
+    S: SessionLifecycle,
 {
     let user_id = users.signup(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
@@ -93,7 +93,7 @@ async fn login<U, S>(
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
     U: Users,
-    S: Sessions,
+    S: SessionLifecycle,
 {
     let user_id = users.login(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
@@ -139,7 +139,10 @@ mod tests {
 
     use uuid::Uuid;
 
-    use crate::user::{User, UsersError};
+    use crate::{
+        sessions::SessionLookup,
+        user::{User, UsersError},
+    };
 
     use super::*;
     use axum::{
@@ -216,7 +219,7 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct SessionsStub;
-        impl Sessions for SessionsStub {
+        impl SessionLifecycle for SessionsStub {
             async fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
@@ -251,7 +254,7 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct SessionsStub;
-        impl Sessions for SessionsStub {
+        impl SessionLifecycle for SessionsStub {
             async fn create(&mut self, _user_id: UserId) -> SessionId {
                 SOME_SESSION_ID
             }
@@ -320,7 +323,7 @@ mod tests {
         struct SessionsSpy {
             destroyed: Arc<Mutex<Vec<SessionId>>>,
         }
-        impl Sessions for SessionsSpy {
+        impl SessionLifecycle for SessionsSpy {
             async fn destroy(&mut self, session_id: SessionId) {
                 self.destroyed.lock().unwrap().push(session_id);
             }
@@ -544,11 +547,13 @@ mod tests {
     #[derive(Clone)]
     struct SessionsDummy;
 
-    impl Sessions for SessionsDummy {
+    impl SessionLifecycle for SessionsDummy {
         async fn create(&mut self, _user_id: UserId) -> SessionId {
             SessionId::from_uuid(Uuid::nil())
         }
+    }
 
+    impl SessionLookup for SessionsDummy {
         async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
             Some(UserId::nil())
         }
