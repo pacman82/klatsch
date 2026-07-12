@@ -86,7 +86,7 @@ mod tests {
         #[derive(Clone)]
         struct EmptySessionsStub;
         impl SessionLookup for EmptySessionsStub {
-            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
                 None
             }
         }
@@ -113,7 +113,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl SessionLookup for SessionsStub {
-            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
                 Some(UserId::ALICE)
             }
         }

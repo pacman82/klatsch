@@ -15,7 +15,7 @@ use super::{SessionId, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLookup {
-    fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
+    fn lookup(&self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
 }
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -55,7 +55,7 @@ pub struct SessionsClient {
 }
 
 impl SessionLookup for SessionsClient {
-    async fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
+    async fn lookup(&self, session_id: SessionId) -> Option<UserId> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(SessionMsg::Lookup { session_id, reply })
@@ -221,7 +221,7 @@ mod tests {
         }
         let store = Spy::default();
         let runtime = SessionsRuntime::with_session_store(store.clone());
-        let mut client = runtime.client();
+        let client = runtime.client();
 
         // When
         let returned = client.lookup(SessionId::ALPHA).await;

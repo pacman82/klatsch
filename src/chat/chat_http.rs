@@ -75,7 +75,7 @@ struct ChatState<C, S> {
 }
 
 impl<C: Clone + Send + Sync, S: SessionLookup + Clone> SessionLookup for ChatState<C, S> {
-    fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
+    fn lookup(&self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
         self.sessions.lookup(session_id)
     }
 }
@@ -255,7 +255,7 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl SessionLookup for SessionsStub {
-            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
                 Some(UserId::BOB)
             }
         }
@@ -697,7 +697,7 @@ mod tests {
     struct SessionsDummy;
 
     impl SessionLookup for SessionsDummy {
-        async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+        async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
             Some(UserId::nil())
         }
     }
