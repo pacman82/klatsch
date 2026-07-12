@@ -1,6 +1,7 @@
 use crate::{
     chat::{Chat, chat_routes},
-    sessions::{SessionLifecycle, SessionLookup},
+    http::AuthenticateRequest,
+    sessions::SessionLifecycle,
     user::{Users, user_routes},
 };
 use axum::Router;
@@ -15,7 +16,7 @@ pub fn api_router<C, U, S>(
 where
     C: Chat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
-    S: SessionLifecycle + SessionLookup + Send + Sync + Clone + 'static,
+    S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     let router = Router::new();
     let router = router

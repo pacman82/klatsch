@@ -139,10 +139,7 @@ mod tests {
 
     use uuid::Uuid;
 
-    use crate::{
-        sessions::SessionLookup,
-        user::{User, UsersError},
-    };
+    use crate::user::{User, UsersError};
 
     use super::*;
     use axum::{
@@ -550,12 +547,6 @@ mod tests {
     impl SessionLifecycle for SessionsDummy {
         async fn create(&mut self, _user_id: UserId) -> SessionId {
             SessionId::from_uuid(Uuid::nil())
-        }
-    }
-
-    impl SessionLookup for SessionsDummy {
-        async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
-            Some(UserId::nil())
         }
     }
 

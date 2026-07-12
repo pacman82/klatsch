@@ -1,40 +1,37 @@
-use super::{SessionId, SessionLookup};
-use crate::{http::HttpError, user::UserId};
-use axum::{
-    extract::FromRequestParts,
-    http::{StatusCode, request::Parts},
-};
+use axum::http::{StatusCode, request::Parts};
 use axum_extra::extract::CookieJar;
 
-/// Extractor for Axum route handlers. Extracts User Id from Session copy given that the the router
-/// state is [`super::SessionLookup`].
-pub struct AuthenticatedUser(pub UserId);
+use crate::{
+    http::{AuthenticateRequest, HttpError},
+    sessions::{SessionId, SessionLookup},
+    user::UserId,
+};
 
-impl<S> FromRequestParts<S> for AuthenticatedUser
-where
-    S: SessionLookup + Clone + Send + Sync,
-{
-    type Rejection = HttpError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, HttpError> {
+impl<T: SessionLookup + Sync> AuthenticateRequest for T {
+    fn authenticate_request(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
         let jar = CookieJar::from_headers(&parts.headers);
         let session_id = jar
             .get("session")
             .ok_or(HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Missing session".into(),
-            })?
-            .value()
-            .parse::<SessionId>()
-            .map_err(|_| HttpError {
+            })
+            .and_then(|c| {
+                c.value().parse::<SessionId>().map_err(|_| HttpError {
+                    status_code: StatusCode::UNAUTHORIZED,
+                    message: "Invalid session".into(),
+                })
+            });
+        async move {
+            let session_id = session_id?;
+            self.lookup(session_id).await.ok_or(HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
-                message: "Invalid session".into(),
-            })?;
-        let user_id = state.clone().lookup(session_id).await.ok_or(HttpError {
-            status_code: StatusCode::UNAUTHORIZED,
-            message: "Unknown session".into(),
-        })?;
-        Ok(AuthenticatedUser(user_id))
+                message: "Unknown session".into(),
+            })
+        }
     }
 }
 
@@ -46,11 +43,10 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
+        http::AuthenticatedUser,
         sessions::{SessionId, SessionLookup},
         user::UserId,
     };
-
-    use super::AuthenticatedUser;
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
