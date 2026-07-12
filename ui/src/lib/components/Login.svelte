@@ -9,7 +9,7 @@
 	// An error in case the last login attempt failed. Used to display an error message to the user.
 	let login_error = $state<LoginError | null>(null);
 
-	async function log_in(e: SubmitEvent) {
+	async function log_in(e: MouseEvent) {
 		e.preventDefault();
 		const trimmed = name.trim();
 		if (!trimmed) return;
@@ -28,7 +28,7 @@
 		user.login(id);
 	}
 
-	async function sign_up(e: SubmitEvent) {
+	async function sign_up(e: MouseEvent) {
 		e.preventDefault();
 		const trimmed = name.trim();
 		if (!trimmed) return;
