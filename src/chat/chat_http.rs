@@ -2,12 +2,11 @@ use std::convert::Infallible;
 
 use axum::{
     Json, Router,
-    extract::{FromRequestParts, State},
-    http::{StatusCode, request::Parts},
+    extract::State,
+    http::StatusCode,
     response::{Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
-use axum_extra::extract::CookieJar;
 use futures_util::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -15,7 +14,7 @@ use tokio::sync::watch;
 use crate::{
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
-    sessions::{SessionId, SessionLookup},
+    sessions::{AuthenticatedUser, SessionId, SessionLookup},
     user::UserId,
 };
 
@@ -78,36 +77,6 @@ struct ChatState<C, S> {
 impl<C: Clone + Send + Sync, S: SessionLookup + Clone> SessionLookup for ChatState<C, S> {
     fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
         self.sessions.lookup(session_id)
-    }
-}
-
-struct AuthenticatedUser(UserId);
-
-impl<S> FromRequestParts<S> for AuthenticatedUser
-where
-    S: SessionLookup + Clone + Send + Sync,
-{
-    type Rejection = HttpError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, HttpError> {
-        let jar = CookieJar::from_headers(&parts.headers);
-        let session_id = jar
-            .get("session")
-            .ok_or(HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Missing session".into(),
-            })?
-            .value()
-            .parse::<SessionId>()
-            .map_err(|_| HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Invalid session".into(),
-            })?;
-        let user_id = state.clone().lookup(session_id).await.ok_or(HttpError {
-            status_code: StatusCode::UNAUTHORIZED,
-            message: "Unknown session".into(),
-        })?;
-        Ok(AuthenticatedUser(user_id))
     }
 }
 
@@ -317,68 +286,6 @@ mod tests {
             content: "Hello, Alice!".to_owned(),
         };
         assert_eq!(spy.take_add_message_record(), &[expected_msg]);
-    }
-
-    #[tokio::test]
-    async fn add_message_rejects_missing_session() {
-        // Given
-        let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(Dummy, Dummy, shutting_down);
-
-        // When a message is sent without a session cookie
-        let response = app
-            .oneshot(
-                Request::post("/api/v0/add_message")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        json!({
-                            "id": Uuid::nil(),
-                            "content": "dummy"
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        // Then the request is rejected
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn add_message_rejects_unknown_session() {
-        // Given a sessions store with no sessions
-        #[derive(Clone)]
-        struct EmptySessionsStub;
-        impl SessionLookup for EmptySessionsStub {
-            async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
-                None
-            }
-        }
-        let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(Dummy, EmptySessionsStub, shutting_down);
-
-        // When a message is sent with an unrecognised session
-        let response = app
-            .oneshot(
-                Request::post("/api/v0/add_message")
-                    .header("content-type", "application/json")
-                    .header("cookie", format!("session={SOME_SESSION_ID}"))
-                    .body(Body::from(
-                        json!({
-                            "id": Uuid::nil(),
-                            "content": "dummy"
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        // Then the request is rejected
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
