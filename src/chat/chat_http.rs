@@ -11,10 +11,11 @@ use futures_util::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+use axum::http::request::Parts;
+
 use crate::{
     chat::terminate_if::terminate_if,
-    http::{HttpError, LastEventId},
-    sessions::{AuthenticatedUser, SessionId, SessionLookup},
+    http::{AuthenticateRequest, AuthenticatedUser, HttpError, LastEventId},
     user::UserId,
 };
 
@@ -29,7 +30,7 @@ use super::{Chat, ChatError, Event, EventId, Message, MessageId};
 pub fn chat_routes<C, S>(chat: C, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
-    S: SessionLookup + Send + Sync + Clone + 'static,
+    S: AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     #[cfg(debug_assertions)]
     let (sabotage_tx, sabotage_rx) = watch::channel(false);
@@ -74,9 +75,12 @@ struct ChatState<C, S> {
     sabotaged: watch::Receiver<bool>,
 }
 
-impl<C: Clone + Send + Sync, S: SessionLookup + Clone> SessionLookup for ChatState<C, S> {
-    fn lookup(&self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
-        self.sessions.lookup(session_id)
+impl<C: Send + Sync, S: AuthenticateRequest + Sync> AuthenticateRequest for ChatState<C, S> {
+    fn authenticate_request(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
+        self.sessions.authenticate_request(parts)
     }
 }
 
@@ -93,8 +97,8 @@ async fn add_message<C, S>(
     Json(msg): Json<NewMessage>,
 ) -> Result<(), HttpError>
 where
-    C: Chat,
-    S: SessionLookup + Clone + Send + Sync,
+    C: Chat + Clone + Send + Sync,
+    S: AuthenticateRequest + Clone + Send + Sync,
 {
     let mut chat = state.chat;
     chat.add_message(Message {
@@ -222,11 +226,10 @@ async fn set_sabotage(
 
 #[cfg(test)]
 mod tests {
-    use crate::sessions::SessionLookup;
+    use crate::http::AuthenticateRequest;
+    use axum::http::request::Parts;
 
-    use super::{
-        Chat, ChatError, Event, EventId, Message, MessageId, SessionId, UserId, chat_routes,
-    };
+    use super::{Chat, ChatError, Event, EventId, Message, MessageId, UserId, chat_routes};
     use std::{
         mem::take,
         sync::{Arc, Mutex},
@@ -237,7 +240,6 @@ mod tests {
     use futures_util::{Stream, StreamExt as _, stream::pending};
     use http_body_util::{BodyExt as _, BodyStream};
     use tokio::{sync::watch, time::timeout};
-    use uuid::Uuid;
 
     use axum::{
         body::Body,
@@ -247,16 +249,17 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt; // for `oneshot`
 
-    const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
-
     #[tokio::test]
     async fn add_message_route_forwards_arguments_to_chat_api() {
         // Given
         #[derive(Clone)]
         struct SessionsStub;
-        impl SessionLookup for SessionsStub {
-            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
-                Some(UserId::BOB)
+        impl AuthenticateRequest for SessionsStub {
+            fn authenticate_request(
+                &self,
+                _parts: &Parts,
+            ) -> impl Future<Output = Result<UserId, crate::http::HttpError>> + Send {
+                async { Ok(UserId::BOB) }
             }
         }
         let spy = ChatSpy::default();
@@ -272,7 +275,6 @@ mod tests {
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
-                    .header("cookie", format!("session={SOME_SESSION_ID}"))
                     .body(Body::from(new_message.to_string()))
                     .unwrap(),
             )
@@ -300,14 +302,13 @@ mod tests {
         }
 
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(ChatSaboteur, SessionsDummy, shutting_down);
+        let app = chat_routes(ChatSaboteur, AuthDummy, shutting_down);
 
         // When a message is sent
         let response = app
             .oneshot(
                 Request::post("/api/v0/add_message")
                     .header("content-type", "application/json")
-                    .header("cookie", format!("session={SOME_SESSION_ID}"))
                     .body(Body::from(
                         json!({
                             "id": "019c0a7f-3d8e-7cf8-bea4-3a8614c8da09",
@@ -694,11 +695,14 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct SessionsDummy;
+    struct AuthDummy;
 
-    impl SessionLookup for SessionsDummy {
-        async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
-            Some(UserId::nil())
+    impl AuthenticateRequest for AuthDummy {
+        fn authenticate_request(
+            &self,
+            _parts: &Parts,
+        ) -> impl Future<Output = Result<UserId, crate::http::HttpError>> + Send {
+            async { Ok(UserId::nil()) }
         }
     }
 
