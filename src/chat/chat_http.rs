@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use crate::{
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
-    sessions::{SessionId, SessionLifecycle, SessionLookup},
+    sessions::{SessionId, SessionLookup},
     user::UserId,
 };
 
@@ -78,16 +78,6 @@ struct ChatState<C, S> {
 impl<C: Clone + Send + Sync, S: SessionLookup + Clone> SessionLookup for ChatState<C, S> {
     fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send {
         self.sessions.lookup(session_id)
-    }
-}
-
-impl<C: Clone + Send + Sync, S: SessionLifecycle + Clone> SessionLifecycle for ChatState<C, S> {
-    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send {
-        self.sessions.create(user_id)
-    }
-
-    fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send {
-        self.sessions.destroy(session_id)
     }
 }
 
