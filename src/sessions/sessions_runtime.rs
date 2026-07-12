@@ -14,9 +14,13 @@ use tokio::time::Instant;
 use super::{SessionId, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait Sessions {
-    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send;
+pub trait SessionLookup {
     fn lookup(&mut self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
+}
+
+#[cfg_attr(test, double_trait::dummies)]
+pub trait SessionLifecycle {
+    fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send;
     fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 }
 
@@ -50,22 +54,24 @@ pub struct SessionsClient {
     sender: mpsc::Sender<SessionMsg>,
 }
 
-impl Sessions for SessionsClient {
-    async fn create(&mut self, user_id: UserId) -> SessionId {
+impl SessionLookup for SessionsClient {
+    async fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
         let (reply, response) = oneshot::channel();
         self.sender
-            .send(SessionMsg::Create { user_id, reply })
+            .send(SessionMsg::Lookup { session_id, reply })
             .await
             .expect("SessionsRuntime must outlive its clients.");
         response
             .await
             .expect("SessionsRuntime must outlive its clients.")
     }
+}
 
-    async fn lookup(&mut self, session_id: SessionId) -> Option<UserId> {
+impl SessionLifecycle for SessionsClient {
+    async fn create(&mut self, user_id: UserId) -> SessionId {
         let (reply, response) = oneshot::channel();
         self.sender
-            .send(SessionMsg::Lookup { session_id, reply })
+            .send(SessionMsg::Create { user_id, reply })
             .await
             .expect("SessionsRuntime must outlive its clients.");
         response
@@ -159,7 +165,9 @@ mod tests {
 
     use crate::user::UserId;
 
-    use super::{SessionId, SessionStore, Sessions as _, SessionsRuntime};
+    use super::{
+        SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore, SessionsRuntime,
+    };
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
