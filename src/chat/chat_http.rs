@@ -126,12 +126,13 @@ impl From<ChatError> for HttpError {
 }
 
 async fn events<C, S>(
+    AuthenticatedUser(_): AuthenticatedUser,
     State(state): State<ChatState<C, S>>,
     last_event_id: LastEventId<EventId>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>> + Send + 'static>
 where
-    C: Chat + Send + 'static,
-    S: Send + 'static,
+    C: Chat + Send + Sync + 'static,
+    S: AuthenticateRequest + Send + Sync + 'static,
 {
     let last_event_id = last_event_id.0;
 
@@ -378,7 +379,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(ChatStub, Dummy, shutting_down);
+        let app = chat_routes(ChatStub, AuthDummy, shutting_down);
 
         // When
         let response = app
@@ -454,7 +455,7 @@ mod tests {
     async fn events_should_return_content_type_event_stream() {
         // Given
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(Dummy, Dummy, shutting_down);
+        let app = chat_routes(Dummy, AuthDummy, shutting_down);
 
         // When
         let response = app
@@ -491,7 +492,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(ChatSaboteur, Dummy, shutting_down);
+        let app = chat_routes(ChatSaboteur, AuthDummy, shutting_down);
 
         // When requesting events
         let response = app
@@ -526,7 +527,7 @@ mod tests {
         // Given
         let spy = ChatSpy::default();
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(spy.clone(), Dummy, shutting_down);
+        let app = chat_routes(spy.clone(), AuthDummy, shutting_down);
 
         // When: request with Last-Event-ID = 7
         let _response = app
@@ -559,7 +560,7 @@ mod tests {
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let app = chat_routes(PendingChatStub, Dummy, shutdown_rx);
+        let app = chat_routes(PendingChatStub, AuthDummy, shutdown_rx);
 
         let response_body = app
             .oneshot(
@@ -589,7 +590,7 @@ mod tests {
     async fn sabotaged_events_stream_receives_error_event() {
         // Given a server
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(Dummy, Dummy, shutting_down);
+        let app = chat_routes(Dummy, AuthDummy, shutting_down);
 
         // When sabotage is enabled and events are requested
         let _ = app
@@ -644,7 +645,7 @@ mod tests {
             }
         }
         let (_, shutting_down) = watch::channel(false);
-        let app = chat_routes(OneEventThenPendingStub, Dummy, shutting_down);
+        let app = chat_routes(OneEventThenPendingStub, AuthDummy, shutting_down);
         let response = app
             .clone()
             .oneshot(

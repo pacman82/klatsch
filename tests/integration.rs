@@ -5,7 +5,7 @@ use std::{
 };
 
 use eventsource_stream::Eventsource as _;
-use futures_util::StreamExt as _;
+use futures_util::{Stream, StreamExt as _};
 use reqwest::Client;
 use serde_json::json;
 use tokio::{
@@ -116,7 +116,7 @@ async fn sent_messages_appear_in_event_stream() {
     server.send_message(msg, &bob_session).await;
 
     // When requesting the events stream
-    let mut sse = server.events().await;
+    let mut sse = server.events(&alice_session).await;
 
     // Then both messages appear in order
     let event_1 = timeout(Duration::from_secs(1), sse.next())
@@ -158,9 +158,10 @@ async fn persistence() {
         .await
         .unwrap();
     let server = TestServer::new(Some(persistence_dir.path())).await;
+    let alice_session = server.login_alice().await;
 
     // Then the messages are still available
-    let mut sse = server.events().await;
+    let mut sse = server.events(&alice_session).await;
     let event_1 = timeout(Duration::from_secs(1), sse.next())
         .await
         .expect("timed out waiting for first event")
@@ -187,9 +188,10 @@ async fn load_v1_persistence() {
 
     // When restarting with the same database
     let server = TestServer::new(Some(persistence_dir.path())).await;
+    let alice_session = server.login_alice().await;
 
     // Then the messages are still available
-    let mut sse = server.events().await;
+    let mut sse = server.events(&alice_session).await;
     let event_1 = timeout(Duration::from_secs(1), sse.next())
         .await
         .expect("timed out waiting for first event")
@@ -215,8 +217,10 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
     let mut child = TestServer::new(None).await;
 
     // and a client connected to the events stream
+    child.register_alice().await;
+    let alice_session = child.login_alice().await;
     let _event_stream_body = child
-        .request_event_stream()
+        .request_event_stream(&alice_session)
         .await
         .error_for_status()
         .unwrap()
@@ -301,16 +305,17 @@ impl TestServer {
             .expect("Failed to send health check request")
     }
 
-    async fn request_event_stream(&self) -> reqwest::Response {
+    async fn request_event_stream(&self, session: &str) -> reqwest::Response {
         self.client
             .get(format!("http://localhost:{}/api/v0/events", self.port))
+            .header("cookie", format!("session={session}"))
             .send()
             .await
             .expect("Failed to connect to events stream")
     }
 
-    async fn events(&self) -> impl futures_util::Stream<Item = eventsource_stream::Event> {
-        self.request_event_stream()
+    async fn events(&self, session: &str) -> impl Stream<Item = eventsource_stream::Event> {
+        self.request_event_stream(session)
             .await
             .bytes_stream()
             .eventsource()
