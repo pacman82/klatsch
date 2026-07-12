@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { v7 } from 'uuid';
-	import { user } from '$lib/user.svelte';
 
 	type SendMessage = {
 		id: string;
