@@ -554,7 +554,7 @@ mod tests {
     }
 
     impl SessionLookup for SessionsDummy {
-        async fn lookup(&mut self, _session_id: SessionId) -> Option<UserId> {
+        async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
             Some(UserId::nil())
         }
     }
