@@ -1,3 +1,4 @@
+use super::session_cookie::session_routes;
 use crate::{
     chat::{Chat, chat_routes},
     http::AuthenticateRequest,
@@ -18,10 +19,8 @@ where
     U: Users + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
-    let router = Router::new();
-    let router = router
+    Router::new()
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
-        .merge(user_routes(users, sessions));
-
-    router
+        .merge(session_routes(users.clone(), sessions))
+        .merge(user_routes(users))
 }
