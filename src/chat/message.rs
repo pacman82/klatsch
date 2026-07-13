@@ -70,7 +70,7 @@ impl FromStr for MessageId {
 
 impl AsArgument for MessageId {
     fn as_argument(&self) -> Argument<'_> {
-        (&self.0).as_argument()
+        self.0.as_argument()
     }
 }
 
