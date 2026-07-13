@@ -201,3 +201,158 @@ where
         Ok(InsertOutcome::Conflict)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use crate::{
+        chat::{Event, EventId, Message, MessageId},
+        persistence::SqlitePersistence,
+        user::UserId,
+    };
+
+    use super::{ChatPersistence, InsertOutcome, migrate_chat_persistence};
+
+    #[tokio::test]
+    async fn events_since_excludes_events_up_to_last_event_id() {
+        // Given three recorded events
+        let persistence = persistence_fake().await;
+        persistence
+            .insert_event(&dummy_event(EventId(1), MessageId::ALPHA))
+            .await
+            .unwrap();
+        persistence
+            .insert_event(&dummy_event(EventId(2), MessageId::BETA))
+            .await
+            .unwrap();
+        persistence
+            .insert_event(&dummy_event(EventId(3), MessageId::GAMMA))
+            .await
+            .unwrap();
+
+        // When retrieving events since event 1
+        let events = persistence.events_since(EventId(1)).await.unwrap();
+
+        // Then only events 2 and 3 are returned
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].message.id, MessageId::BETA);
+        assert_eq!(events[1].message.id, MessageId::GAMMA);
+    }
+
+    #[tokio::test]
+    async fn events_since_beyond_all_events_returns_empty() {
+        // Given a single recorded event
+        let persistence = persistence_fake().await;
+        persistence
+            .insert_event(&dummy_event(EventId(1), MessageId::ALPHA))
+            .await
+            .unwrap();
+
+        // When retrieving events since an id beyond the history
+        let events = persistence.events_since(EventId(2)).await.unwrap();
+
+        // Then no events are returned
+        assert!(events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn insert_new_message() {
+        // Given
+        let persistence = persistence_fake().await;
+
+        // When
+        let outcome = persistence
+            .insert_event(&dummy_event(EventId(1), MessageId::ALPHA))
+            .await
+            .unwrap();
+
+        // Then
+        assert!(matches!(outcome, InsertOutcome::New));
+    }
+
+    #[tokio::test]
+    async fn insert_duplicate_message() {
+        // Given a recorded event
+        let persistence = persistence_fake().await;
+        let message = Message {
+            id: MessageId::ALPHA,
+            author: UserId::ALICE,
+            content: "Hello".to_owned(),
+        };
+        persistence
+            .insert_event(&Event::with_timestamp(
+                EventId(1),
+                message.clone(),
+                SystemTime::UNIX_EPOCH,
+            ))
+            .await
+            .unwrap();
+
+        // When recording the exact same message again under a new event id, as a retry would
+        let outcome = persistence
+            .insert_event(&Event::with_timestamp(
+                EventId(2),
+                message,
+                SystemTime::UNIX_EPOCH,
+            ))
+            .await
+            .unwrap();
+
+        // Then it is reported as a duplicate
+        assert!(matches!(outcome, InsertOutcome::Duplicate));
+    }
+
+    #[tokio::test]
+    async fn insert_conflictig_message() {
+        // Given a recorded event
+        let persistence = persistence_fake().await;
+        persistence
+            .insert_event(&Event::with_timestamp(
+                EventId(1),
+                Message {
+                    id: MessageId::ALPHA,
+                    author: UserId::ALICE,
+                    content: "Hello".to_owned(),
+                },
+                SystemTime::UNIX_EPOCH,
+            ))
+            .await
+            .unwrap();
+
+        // When recording a different message under the same message id
+        let outcome = persistence
+            .insert_event(&Event::with_timestamp(
+                EventId(2),
+                Message {
+                    id: MessageId::ALPHA,
+                    author: UserId::ALICE,
+                    content: "Goodbye".to_owned(),
+                },
+                SystemTime::UNIX_EPOCH,
+            ))
+            .await
+            .unwrap();
+
+        // Then it is reported as a conflict
+        assert!(matches!(outcome, InsertOutcome::Conflict));
+    }
+
+    fn dummy_event(id: EventId, message_id: MessageId) -> Event {
+        Event::with_timestamp(
+            id,
+            Message {
+                id: message_id,
+                author: UserId::nil(),
+                content: "dummy".to_owned(),
+            },
+            SystemTime::UNIX_EPOCH,
+        )
+    }
+
+    async fn persistence_fake() -> impl ChatPersistence {
+        SqlitePersistence::new(None, migrate_chat_persistence)
+            .await
+            .unwrap()
+    }
+}
