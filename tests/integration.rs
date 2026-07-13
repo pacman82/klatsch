@@ -202,11 +202,11 @@ async fn load_v1_persistence() {
         .unwrap();
     let data_1: serde_json::Value = serde_json::from_str(&event_1.data).unwrap();
     let sender_1: Uuid = serde_json::from_value(data_1["sender_id"].clone()).unwrap();
-    assert_eq!(server.user(sender_1).await["name"], "Bob");
+    assert_eq!(server.user(sender_1, &alice_session).await["name"], "Bob");
     assert_eq!(data_1["content"], "Hi Alice");
     let data_2: serde_json::Value = serde_json::from_str(&event_2.data).unwrap();
     let sender_2: Uuid = serde_json::from_value(data_2["sender_id"].clone()).unwrap();
-    assert_eq!(server.user(sender_2).await["name"], "Alice");
+    assert_eq!(server.user(sender_2, &alice_session).await["name"], "Alice");
     assert_eq!(data_2["content"], "Hi Bob");
 }
 
@@ -322,12 +322,13 @@ impl TestServer {
             .map(|r| r.expect("SSE event must be parseable"))
     }
 
-    async fn user(&self, id: Uuid) -> serde_json::Value {
+    async fn user(&self, id: Uuid, session: &str) -> serde_json::Value {
         self.client
             .get(format!(
                 "http://localhost:{}/api/v0/users/{}",
                 self.port, id
             ))
+            .header("cookie", format!("session={session}"))
             .send()
             .await
             .expect("Failed to fetch user")

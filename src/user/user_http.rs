@@ -1,30 +1,49 @@
-use crate::http::HttpError;
+use crate::http::{AuthenticateRequest, AuthenticatedUser, HttpError};
 
 use super::{User, UserId, Users, UsersError};
 
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, request::Parts},
     routing::get,
 };
 
-pub fn user_routes<U>(users: U) -> Router
+pub fn user_routes<U, S>(users: U, sessions: S) -> Router
 where
     U: Users + Send + Sync + Clone + 'static,
+    S: AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/api/v0/users/{id}", get(user_info::<U>))
-        .with_state(users)
+        .route("/api/v0/users/{id}", get(user_info::<U, S>))
+        .with_state(UserState { users, sessions })
 }
 
-async fn user_info<U>(
-    State(mut users): State<U>,
+#[derive(Clone)]
+struct UserState<U, S> {
+    users: U,
+    sessions: S,
+}
+
+impl<U: Send + Sync, S: AuthenticateRequest + Sync> AuthenticateRequest for UserState<U, S> {
+    fn authenticate_request(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
+        self.sessions.authenticate_request(parts)
+    }
+}
+
+async fn user_info<U, S>(
+    AuthenticatedUser(_): AuthenticatedUser,
+    State(state): State<UserState<U, S>>,
     Path(id): Path<UserId>,
 ) -> Result<Json<User>, HttpError>
 where
-    U: Users,
+    U: Users + Send + Sync,
+    S: AuthenticateRequest + Send + Sync,
 {
+    let mut users = state.users;
     let user = users.user_by_id(id).await?;
     Ok(Json(user))
 }
@@ -72,7 +91,7 @@ mod tests {
                 })
             }
         }
-        let app = user_routes(UsersStub);
+        let app = user_routes(UsersStub, AuthDummy);
 
         // When
         let response = app
@@ -114,7 +133,7 @@ mod tests {
                 Err(UsersError::UnknownUser)
             }
         }
-        let app = user_routes(UsersStub);
+        let app = user_routes(UsersStub, AuthDummy);
 
         // When
         let response = app
@@ -133,5 +152,17 @@ mod tests {
         let body = String::from_utf8(body.to_bytes().to_vec()).unwrap();
 
         assert_eq!("Unknown user", body)
+    }
+
+    #[derive(Clone)]
+    struct AuthDummy;
+
+    impl AuthenticateRequest for AuthDummy {
+        fn authenticate_request(
+            &self,
+            _parts: &Parts,
+        ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
+            async { Ok(UserId::nil()) }
+        }
     }
 }
