@@ -6,7 +6,7 @@ use crate::{
     persistence::{SqlitePersistence, migrate},
     server::Server,
     sessions::SessionsRuntime,
-    user::PersistedUsers,
+    user::UserStore,
 };
 
 pub struct Klatsch {
@@ -22,7 +22,7 @@ impl Klatsch {
         // operators.
         let persistence = Arc::new(persistence);
 
-        let users = PersistedUsers::new(persistence.clone());
+        let users = UserStore::new(persistence.clone());
 
         // Forward messages between peers in the chat
         let chat = ChatRuntime::new(persistence).await?;

@@ -15,7 +15,7 @@ pub fn generate(password: &str) -> String {
 
 /// `True` if the password matches the hash, `false` otherwise.
 pub fn verify(password: &str, hash: &str) -> bool {
-    let password_hash = PasswordHash::new(&hash)
+    let password_hash = PasswordHash::new(hash)
         .expect("Persisted password hash must be valid, utf-8 encoded PHC hash");
     Argon2::default()
         .verify_password(password.as_bytes(), &password_hash)

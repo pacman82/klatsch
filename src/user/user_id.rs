@@ -58,7 +58,7 @@ impl AsArgument for UserId {
 
 impl AsArgument for &UserId {
     fn as_argument(&self) -> Argument<'_> {
-        (&self.0).as_argument()
+        self.0.as_argument()
     }
 }
 

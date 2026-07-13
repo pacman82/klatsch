@@ -256,11 +256,11 @@ mod tests {
         #[derive(Clone)]
         struct SessionsStub;
         impl AuthenticateRequest for SessionsStub {
-            fn authenticate_request(
+            async fn authenticate_request(
                 &self,
                 _parts: &Parts,
-            ) -> impl Future<Output = Result<UserId, crate::http::HttpError>> + Send {
-                async { Ok(UserId::BOB) }
+            ) -> Result<UserId, crate::http::HttpError> {
+                Ok(UserId::BOB)
             }
         }
         let spy = ChatSpy::default();
@@ -699,11 +699,11 @@ mod tests {
     struct AuthDummy;
 
     impl AuthenticateRequest for AuthDummy {
-        fn authenticate_request(
+        async fn authenticate_request(
             &self,
             _parts: &Parts,
-        ) -> impl Future<Output = Result<UserId, crate::http::HttpError>> + Send {
-            async { Ok(UserId::nil()) }
+        ) -> Result<UserId, crate::http::HttpError> {
+            Ok(UserId::nil())
         }
     }
 

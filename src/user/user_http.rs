@@ -158,11 +158,8 @@ mod tests {
     struct AuthDummy;
 
     impl AuthenticateRequest for AuthDummy {
-        fn authenticate_request(
-            &self,
-            _parts: &Parts,
-        ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
-            async { Ok(UserId::nil()) }
+        async fn authenticate_request(&self, _parts: &Parts) -> Result<UserId, HttpError> {
+            Ok(UserId::nil())
         }
     }
 }
