@@ -17,6 +17,7 @@ pub enum InsertOutcome {
     Conflict,
 }
 
+#[cfg_attr(test, double_trait::dummies)]
 pub trait ChatPersistence {
     /// All events since the event with the given `last_event_id` (exclusive).
     fn events_since(
@@ -343,8 +344,7 @@ mod tests {
             id,
             Message {
                 id: message_id,
-                author: UserId::nil(),
-                content: "dummy".to_owned(),
+                ..Message::dummy()
             },
             SystemTime::UNIX_EPOCH,
         )

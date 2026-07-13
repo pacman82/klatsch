@@ -337,16 +337,14 @@ mod tests {
         sender
             .add_message(Message {
                 id: MessageId::ALPHA,
-                author: UserId::nil(),
-                content: "dummy".to_owned(),
+                ..Message::dummy()
             })
             .await
             .unwrap();
         sender
             .add_message(Message {
                 id: MessageId::BETA,
-                author: UserId::nil(),
-                content: "dummy".to_owned(),
+                ..Message::dummy()
             })
             .await
             .unwrap();
@@ -381,8 +379,7 @@ mod tests {
             .client()
             .add_message(Message {
                 id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-                author: UserId::nil(),
-                content: "dummy".to_owned(),
+                ..Message::dummy()
             })
             .await;
 
@@ -641,7 +638,7 @@ mod tests {
             let msg = Message {
                 id: MessageId::new(),
                 author: UserId::BOB,
-                content: "dummy".to_owned(),
+                ..Message::dummy()
             };
             sender_client.add_message(msg).await.unwrap();
         }
@@ -698,11 +695,7 @@ mod tests {
                 .push(last_event_id);
             let events = vec![Event::with_timestamp(
                 last_event_id.successor(),
-                Message {
-                    id: MessageId::nil(),
-                    author: UserId::nil(),
-                    content: "dummy".to_owned(),
-                },
+                Message::dummy(),
                 SystemTime::UNIX_EPOCH,
             )];
             Ok(events)
