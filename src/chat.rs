@@ -1,4 +1,5 @@
 mod chat_http;
+mod chat_persistence;
 mod chat_runtime;
 mod chat_store;
 mod event;
@@ -9,8 +10,9 @@ use crate::persistence::Persistence;
 
 pub use self::{
     chat_http::chat_routes,
+    chat_persistence::migrate_chat_persistence,
     chat_runtime::{Chat, ChatRuntime},
-    chat_store::{ChatError, migrate_chat_persistence},
+    chat_store::ChatError,
     event::{Event, EventId},
     message::{Message, MessageId},
 };
