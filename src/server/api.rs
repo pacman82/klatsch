@@ -21,6 +21,6 @@ where
 {
     Router::new()
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
-        .merge(session_routes(users.clone(), sessions))
-        .merge(user_routes(users))
+        .merge(session_routes(users.clone(), sessions.clone()))
+        .merge(user_routes(users, sessions))
 }
