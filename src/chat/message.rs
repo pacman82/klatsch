@@ -92,3 +92,14 @@ pub struct Message {
     /// Text content of the message. I.e. the actual message
     pub content: String,
 }
+
+impl Message {
+    #[cfg(test)]
+    pub fn dummy() -> Self {
+        Message {
+            id: MessageId::nil(),
+            author: UserId::nil(),
+            content: "dummy".to_owned(),
+        }
+    }
+}

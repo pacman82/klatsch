@@ -85,130 +85,81 @@ where
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use tempfile::tempdir;
-
-    use super::{ChatStore as _, PersistentChat};
+    use super::{ChatPersistence, ChatStore as _, Event, InsertOutcome, PersistentChat};
     use crate::{
-        chat::{ChatError, EventId, Message, MessageId, migrate_chat_persistence},
-        persistence::{ExecuteSql, Persistence, SqlitePersistence},
+        chat::{ChatError, EventId, Message, MessageId},
         user::UserId,
     };
 
     #[tokio::test]
-    async fn events_since_excludes_events_up_to_last_event_id() {
-        // Given a history with three events
-        let persistence = persistence_fake().await;
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        history
-            .record_message(Message {
-                id: MessageId::ALPHA,
-                author: UserId::nil(),
-                content: "Dummy".to_owned(),
-            })
-            .await
-            .unwrap();
-        history
-            .record_message(Message {
-                id: MessageId::BETA,
-                author: UserId::nil(),
-                content: "Dummy".to_owned(),
-            })
-            .await
-            .unwrap();
-        history
-            .record_message(Message {
-                id: MessageId::GAMMA,
-                author: UserId::nil(),
-                content: "Dummy".to_owned(),
-            })
-            .await
-            .unwrap();
+    async fn events_since_forwards_to_persistence() {
+        // Given a persistence layer that returns a canned event for a given last_event_id
+        struct EventsSinceMock;
+        impl ChatPersistence for EventsSinceMock {
+            async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
+                // Expect being called with same arguments
+                assert_eq!(last_event_id, EventId(7));
 
-        // When retrieving events since event 1
-        let events = history.events_since(EventId(1)).await.unwrap();
+                let event = Event::with_timestamp(EventId(8), Message::dummy(), UNIX_EPOCH);
+                Ok(vec![event])
+            }
+        }
+        let history = PersistentChat::new(EventsSinceMock).await.unwrap();
 
-        // Then only events 2 and 3 are returned
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].message.id, MessageId::BETA);
-        assert_eq!(events[1].message.id, MessageId::GAMMA);
+        // When
+        let events = history.events_since(EventId(7)).await.unwrap();
+
+        // Then the persistence's response is forwarded unchanged
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].id, EventId(8));
     }
 
     #[tokio::test]
-    async fn duplicate_same_id_same_message() {
-        // Given a message id that already exists with the same content
-        let persistence = persistence_fake().await;
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        let message = Message {
-            id: MessageId::ALPHA,
-            author: UserId::ALICE,
-            content: "Hello".to_owned(),
-        };
-        history.record_message(message.clone()).await.unwrap();
+    async fn emit_no_events_for_duplicates() {
+        // Given
+        struct DuplicateStub;
+        impl ChatPersistence for DuplicateStub {
+            async fn insert_event(&self, _event: &Event) -> anyhow::Result<InsertOutcome> {
+                Ok(InsertOutcome::Duplicate)
+            }
+        }
+        let mut history = PersistentChat::new(DuplicateStub).await.unwrap();
 
-        // When recording a duplicate message
-        let maybe_event = history
-            .record_message(Message {
-                id: MessageId::ALPHA,
-                author: UserId::ALICE,
-                content: "Hello".to_owned(),
-            })
-            .await
-            .unwrap();
+        // When inserting a message reported to be a duplicate
+        let maybe_event = history.record_message(Message::dummy()).await.unwrap();
 
         // Then no event is emitted
         assert!(maybe_event.is_none());
     }
 
     #[tokio::test]
-    async fn conflict_same_id_different_message() {
-        // Given a message id that already exists with the same content
-        let persistence = persistence_fake().await;
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        let message = Message {
-            id: MessageId::ALPHA,
-            author: UserId::ALICE,
-            content: "Hello".to_owned(),
-        };
-        history.record_message(message.clone()).await.unwrap();
+    async fn conflicting_message_emits_error() {
+        // Given a persistence layer reporting the message as conflicting
+        struct ConflictStub;
+        impl ChatPersistence for ConflictStub {
+            async fn insert_event(&self, _event: &Event) -> anyhow::Result<InsertOutcome> {
+                Ok(InsertOutcome::Conflict)
+            }
+        }
+        let mut history = PersistentChat::new(ConflictStub).await.unwrap();
 
-        // When recording a message whose id already exists with different content
-        let result = history
-            .record_message(Message {
-                id: MessageId::ALPHA,
-                author: UserId::ALICE,
-                content: "Goodbye".to_owned(),
-            })
-            .await;
+        // When recording the message which is reported as conflict
+        let result = history.record_message(Message::dummy()).await;
 
         // Then a conflict error is returned
         assert!(matches!(result, Err(ChatError::Conflict)));
     }
 
     #[tokio::test]
-    async fn last_event_id_exceeds_total_number_of_events() {
-        // Given a history with one message
-        // Given a message id that already exists with the same content
-        let persistence = persistence_fake().await;
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-        let message = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: UserId::nil(),
-            content: "dummy".to_owned(),
-        };
-        history.record_message(message.clone()).await.unwrap();
-
-        // When retrieving events since an id beyond the history
-        let events = history.events_since(EventId(2)).await.unwrap();
-
-        // Then no events are returned
-        assert!(events.is_empty());
-    }
-
-    #[tokio::test]
-    async fn inserting_new_record_emits_event() {
+    async fn inserting_new_message() {
         // Given
-        let persistence = persistence_fake().await;
-        let mut history = PersistentChat::new(persistence).await.unwrap();
+        struct NewStub;
+        impl ChatPersistence for NewStub {
+            async fn insert_event(&self, _event: &Event) -> anyhow::Result<InsertOutcome> {
+                Ok(InsertOutcome::New)
+            }
+        }
+        let mut history = PersistentChat::new(NewStub).await.unwrap();
         let start = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -216,13 +167,13 @@ mod tests {
 
         // When inserting a new record
         let message = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
+            id: MessageId::ALPHA,
             author: UserId::ALICE,
-            content: "Hi".to_owned(),
+            content: "Hello".to_owned(),
         };
         let event = history.record_message(message.clone()).await.unwrap();
 
-        // Then
+        // Then it emits an event with a current timestamp
         let stop = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -235,54 +186,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn persist_messages() {
-        // Given
-        let tmp = tempdir().unwrap();
-        let persistence = SqlitePersistence::new(Some(tmp.path()), migrate_user_and_chat)
+    async fn forward_messages_to_persistence() {
+        // Given a persistence layer that asserts on the message it receives
+        struct InsertEventMock;
+
+        impl ChatPersistence for InsertEventMock {
+            async fn insert_event(&self, event: &Event) -> anyhow::Result<InsertOutcome> {
+                let expected = Message {
+                    id: MessageId::ALPHA,
+                    author: UserId::ALICE,
+                    content: "Hello".to_owned(),
+                };
+
+                assert_eq!(event.message, expected);
+
+                Ok(InsertOutcome::New)
+            }
+        }
+        let mut history = PersistentChat::new(InsertEventMock).await.unwrap();
+
+        // When recording a message
+        history
+            .record_message(Message {
+                id: MessageId::ALPHA,
+                author: UserId::ALICE,
+                content: "Hello".to_owned(),
+            })
             .await
             .unwrap();
-        let mut history = PersistentChat::new(persistence).await.unwrap();
-
-        // When inserting a new record ...
-        let message = Message {
-            id: "019c0ab6-9d11-75ef-ab02-60f070b1582a".parse().unwrap(),
-            author: UserId::ALICE,
-            content: "Hi".to_owned(),
-        };
-        let _event = history.record_message(message.clone()).await.unwrap();
-        drop(history);
-        // ...and rebooting the persistence layer
-        let persistence = SqlitePersistence::new(Some(tmp.path()), migrate_user_and_chat)
-            .await
-            .unwrap();
-        let history = PersistentChat::new(persistence).await.unwrap();
-
-        // Then the event is still present
-        let mut events = history.events_since(EventId::before_all()).await.unwrap();
-        assert_eq!(1, events.len());
-        let event = events.pop().unwrap();
-        assert_eq!(event.id, EventId(1));
-        assert_eq!(event.message, message);
-    }
-
-    async fn persistence_fake() -> impl Persistence {
-        SqlitePersistence::new(None, migrate_user_and_chat)
-            .await
-            .unwrap()
-    }
-
-    fn migrate_user_and_chat<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
-    where
-        C: ExecuteSql,
-    {
-        conn.execute(
-            "CREATE TABLE users (
-                id BLOB PRIMARY KEY,
-                name TEXT NOT NULL
-            )",
-            (),
-        )?;
-        migrate_chat_persistence(conn, from_version)?;
-        Ok(())
     }
 }

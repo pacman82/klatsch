@@ -636,8 +636,7 @@ mod tests {
                     EventId(1),
                     Message {
                         id: "019c0050-e4d7-7447-9d8f-81cde690f4a1".parse().unwrap(),
-                        author: UserId::nil(),
-                        content: "dummy".to_owned(),
+                        ..Message::dummy()
                     },
                     UNIX_EPOCH,
                 ))])
