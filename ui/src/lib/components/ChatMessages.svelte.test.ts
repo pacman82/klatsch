@@ -28,7 +28,7 @@ test('my messages are displayed on the right, others on the left', async () => {
 		if (id === BOB_ID) return { name: 'Bob' };
 	});
 
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 
 	// When Messages of Alice and Bob are received
@@ -72,7 +72,7 @@ test('connection error clears when connection is reestablished', async () => {
 	// Given a connection that has errored
 	vi.stubGlobal('EventSource', EventSourcePuppet);
 
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 	puppet.onerror!(new Event('error'));
 
@@ -88,7 +88,7 @@ test('connection error clears when connection is reestablished', async () => {
 test('connection error shows reconnecting message', async () => {
 	vi.stubGlobal('EventSource', EventSourcePuppet);
 
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 
 	// When the connection errors
@@ -104,7 +104,7 @@ test('server error does not persist across reconnections', async () => {
 	// Given a server error that was resolved by reconnecting
 	vi.stubGlobal('EventSource', EventSourcePuppet);
 
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 	puppet.onerror!(new MessageEvent('error', { data: 'Sabotage' }));
 	puppet.onerror!(new Event('error'));
@@ -126,7 +126,7 @@ test('receives messages after server restart', async () => {
 		'fetch',
 		vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }))
 	);
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 
 	// When the server shuts down cleanly
@@ -148,7 +148,7 @@ test('receives messages after server restart', async () => {
 test('server error shows error message from server', async () => {
 	vi.stubGlobal('EventSource', EventSourcePuppet);
 
-	const screen = render(ChatMessages);
+	const screen = await render(ChatMessages);
 	const puppet = EventSourcePuppet.last;
 
 	// When a server error arrives followed by a connection drop

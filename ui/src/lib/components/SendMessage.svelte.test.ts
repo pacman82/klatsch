@@ -13,7 +13,7 @@ test('resubmitting same text after failure is considered retry of same message',
 	const fetchSpy = vi.fn().mockResolvedValue(new Response(null, { status: 500 }));
 	vi.stubGlobal('fetch', fetchSpy);
 
-	const screen = render(SendMessage);
+	const screen = await render(SendMessage);
 
 	// When the user submits a message
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
@@ -36,7 +36,7 @@ test('server error is displayed to the user', async () => {
 		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
 	);
 
-	const screen = render(SendMessage);
+	const screen = await render(SendMessage);
 
 	// When the user submits a message
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
@@ -55,7 +55,7 @@ test('error disappears after successful retry', async () => {
 		.mockResolvedValueOnce(new Response(null, { status: 200 }));
 	vi.stubGlobal('fetch', fetchStub);
 
-	const screen = render(SendMessage);
+	const screen = await render(SendMessage);
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
 	await screen.getByRole('button').click();
 
@@ -74,7 +74,7 @@ test('editing message after failure shows send instead of retry', async () => {
 		vi.fn().mockResolvedValue(new Response(null, { status: 500, statusText: 'test error' }))
 	);
 
-	const screen = render(SendMessage);
+	const screen = await render(SendMessage);
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
 	await screen.getByRole('button').click();
 
@@ -90,7 +90,7 @@ test('same text send twice is still considered different messages', async () => 
 	const fetchSpy = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 	vi.stubGlobal('fetch', fetchSpy);
 
-	const screen = render(SendMessage);
+	const screen = await render(SendMessage);
 
 	// When the user sends a message successfully
 	await screen.getByPlaceholder('Type your message...').fill('Hello');
