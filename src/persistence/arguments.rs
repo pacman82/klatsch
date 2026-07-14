@@ -12,7 +12,7 @@ use uuid::Uuid;
 pub enum Argument<'a> {
     I64(i64),
     Text(Cow<'a, str>),
-    Blob(Cow<'a, [u8]>),
+    Uuid(Uuid),
     Null,
 }
 
@@ -25,12 +25,6 @@ pub trait AsArgument {
 impl AsArgument for i64 {
     fn as_argument(&self) -> Argument<'_> {
         Argument::I64(*self)
-    }
-}
-
-impl AsArgument for &[u8] {
-    fn as_argument(&self) -> Argument<'_> {
-        Argument::Blob(Cow::Borrowed(*self))
     }
 }
 
@@ -48,15 +42,13 @@ impl AsArgument for String {
 
 impl AsArgument for &Uuid {
     fn as_argument(&self) -> Argument<'_> {
-        let bytes = self.as_bytes().as_slice();
-        Argument::Blob(Cow::Borrowed(bytes))
+        Argument::Uuid(**self)
     }
 }
 
 impl AsArgument for Uuid {
     fn as_argument(&self) -> Argument<'_> {
-        let bytes = self.into_bytes().to_vec();
-        Argument::Blob(Cow::Owned(bytes))
+        Argument::Uuid(*self)
     }
 }
 

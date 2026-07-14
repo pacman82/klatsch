@@ -174,8 +174,7 @@ impl GetField<Option<String>> for rusqlite::Row<'_> {
 
 impl GetField<Uuid> for rusqlite::Row<'_> {
     fn get(&self, index: usize) -> Uuid {
-        let bytes = self.get(index).unwrap();
-        Uuid::from_bytes(bytes)
+        self.get(index).unwrap()
     }
 }
 
@@ -321,7 +320,7 @@ impl ToSql for Argument<'_> {
         match self {
             Argument::I64(i) => i.to_sql(),
             Argument::Text(s) => s.to_sql(),
-            Argument::Blob(b) => b.to_sql(),
+            Argument::Uuid(id) => id.to_sql(),
             Argument::Null => Ok(ToSqlOutput::Owned(Value::Null)),
         }
     }
