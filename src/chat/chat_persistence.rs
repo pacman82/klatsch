@@ -3,7 +3,7 @@ use super::{
     message::Message,
 };
 use crate::{
-    persistence::{ExecuteSql, GetField as _, Persistence, PersistenceError as _},
+    persistence::{ExecuteSqlAsync, ExecuteSqlSync, GetField as _, PersistenceError as _},
     user::UserId,
 };
 use uuid::Uuid;
@@ -37,7 +37,7 @@ pub trait ChatPersistence {
 
 impl<P> ChatPersistence for P
 where
-    P: Persistence + Send + Sync,
+    P: ExecuteSqlAsync + Send + Sync,
 {
     async fn events_since(&self, last_event_id: EventId) -> anyhow::Result<Vec<Event>> {
         let query = "SELECT events.id, message_id, events.author_id, content, timestamp_ms \
@@ -84,7 +84,7 @@ where
 
 pub fn migrate_chat_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     match from_version {
         // No prior database found create current schema from scratch
@@ -101,7 +101,7 @@ where
 
 fn migrate_v1_to_v2<C>(conn: &C) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     conn.execute(
         "CREATE TABLE users (
@@ -145,7 +145,7 @@ where
 
 fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     conn.execute(
         "CREATE TABLE events (
@@ -162,7 +162,7 @@ where
 
 fn insert_event<C>(conn: &C, event: &Event) -> Result<InsertOutcome, C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     let Err(err) = conn.execute(
         "INSERT INTO events (id, message_id, author_id, content, timestamp_ms) \
@@ -207,9 +207,10 @@ where
 mod tests {
     use std::time::SystemTime;
 
+    use async_sqlite::ClientBuilder;
+
     use crate::{
         chat::{Event, EventId, Message, MessageId},
-        persistence::SqlitePersistence,
         user::UserId,
     };
 
@@ -351,8 +352,11 @@ mod tests {
     }
 
     async fn persistence_fake() -> impl ChatPersistence {
-        SqlitePersistence::new(None, migrate_chat_persistence)
+        let client = ClientBuilder::new().open().await.unwrap();
+        client
+            .conn(|conn| migrate_chat_persistence(conn, 0))
             .await
-            .unwrap()
+            .unwrap();
+        client
     }
 }

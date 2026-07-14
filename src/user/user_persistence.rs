@@ -1,4 +1,4 @@
-use crate::persistence::{ExecuteSql, GetField as _, Persistence, PersistenceError as _};
+use crate::persistence::{ExecuteSqlAsync, ExecuteSqlSync, GetField as _, PersistenceError as _};
 
 use super::{User, UserId};
 
@@ -35,7 +35,7 @@ pub trait UserPersistence {
 
 impl<P> UserPersistence for P
 where
-    P: Persistence + Send + Sync,
+    P: ExecuteSqlAsync + Send + Sync,
 {
     async fn id_and_hash_by_name(
         &self,
@@ -71,7 +71,7 @@ where
 
 fn fetch_id_and_hash<C>(conn: &C, name: &str) -> Result<Option<(UserId, Option<String>)>, C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     conn.rows_vec(
         "SELECT id, password_hash FROM users WHERE name = ?1",
@@ -92,7 +92,7 @@ fn insert_user<C>(
     password_hash: Option<&str>,
 ) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     conn.execute(
         "INSERT INTO users (id, name, password_hash) VALUES (?1, ?2, ?3)",
@@ -107,7 +107,7 @@ fn create_user<C>(
     password_hash: Option<&str>,
 ) -> Result<UserCreateOutcome, C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     let Err(err) = insert_user(conn, new_id, name, password_hash) else {
         return Ok(UserCreateOutcome::Created);
@@ -126,7 +126,7 @@ where
 
 fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     conn.execute(
         "CREATE TABLE users (
@@ -141,7 +141,7 @@ where
 
 pub fn migrate_users_persistence<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     if from_version == 0 {
         create_schema_from_scratch(conn)?;
@@ -151,10 +151,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        persistence::SqlitePersistence,
-        user::{User, UserId},
-    };
+    use async_sqlite::ClientBuilder;
+
+    use crate::user::{User, UserId};
 
     use super::{UserCreateOutcome, UserPersistence, migrate_users_persistence};
 
@@ -252,8 +251,11 @@ mod tests {
     }
 
     async fn persistence_fake() -> impl UserPersistence {
-        SqlitePersistence::new(None, migrate_users_persistence)
+        let client = ClientBuilder::new().open().await.unwrap();
+        client
+            .conn(|conn| migrate_users_persistence(conn, 0))
             .await
-            .unwrap()
+            .unwrap();
+        client
     }
 }

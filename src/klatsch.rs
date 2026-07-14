@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     chat::ChatRuntime,
     configuration::Configuration,
@@ -13,19 +11,20 @@ pub struct Klatsch {
     chat: ChatRuntime,
     sessions: SessionsRuntime,
     server: Server,
+    /// Held for the lifetime of the application to keep the persistence directory locked.
+    _persistence: SqlitePersistence,
 }
 
 impl Klatsch {
     pub async fn new(cfg: &Configuration) -> anyhow::Result<Self> {
         let persistence = SqlitePersistence::new(cfg.persistence_dir(), migrate).await?;
+
         // users and history share the same persistence backend. This makes life easier for the
         // operators.
-        let persistence = Arc::new(persistence);
-
-        let users = UserStore::new(persistence.clone());
+        let users = UserStore::new(persistence.client());
 
         // Forward messages between peers in the chat
-        let chat = ChatRuntime::new(persistence).await?;
+        let chat = ChatRuntime::new(persistence.client()).await?;
 
         let sessions = SessionsRuntime::new();
 
@@ -37,6 +36,7 @@ impl Klatsch {
             chat,
             server,
             sessions,
+            _persistence: persistence,
         })
     }
 
