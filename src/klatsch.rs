@@ -26,7 +26,7 @@ impl Klatsch {
         // Forward messages between peers in the chat
         let chat = ChatRuntime::new(persistence.client()).await?;
 
-        let sessions = SessionsRuntime::new();
+        let sessions = SessionsRuntime::new(cfg.session_expiry());
 
         // Answer incoming HTTP requests
         let server =

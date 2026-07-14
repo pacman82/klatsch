@@ -4,13 +4,14 @@ mod sessions_runtime;
 
 pub use self::{
     session_id::SessionId,
+    session_store::SessionExpiry,
     sessions_runtime::{SessionLifecycle, SessionLookup, SessionsRuntime},
 };
 
 use self::session_store::{InMemorySessionStore, SessionStore};
 
 impl SessionsRuntime {
-    pub fn new() -> Self {
-        Self::with_session_store(InMemorySessionStore::new())
+    pub fn new(expiry: SessionExpiry) -> Self {
+        Self::with_session_store(InMemorySessionStore::new(expiry))
     }
 }
