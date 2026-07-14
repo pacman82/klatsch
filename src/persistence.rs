@@ -1,6 +1,5 @@
 mod arguments;
 mod migrate;
-mod shared;
 mod sqlite;
 
 use uuid::Uuid;
@@ -11,10 +10,10 @@ pub use self::{
     sqlite::SqlitePersistence,
 };
 
-pub trait Persistence {
+pub trait ExecuteSqlAsync {
     type Row<'a>: GetFieldNative;
     type Error: PersistenceError;
-    type Connection: ExecuteSql<Error = Self::Error>;
+    type Connection: ExecuteSqlSync<Error = Self::Error>;
 
     fn transaction<O>(
         &self,
@@ -69,7 +68,7 @@ where
     }
 }
 
-pub trait ExecuteSql {
+pub trait ExecuteSqlSync {
     type Row<'a>: GetFieldNative;
     type Error: PersistenceError;
 

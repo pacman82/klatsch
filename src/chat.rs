@@ -6,7 +6,7 @@ mod event;
 mod message;
 mod terminate_if;
 
-use crate::persistence::Persistence;
+use crate::persistence::ExecuteSqlAsync;
 
 pub use self::{
     chat_http::chat_routes,
@@ -24,7 +24,7 @@ use self::chat_store::PersistentChat;
 
 impl ChatRuntime {
     pub async fn new(
-        persistence: impl Persistence + Send + Sync + 'static,
+        persistence: impl ExecuteSqlAsync + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let chat_store = PersistentChat::new(persistence).await?;
         Ok(Self::with_chat_store(chat_store))

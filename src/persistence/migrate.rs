@@ -1,11 +1,11 @@
 use crate::{
-    chat::migrate_chat_persistence, persistence::ExecuteSql, user::migrate_users_persistence,
+    chat::migrate_chat_persistence, persistence::ExecuteSqlSync, user::migrate_users_persistence,
 };
 
 /// Migrates the schema for the entire klatsch application
 pub fn migrate<C>(conn: &C, from_version: u32) -> Result<(), C::Error>
 where
-    C: ExecuteSql,
+    C: ExecuteSqlSync,
 {
     // we do so by migrating the schemas of our individual modules
     migrate_users_persistence(conn, from_version)?;
@@ -19,7 +19,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::fs;
 
-    use crate::persistence::{Persistence as _, SqlitePersistence};
+    use crate::persistence::{ExecuteSqlAsync as _, SqlitePersistence};
 
     use super::migrate;
 
@@ -42,6 +42,7 @@ mod tests {
 
     async fn schema(persistence: &SqlitePersistence) -> Vec<String> {
         persistence
+            .client()
             .rows_vec(
                 "SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name",
                 (),

@@ -1,6 +1,8 @@
 use crate::persistence::GetField;
 
-use super::{Argument, Arguments, ExecuteSql, GetFieldNative, Persistence, PersistenceError};
+use super::{
+    Argument, Arguments, ExecuteSqlAsync, ExecuteSqlSync, GetFieldNative, PersistenceError,
+};
 use anyhow::{anyhow, bail};
 use async_sqlite::{
     Client, ClientBuilder, JournalMode,
@@ -60,9 +62,13 @@ impl SqlitePersistence {
         };
         Ok(persistence)
     }
+
+    pub fn client(&self) -> Client {
+        self.conn.clone()
+    }
 }
 
-impl Persistence for SqlitePersistence {
+impl ExecuteSqlAsync for Client {
     type Row<'a> = rusqlite::Row<'a>;
     type Connection = rusqlite::Connection;
     type Error = rusqlite::Error;
@@ -74,16 +80,15 @@ impl Persistence for SqlitePersistence {
     where
         O: Send + 'static,
     {
-        self.conn
-            .conn_mut(move |conn| {
-                let transaction = conn.transaction()?;
-                let out = f(&transaction)?;
-                transaction.commit()?;
-                Ok(out)
-            })
-            .await
-            .inspect_err(|err| error!(target: "persistence", error=%err, "Transaction failed"))
-            .map_err(Into::into)
+        self.conn_mut(move |conn| {
+            let transaction = conn.transaction()?;
+            let out = f(&transaction)?;
+            transaction.commit()?;
+            Ok(out)
+        })
+        .await
+        .inspect_err(|err| error!(target: "persistence", error=%err, "Transaction failed"))
+        .map_err(Into::into)
     }
 
     async fn row<O>(
@@ -103,8 +108,7 @@ impl Persistence for SqlitePersistence {
             stmt.query_row(params, map)
         };
 
-        self.conn
-            .conn(fetch_row)
+        self.conn(fetch_row)
             .await
             .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read row"))
             .map_err(Into::into)
@@ -127,8 +131,7 @@ impl Persistence for SqlitePersistence {
             stmt.query_map(params, map)?.collect()
         };
 
-        self.conn
-            .conn(fetch_rows)
+        self.conn(fetch_rows)
             .await
             .inspect_err(|err| error!(target: "persistence", error=%err, "Failed to read rows"))
             .map_err(Into::into)
@@ -178,7 +181,7 @@ impl GetField<Uuid> for rusqlite::Row<'_> {
     }
 }
 
-impl ExecuteSql for rusqlite::Connection {
+impl ExecuteSqlSync for rusqlite::Connection {
     type Row<'a> = rusqlite::Row<'a>;
     type Error = rusqlite::Error;
 
@@ -330,7 +333,7 @@ impl ToSql for Argument<'_> {
 mod tests {
     use crate::persistence::GetField;
 
-    use super::{ClientBuilder, JournalMode, Persistence, SqlitePersistence, rusqlite};
+    use super::{ClientBuilder, ExecuteSqlAsync, JournalMode, SqlitePersistence, rusqlite};
 
     #[tokio::test]
     async fn creates_missing_persistence_directory() {
@@ -416,6 +419,7 @@ mod tests {
             .await
             .unwrap();
         persistence
+            .client()
             .transaction(|conn| {
                 conn.execute(
                     "INSERT INTO my_table (id, data) VALUES (1, 'Hello, World!')",
@@ -433,6 +437,7 @@ mod tests {
             .unwrap();
 
         let after = persistence
+            .client()
             .rows_vec("SELECT id, data FROM my_table", (), |row| {
                 // Avoid confusion with rusqlite::Row::get
                 let id: i64 = <rusqlite::Row as GetField<i64>>::get(row, 0);
