@@ -44,6 +44,11 @@ impl SessionStore for InMemorySessionStore {
 
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
         let info = self.sessions.get_mut(&session_id)?;
+        // Expired sessions linger until the next sweep; don't let them authenticate.
+        if !info.is_valid(now) {
+            self.sessions.remove(&session_id);
+            return None;
+        }
         info.last_activity = now;
         Some(info.user_id)
     }
@@ -154,6 +159,36 @@ mod tests {
         // Then
         assert_eq!(store.lookup(expired, sweep_time), None);
         assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
+    }
+
+    #[test]
+    fn lookup_rejects_expired_session_that_has_not_been_swept_yet() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        let session_id = store.create(UserId::ALICE, now);
+
+        // When — past expiry, but no sweep has run
+        let past_expiry = now + SLIDING_SESSION_TTL + Duration::from_secs(1);
+        let looked_up = store.lookup(session_id, past_expiry);
+
+        // Then
+        assert_eq!(looked_up, None);
+    }
+
+    #[test]
+    fn lookup_evicts_the_expired_session_it_rejects() {
+        // Given
+        let now = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        let session_id = store.create(UserId::ALICE, now);
+
+        // When
+        let past_expiry = now + SLIDING_SESSION_TTL + Duration::from_secs(1);
+        store.lookup(session_id, past_expiry);
+
+        // Then — no session left to expire
+        assert_eq!(store.next_expiry(), None);
     }
 
     #[test]
