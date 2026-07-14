@@ -18,7 +18,7 @@ test('retries fetching the user name every 5 seconds after a failure', async () 
 		.mockResolvedValueOnce(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }));
 	vi.stubGlobal('fetch', fetchStub);
 
-	const screen = render(UserBar);
+	const screen = await render(UserBar);
 
 	await vi.advanceTimersByTimeAsync(5000);
 
@@ -29,7 +29,7 @@ test('retries fetching the user name every 5 seconds after a failure', async () 
 test('displays the user name', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = render(UserBar);
+	const screen = await render(UserBar);
 
 	await expect.element(screen.getByText('Logged in as Alice')).toBeVisible();
 });
@@ -37,7 +37,7 @@ test('displays the user name', async () => {
 test('displays fetching user info while name is loading', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(undefined);
 
-	const screen = render(UserBar);
+	const screen = await render(UserBar);
 
 	await expect.element(screen.getByText('Fetching user info...')).toBeVisible();
 });
@@ -47,7 +47,7 @@ test('calls logout endpoint then clears local session', async () => {
 	vi.stubGlobal('fetch', fetchMock);
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = render(UserBar);
+	const screen = await render(UserBar);
 	await screen.getByRole('button', { name: 'Log out' }).click();
 
 	expect(fetchMock).toHaveBeenCalledWith('/api/v0/logout', { method: 'POST' });
@@ -57,7 +57,7 @@ test('calls logout endpoint then clears local session', async () => {
 test('logs out when the current user is unknown to the server', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
 
-	render(UserBar);
+	await render(UserBar);
 
 	await vi.waitFor(() => expect(user.current).toBeNull());
 });
