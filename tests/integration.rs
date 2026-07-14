@@ -179,6 +179,32 @@ async fn persistence() {
 }
 
 #[tokio::test]
+async fn second_server_on_same_persistence_directory_is_rejected() {
+    // Given a running server on a persistence directory
+    let persistence_dir = tempfile::tempdir().unwrap();
+    let _running = TestServer::new(Some(persistence_dir.path())).await;
+
+    // When starting a second server on the same directory
+    let working_dir = tempfile::tempdir().unwrap();
+    let mut cmd = server_command(Some(persistence_dir.path()), working_dir.path());
+    // Should the lock be broken, the second server boots and runs indefinitely. Kill it when the
+    // timeout drops the output future, so it does not outlive the failed test.
+    cmd.kill_on_drop(true);
+    let output = timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .expect("Second server must exit instead of becoming ready")
+        .unwrap();
+
+    // Then it exits with an error identifying the locked directory
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Another instance is already using the same persistence directory"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[tokio::test]
 async fn load_v1_persistence() {
     // Given
     let persistence_dir = tempfile::tempdir().unwrap();
@@ -260,25 +286,7 @@ struct TestServer {
 impl TestServer {
     async fn new(db_path: Option<&Path>) -> Self {
         let working_dir = tempfile::tempdir().unwrap();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_klatsch"));
-        cmd.current_dir(working_dir.path())
-            // Let the OS assign a free port so tests can run in parallel without clashing. The
-            // actual port is learned later from the server's log output.
-            .env("PORT", "0")
-            // Suppress ANSI escape codes so the log observer can parse log lines as plain text.
-            .env("NO_COLOR", "1")
-            // We do not want the log output of the process to clutter the output of our test
-            // runner.
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        match db_path {
-            Some(path) => {
-                cmd.env("PERSISTENCE_DIRECTORY", path);
-            }
-            None => {
-                cmd.env("PERSISTENCE", "false");
-            }
-        }
+        let mut cmd = server_command(db_path, working_dir.path());
         let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();
         let process = ServerProcess::new(child);
@@ -409,6 +417,29 @@ impl TestServer {
     ) -> std::io::Result<std::process::ExitStatus> {
         self.process.wait_for_termination(timeout).await
     }
+}
+
+fn server_command(db_path: Option<&Path>, working_dir: &Path) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_klatsch"));
+    cmd.current_dir(working_dir)
+        // Let the OS assign a free port so tests can run in parallel without clashing. The
+        // actual port is learned later from the server's log output.
+        .env("PORT", "0")
+        // Suppress ANSI escape codes so the log observer can parse log lines as plain text.
+        .env("NO_COLOR", "1")
+        // We do not want the log output of the process to clutter the output of our test
+        // runner.
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    match db_path {
+        Some(path) => {
+            cmd.env("PERSISTENCE_DIRECTORY", path);
+        }
+        None => {
+            cmd.env("PERSISTENCE", "false");
+        }
+    }
+    cmd
 }
 
 /// Observes the server's log output on stderr and communicates observations (like "Ready" and the
