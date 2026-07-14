@@ -3,6 +3,9 @@ use std::{collections::HashMap, time::Duration};
 /// Delay session expiration for this interval after each access.
 const SLIDING_SESSION_TTL: Duration = Duration::from_hours(30 * 24);
 
+/// Hard cap on session lifetime; activity cannot extend a session beyond this.
+const ABSOLUTE_SESSION_TTL: Duration = Duration::from_hours(90 * 24);
+
 use tokio::time::Instant;
 
 use crate::user::UserId;
@@ -68,6 +71,7 @@ impl SessionStore for InMemorySessionStore {
 
 struct SessionInfo {
     user_id: UserId,
+    created_at: Instant,
     last_activity: Instant,
 }
 
@@ -75,12 +79,15 @@ impl SessionInfo {
     fn new(user_id: UserId, now: Instant) -> Self {
         Self {
             user_id,
+            created_at: now,
             last_activity: now,
         }
     }
 
     fn valid_until(&self) -> Instant {
-        self.last_activity + SLIDING_SESSION_TTL
+        let sliding = self.last_activity + SLIDING_SESSION_TTL;
+        let absolute = self.created_at + ABSOLUTE_SESSION_TTL;
+        sliding.min(absolute)
     }
 
     fn is_valid(&self, now: Instant) -> bool {
@@ -96,7 +103,9 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::{InMemorySessionStore, SLIDING_SESSION_TTL, SessionStore as _};
+    use super::{
+        ABSOLUTE_SESSION_TTL, InMemorySessionStore, SLIDING_SESSION_TTL, SessionStore as _,
+    };
 
     #[test]
     fn session_expries_after_sliding_session_ttl() {
@@ -159,6 +168,23 @@ mod tests {
         // Then
         assert_eq!(store.lookup(expired, sweep_time), None);
         assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
+    }
+
+    #[test]
+    fn activity_cannot_extend_a_session_beyond_the_absolute_ttl() {
+        // Given
+        let created_at = Instant::now();
+        let mut store = InMemorySessionStore::new();
+        let session_id = store.create(UserId::ALICE, created_at);
+
+        // When regular activity would keeps the sliding window open until past the absolute
+        // deadline
+        store.lookup(session_id, created_at + Duration::from_hours(29 * 24));
+        store.lookup(session_id, created_at + Duration::from_hours(58 * 24));
+        store.lookup(session_id, created_at + Duration::from_hours(87 * 24));
+
+        // Then it still expires then the absolute deadline is hit.
+        assert_eq!(store.next_expiry(), Some(created_at + ABSOLUTE_SESSION_TTL));
     }
 
     #[test]
