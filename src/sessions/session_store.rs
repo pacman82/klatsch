@@ -17,15 +17,22 @@ pub struct SessionExpiry {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionStore {
+    /// Creates a new session associated with the given user. The timestamp is required to track
+    /// expiry.
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId;
+    /// Returns the user ID if the session exists and is not expired, `None` otherwise.
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId>;
+    /// Revokes a session. This should happen if a user logs out of a client.
     fn destroy(&mut self, session_id: SessionId);
     /// The earliest point in time at which any session may expire, or `None` if there are no
     /// active sessions. This is a conservative lower bound: no session expires before this
     /// instant, but the actual next expiry may be later.
     fn earliest_possible_expiry(&self) -> Option<Instant>;
-
-    /// Remove all sessions whose lease has expired.
+    /// Remove all expired sessions.
+    ///
+    /// Since lookup would also return `None` for expired sessions which are still stored this has
+    /// no visible effect from the outside. Calling it however allows the store to free up resources
+    /// used by expired sessions.
     fn remove_expired(&mut self, now: Instant);
 }
 
