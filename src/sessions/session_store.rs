@@ -20,9 +20,10 @@ pub trait SessionStore {
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId;
     fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId>;
     fn destroy(&mut self, session_id: SessionId);
-    /// The earliest point in time at which a session will expire, or `None` if there are no
-    /// active sessions.
-    fn next_expiry(&self) -> Option<Instant>;
+    /// The earliest point in time at which any session may expire, or `None` if there are no
+    /// active sessions. This is a conservative lower bound: no session expires before this
+    /// instant, but the actual next expiry may be later.
+    fn earliest_possible_expiry(&self) -> Option<Instant>;
 
     /// Remove all sessions whose lease has expired.
     fn remove_expired(&mut self, now: Instant);
@@ -31,6 +32,10 @@ pub trait SessionStore {
 pub struct InMemorySessionStore {
     expiry: SessionExpiry,
     sessions: HashMap<SessionId, SessionInfo>,
+    /// Cached so answering it does not require a scan over all sessions. Lookups and removals
+    /// only move true expiry later, so they leave the bound untouched and it goes stale early,
+    /// never late. Only `create` lowers it; `remove_expired` restores it to the exact value.
+    earliest_possible_expiry: Option<Instant>,
 }
 
 impl InMemorySessionStore {
@@ -38,6 +43,7 @@ impl InMemorySessionStore {
         Self {
             expiry,
             sessions: HashMap::new(),
+            earliest_possible_expiry: None,
         }
     }
 }
@@ -46,6 +52,11 @@ impl SessionStore for InMemorySessionStore {
     fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
         let session_id = SessionId::new();
         let session_info = SessionInfo::new(user_id, now);
+        let valid_until = session_info.valid_until(&self.expiry);
+        self.earliest_possible_expiry = Some(match self.earliest_possible_expiry {
+            Some(bound) => bound.min(valid_until),
+            None => valid_until,
+        });
         self.sessions.insert(session_id, session_info);
         session_id
     }
@@ -65,16 +76,18 @@ impl SessionStore for InMemorySessionStore {
         self.sessions.remove(&session_id);
     }
 
-    fn next_expiry(&self) -> Option<Instant> {
-        self.sessions
-            .values()
-            .map(|info| info.valid_until(&self.expiry))
-            .min()
+    fn earliest_possible_expiry(&self) -> Option<Instant> {
+        self.earliest_possible_expiry
     }
 
     fn remove_expired(&mut self, now: Instant) {
         let expiry = &self.expiry;
         self.sessions.retain(|_, info| info.is_valid(now, expiry));
+        self.earliest_possible_expiry = self
+            .sessions
+            .values()
+            .map(|info| info.valid_until(&self.expiry))
+            .min();
     }
 }
 
@@ -132,10 +145,10 @@ mod tests {
 
         // When
         store.create(UserId::ALICE, now);
-        let next_expiry = store.next_expiry();
+        let earliest_possible_expiry = store.earliest_possible_expiry();
 
         // Then
-        assert_eq!(next_expiry, Some(now + idle_timeout));
+        assert_eq!(earliest_possible_expiry, Some(now + idle_timeout));
     }
 
     #[test]
@@ -153,11 +166,11 @@ mod tests {
         store.create(UserId::BOB, now + Duration::from_secs(1));
 
         // Then
-        assert_eq!(store.next_expiry(), Some(now + idle_timeout));
+        assert_eq!(store.earliest_possible_expiry(), Some(now + idle_timeout));
     }
 
     #[test]
-    fn lookup_extends_expiry() {
+    fn activity_delays_expiry() {
         // Given
         let now = Instant::now();
         let idle_timeout = Duration::from_hours(48);
@@ -171,8 +184,60 @@ mod tests {
         let one_day_later = now + Duration::from_hours(24);
         store.lookup(session_id, one_day_later);
 
+        // Then — the session is still valid past its original deadline
+        let past_original_deadline = now + Duration::from_hours(60);
+        assert_eq!(
+            store.lookup(session_id, past_original_deadline),
+            Some(UserId::ALICE)
+        );
+    }
+
+    #[test]
+    fn sweep_at_the_expiry_bound_never_removes_live_sessions() {
+        // Given — a session extended past the reported expiry bound
+        let now = Instant::now();
+        let idle_timeout = Duration::from_hours(48);
+        let mut store = InMemorySessionStore::new(SessionExpiry {
+            idle_timeout,
+            max_lifetime: Duration::from_hours(365 * 24),
+        });
+        let session_id = store.create(UserId::ALICE, now);
+        store.lookup(session_id, now + Duration::from_hours(24));
+
+        // When
+        let bound = store
+            .earliest_possible_expiry()
+            .expect("one session is active");
+        store.remove_expired(bound);
+
         // Then
-        assert_eq!(store.next_expiry(), Some(one_day_later + idle_timeout));
+        assert_eq!(store.lookup(session_id, bound), Some(UserId::ALICE));
+    }
+
+    #[test]
+    fn sweep_restores_exact_expiry_after_activity() {
+        // Given — a session extended past the reported expiry bound
+        let now = Instant::now();
+        let idle_timeout = Duration::from_hours(48);
+        let mut store = InMemorySessionStore::new(SessionExpiry {
+            idle_timeout,
+            max_lifetime: Duration::from_hours(365 * 24),
+        });
+        let session_id = store.create(UserId::ALICE, now);
+        let one_day_later = now + Duration::from_hours(24);
+        store.lookup(session_id, one_day_later);
+
+        // When
+        let bound = store
+            .earliest_possible_expiry()
+            .expect("one session is active");
+        store.remove_expired(bound);
+
+        // Then
+        assert_eq!(
+            store.earliest_possible_expiry(),
+            Some(one_day_later + idle_timeout)
+        );
     }
 
     #[test]
@@ -213,8 +278,9 @@ mod tests {
         store.lookup(session_id, created_at + Duration::from_hours(4 * 24));
         store.lookup(session_id, created_at + Duration::from_hours(6 * 24));
 
-        // Then it still expires then the absolute deadline is hit.
-        assert_eq!(store.next_expiry(), Some(created_at + max_lifetime));
+        // Then the session is unusable once the absolute deadline is hit.
+        let past_deadline = created_at + max_lifetime + Duration::from_secs(1);
+        assert_eq!(store.lookup(session_id, past_deadline), None);
     }
 
     #[test]
@@ -234,25 +300,6 @@ mod tests {
 
         // Then
         assert_eq!(looked_up, None);
-    }
-
-    #[test]
-    fn lookup_evicts_the_expired_session_it_rejects() {
-        // Given
-        let now = Instant::now();
-        let idle_timeout = Duration::from_hours(24);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
-            idle_timeout,
-            max_lifetime: Duration::from_hours(365 * 24),
-        });
-        let session_id = store.create(UserId::ALICE, now);
-
-        // When
-        let past_expiry = now + idle_timeout + Duration::from_secs(1);
-        store.lookup(session_id, past_expiry);
-
-        // Then — no session left to expire
-        assert_eq!(store.next_expiry(), None);
     }
 
     #[test]
