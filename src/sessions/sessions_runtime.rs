@@ -99,10 +99,10 @@ impl<S: SessionStore> SessionActor<S> {
 
     async fn run(mut self) {
         loop {
-            let next_expiry = self.store.next_expiry();
+            let earliest_possible_expiry = self.store.earliest_possible_expiry();
             let sleep_until_sessions_expire = async {
-                if let Some(next_expiry) = next_expiry {
-                    sleep_until(next_expiry).await;
+                if let Some(earliest_possible_expiry) = earliest_possible_expiry {
+                    sleep_until(earliest_possible_expiry).await;
                 } else {
                     pending().await
                 }
@@ -269,7 +269,7 @@ mod tests {
             tx: mpsc::Sender<Instant>,
         }
         impl SessionStore for SessionStoreDouble {
-            fn next_expiry(&self) -> Option<Instant> {
+            fn earliest_possible_expiry(&self) -> Option<Instant> {
                 Some(self.start + TTL)
             }
             fn remove_expired(&mut self, now: Instant) {
