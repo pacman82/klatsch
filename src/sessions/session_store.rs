@@ -1,6 +1,7 @@
-use std::{collections::HashMap, time::Duration};
-
-use tokio::time::Instant;
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use crate::user::UserId;
 
@@ -19,21 +20,21 @@ pub struct SessionExpiry {
 pub trait SessionStore {
     /// Creates a new session associated with the given user. The timestamp is required to track
     /// expiry.
-    fn create(&mut self, user_id: UserId, now: Instant) -> SessionId;
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId;
     /// Returns the user ID if the session exists and is not expired, `None` otherwise.
-    fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId>;
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId>;
     /// Revokes a session. This should happen if a user logs out of a client.
     fn destroy(&mut self, session_id: SessionId);
     /// The earliest point in time at which any session may expire, or `None` if there are no
     /// active sessions. This is a conservative lower bound: no session expires before this
     /// instant, but the actual next expiry may be later.
-    fn earliest_possible_expiry(&self) -> Option<Instant>;
+    fn earliest_possible_expiry(&self) -> Option<SystemTime>;
     /// Remove all expired sessions.
     ///
     /// Since lookup would also return `None` for expired sessions which are still stored this has
     /// no visible effect from the outside. Calling it however allows the store to free up resources
     /// used by expired sessions.
-    fn remove_expired(&mut self, now: Instant);
+    fn remove_expired(&mut self, now: SystemTime);
 }
 
 pub struct InMemorySessionStore {
@@ -42,7 +43,7 @@ pub struct InMemorySessionStore {
     /// Cached so answering it does not require a scan over all sessions. Lookups and removals
     /// only move true expiry later, so they leave the bound untouched and it goes stale early,
     /// never late. Only `create` lowers it; `remove_expired` restores it to the exact value.
-    earliest_possible_expiry: Option<Instant>,
+    earliest_possible_expiry: Option<SystemTime>,
 }
 
 impl InMemorySessionStore {
@@ -56,7 +57,7 @@ impl InMemorySessionStore {
 }
 
 impl SessionStore for InMemorySessionStore {
-    fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
         let session_id = SessionId::new();
         let session_info = SessionInfo::new(user_id, now);
         let valid_until = session_info.valid_until(&self.expiry);
@@ -68,7 +69,7 @@ impl SessionStore for InMemorySessionStore {
         session_id
     }
 
-    fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
         let info = self.sessions.get_mut(&session_id)?;
         // Expired sessions linger until the next sweep; don't let them authenticate.
         if !info.is_valid(now, &self.expiry) {
@@ -83,11 +84,11 @@ impl SessionStore for InMemorySessionStore {
         self.sessions.remove(&session_id);
     }
 
-    fn earliest_possible_expiry(&self) -> Option<Instant> {
+    fn earliest_possible_expiry(&self) -> Option<SystemTime> {
         self.earliest_possible_expiry
     }
 
-    fn remove_expired(&mut self, now: Instant) {
+    fn remove_expired(&mut self, now: SystemTime) {
         let expiry = &self.expiry;
         self.sessions.retain(|_, info| info.is_valid(now, expiry));
         self.earliest_possible_expiry = self
@@ -100,12 +101,12 @@ impl SessionStore for InMemorySessionStore {
 
 struct SessionInfo {
     user_id: UserId,
-    created_at: Instant,
-    last_activity: Instant,
+    created_at: SystemTime,
+    last_activity: SystemTime,
 }
 
 impl SessionInfo {
-    fn new(user_id: UserId, now: Instant) -> Self {
+    fn new(user_id: UserId, now: SystemTime) -> Self {
         Self {
             user_id,
             created_at: now,
@@ -113,13 +114,13 @@ impl SessionInfo {
         }
     }
 
-    fn valid_until(&self, expiry: &SessionExpiry) -> Instant {
+    fn valid_until(&self, expiry: &SessionExpiry) -> SystemTime {
         let idle = self.last_activity + expiry.idle_timeout;
         let absolute = self.created_at + expiry.max_lifetime;
         idle.min(absolute)
     }
 
-    fn is_valid(&self, now: Instant, expiry: &SessionExpiry) -> bool {
+    fn is_valid(&self, now: SystemTime, expiry: &SessionExpiry) -> bool {
         now <= self.valid_until(expiry)
     }
 }
@@ -128,9 +129,7 @@ impl SessionInfo {
 mod tests {
     use crate::user::UserId;
 
-    use std::time::Duration;
-
-    use tokio::time::Instant;
+    use std::time::{Duration, SystemTime};
 
     use super::{InMemorySessionStore, SessionExpiry, SessionStore as _};
 
@@ -143,7 +142,7 @@ mod tests {
     #[test]
     fn session_expires_after_idle_timeout() {
         // Given
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -161,7 +160,7 @@ mod tests {
     #[test]
     fn next_expiry_reflects_earliest_session_only() {
         // Given
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -179,7 +178,7 @@ mod tests {
     #[test]
     fn activity_delays_expiry() {
         // Given
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -202,7 +201,7 @@ mod tests {
     #[test]
     fn sweep_at_the_expiry_bound_never_removes_live_sessions() {
         // Given — a session extended past the reported expiry bound
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -224,7 +223,7 @@ mod tests {
     #[test]
     fn sweep_restores_exact_expiry_after_activity() {
         // Given — a session extended past the reported expiry bound
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -250,7 +249,7 @@ mod tests {
     #[test]
     fn remove_expired_removes_expired_sessions_leaving_active_ones() {
         // Given
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -271,7 +270,7 @@ mod tests {
     #[test]
     fn activity_cannot_extend_a_session_beyond_max_lifetime() {
         // Given
-        let created_at = Instant::now();
+        let created_at = SystemTime::now();
         let max_lifetime = Duration::from_hours(7 * 24);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout: Duration::from_hours(3 * 24),
@@ -293,7 +292,7 @@ mod tests {
     #[test]
     fn lookup_rejects_expired_session_that_has_not_been_swept_yet() {
         // Given
-        let now = Instant::now();
+        let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
         let mut store = InMemorySessionStore::new(SessionExpiry {
             idle_timeout,
@@ -314,8 +313,8 @@ mod tests {
         // Given
         let mut store = InMemorySessionStore::new(DEFAULT_SESSION_EXPIRY);
         // When
-        let session_id = store.create(UserId::ALICE, Instant::now());
-        let looked_up_session_id = store.lookup(session_id, Instant::now());
+        let session_id = store.create(UserId::ALICE, SystemTime::now());
+        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
         // Then
         assert_eq!(looked_up_session_id, Some(UserId::ALICE));
     }
@@ -324,10 +323,10 @@ mod tests {
     fn destroyed_session_cannot_be_looked_up() {
         // Given
         let mut store = InMemorySessionStore::new(DEFAULT_SESSION_EXPIRY);
-        let session_id = store.create(UserId::ALICE, Instant::now());
+        let session_id = store.create(UserId::ALICE, SystemTime::now());
         // When
         store.destroy(session_id);
-        let looked_up_session_id = store.lookup(session_id, Instant::now());
+        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
         // Then
         assert_eq!(looked_up_session_id, None);
     }
