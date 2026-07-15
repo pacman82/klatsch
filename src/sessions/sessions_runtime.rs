@@ -1,15 +1,16 @@
-use std::future::pending;
+use std::{
+    future::pending,
+    time::{Duration, SystemTime},
+};
 
 use tokio::{
     select,
     sync::{mpsc, oneshot},
     task::JoinHandle,
-    time::sleep_until,
+    time::{Instant, Sleep, sleep_until},
 };
 
 use crate::user::UserId;
-
-use tokio::time::Instant;
 
 use super::{SessionId, SessionStore};
 
@@ -90,19 +91,26 @@ impl SessionLifecycle for SessionsClient {
 struct SessionActor<S> {
     store: S,
     receiver: mpsc::Receiver<SessionMsg>,
+    clock_anchor: ClockAnchor,
 }
 
 impl<S: SessionStore> SessionActor<S> {
     fn new(store: S, receiver: mpsc::Receiver<SessionMsg>) -> Self {
-        SessionActor { store, receiver }
+        SessionActor {
+            store,
+            receiver,
+            clock_anchor: ClockAnchor::new(),
+        }
     }
 
     async fn run(mut self) {
         loop {
             let earliest_possible_expiry = self.store.earliest_possible_expiry();
-            let sleep_until_sessions_expire = async {
+            let sleep_until_earliest_possible_expiry = async {
                 if let Some(earliest_possible_expiry) = earliest_possible_expiry {
-                    sleep_until(earliest_possible_expiry).await;
+                    self.clock_anchor
+                        .sleep_until(earliest_possible_expiry)
+                        .await;
                 } else {
                     pending().await
                 }
@@ -112,8 +120,11 @@ impl<S: SessionStore> SessionActor<S> {
                     Some(msg) => self.handle(msg),
                     None => return,
                 },
-                () = sleep_until_sessions_expire => {
-                    self.store.remove_expired(Instant::now());
+                () = sleep_until_earliest_possible_expiry => {
+                    self.store.remove_expired(
+                        earliest_possible_expiry
+                            .expect("the timer only completes when a bound was armed"),
+                    );
                 }
             }
         }
@@ -122,15 +133,40 @@ impl<S: SessionStore> SessionActor<S> {
     fn handle(&mut self, msg: SessionMsg) {
         match msg {
             SessionMsg::Create { user_id, reply } => {
-                let _ = reply.send(self.store.create(user_id, Instant::now()));
+                let _ = reply.send(self.store.create(user_id, SystemTime::now()));
             }
             SessionMsg::Lookup { session_id, reply } => {
-                let _ = reply.send(self.store.lookup(session_id, Instant::now()));
+                let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
             }
             SessionMsg::Destroy { session_id } => {
                 self.store.destroy(session_id);
             }
         }
+    }
+}
+
+/// Relates tokio's monotonic clock to the wall clock, so wall clock deadlines can drive tokio
+/// timers. The mapping between the two clocks is fixed at construction.
+struct ClockAnchor {
+    tokio_origin: Instant,
+    wall_origin: SystemTime,
+}
+
+impl ClockAnchor {
+    fn new() -> Self {
+        Self {
+            tokio_origin: Instant::now(),
+            wall_origin: SystemTime::now(),
+        }
+    }
+
+    /// Completes once the wall clock reaches the deadline. Deadlines before the anchor complete
+    /// immediately.
+    fn sleep_until(&self, deadline: SystemTime) -> Sleep {
+        let after_origin = deadline
+            .duration_since(self.wall_origin)
+            .unwrap_or(Duration::ZERO);
+        sleep_until(self.tokio_origin + after_origin)
     }
 }
 
@@ -152,13 +188,10 @@ enum SessionMsg {
 mod tests {
     use std::{
         sync::{Arc, Mutex},
-        time::Duration,
+        time::{Duration, SystemTime},
     };
 
-    use tokio::{
-        sync::mpsc,
-        time::{self, Instant},
-    };
+    use tokio::{sync::mpsc, time};
 
     use double_trait::Dummy;
     use tokio::time::timeout;
@@ -179,13 +212,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn forward_create_to_session_store() {
         // Given
-        let now = Instant::now();
         #[derive(Clone, Default)]
         struct Spy {
-            record: Arc<Mutex<Option<(UserId, Instant)>>>,
+            record: Arc<Mutex<Option<(UserId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn create(&mut self, user_id: UserId, now: Instant) -> SessionId {
+            fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
                 *self.record.lock().unwrap() = Some((user_id, now));
                 SessionId::ALPHA
             }
@@ -195,11 +227,18 @@ mod tests {
         let mut client = runtime.client();
 
         // When
+        let before = SystemTime::now();
         let session_id = client.create(UserId::ALICE).await;
+        let after = SystemTime::now();
 
         // Then
         assert_eq!(session_id, SessionId::ALPHA);
-        assert_eq!(*store.record.lock().unwrap(), Some((UserId::ALICE, now)));
+        let (user_id, at) = (*store.record.lock().unwrap()).expect("create must reach the store");
+        assert_eq!(user_id, UserId::ALICE);
+        assert!(
+            before <= at && at <= after,
+            "store must see the current time"
+        );
         // Cleanup
         drop(client);
         runtime.shutdown().await;
@@ -208,13 +247,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn lookup_forwards_session_id_to_store_and_returns_user_id() {
         // Given
-        let now = Instant::now();
         #[derive(Clone, Default)]
         struct Spy {
-            record: Arc<Mutex<Option<(SessionId, Instant)>>>,
+            record: Arc<Mutex<Option<(SessionId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn lookup(&mut self, session_id: SessionId, now: Instant) -> Option<UserId> {
+            fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
                 *self.record.lock().unwrap() = Some((session_id, now));
                 Some(UserId::ALICE)
             }
@@ -224,11 +262,19 @@ mod tests {
         let client = runtime.client();
 
         // When
+        let before = SystemTime::now();
         let returned = client.lookup(SessionId::ALPHA).await;
+        let after = SystemTime::now();
 
         // Then
         assert_eq!(returned, Some(UserId::ALICE));
-        assert_eq!(*store.record.lock().unwrap(), Some((SessionId::ALPHA, now)));
+        let (session_id, at) =
+            (*store.record.lock().unwrap()).expect("lookup must reach the store");
+        assert_eq!(session_id, SessionId::ALPHA);
+        assert!(
+            before <= at && at <= after,
+            "store must see the current time"
+        );
         // Cleanup
         drop(client);
         runtime.shutdown().await;
@@ -261,18 +307,18 @@ mod tests {
     async fn remove_expired_when_next_expiry_is_reached() {
         // Given
         const TTL: Duration = Duration::from_secs(10);
-        let start = Instant::now();
+        let start = SystemTime::now();
         let (tx, mut rx) = mpsc::channel(1);
         #[derive(Clone)]
         struct SessionStoreDouble {
-            start: Instant,
-            tx: mpsc::Sender<Instant>,
+            start: SystemTime,
+            tx: mpsc::Sender<SystemTime>,
         }
         impl SessionStore for SessionStoreDouble {
-            fn earliest_possible_expiry(&self) -> Option<Instant> {
+            fn earliest_possible_expiry(&self) -> Option<SystemTime> {
                 Some(self.start + TTL)
             }
-            fn remove_expired(&mut self, now: Instant) {
+            fn remove_expired(&mut self, now: SystemTime) {
                 let _ = self.tx.try_send(now);
             }
         }
