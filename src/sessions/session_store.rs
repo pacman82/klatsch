@@ -45,7 +45,7 @@ pub trait SessionStore {
     fn remove_expired(&mut self, now: SystemTime) -> impl Future<Output = ()> + Send;
 }
 
-pub struct InMemorySessionStore {
+pub struct ExpiringSessions {
     expiry: SessionExpiry,
     sessions: HashMap<SessionId, SessionInfo>,
     /// Cached so answering it does not require a scan over all sessions. Lookups and removals
@@ -54,7 +54,7 @@ pub struct InMemorySessionStore {
     earliest_possible_expiry: Option<SystemTime>,
 }
 
-impl InMemorySessionStore {
+impl ExpiringSessions {
     pub fn new(expiry: SessionExpiry) -> Self {
         Self {
             expiry,
@@ -64,7 +64,7 @@ impl InMemorySessionStore {
     }
 }
 
-impl SessionStore for InMemorySessionStore {
+impl SessionStore for ExpiringSessions {
     async fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
         let session_id = SessionId::new();
         let session_info = SessionInfo::new(user_id, now);
@@ -139,7 +139,7 @@ mod tests {
 
     use std::time::{Duration, SystemTime};
 
-    use super::{InMemorySessionStore, SessionExpiry, SessionStore as _};
+    use super::{ExpiringSessions, SessionExpiry, SessionStore as _};
 
     /// For tests which are not concerned with expiry at all.
     const DEFAULT_SESSION_EXPIRY: SessionExpiry = SessionExpiry {
@@ -152,7 +152,7 @@ mod tests {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
@@ -170,14 +170,16 @@ mod tests {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
         store.create(UserId::ALICE, now).await;
 
         // When
-        store.create(UserId::BOB, now + Duration::from_secs(1)).await;
+        store
+            .create(UserId::BOB, now + Duration::from_secs(1))
+            .await;
 
         // Then
         assert_eq!(
@@ -191,7 +193,7 @@ mod tests {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
@@ -214,12 +216,14 @@ mod tests {
         // Given — a session extended past the reported expiry bound
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
         let session_id = store.create(UserId::ALICE, now).await;
-        store.lookup(session_id, now + Duration::from_hours(24)).await;
+        store
+            .lookup(session_id, now + Duration::from_hours(24))
+            .await;
 
         // When
         let bound = store
@@ -237,7 +241,7 @@ mod tests {
         // Given — a session extended past the reported expiry bound
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
@@ -264,7 +268,7 @@ mod tests {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
@@ -287,7 +291,7 @@ mod tests {
         // Given
         let created_at = SystemTime::now();
         let max_lifetime = Duration::from_hours(7 * 24);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout: Duration::from_hours(3 * 24),
             max_lifetime,
         });
@@ -315,7 +319,7 @@ mod tests {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
-        let mut store = InMemorySessionStore::new(SessionExpiry {
+        let mut store = ExpiringSessions::new(SessionExpiry {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
@@ -332,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn lookup_returns_user_id_session_was_created_for() {
         // Given
-        let mut store = InMemorySessionStore::new(DEFAULT_SESSION_EXPIRY);
+        let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
         // When
         let session_id = store.create(UserId::ALICE, SystemTime::now()).await;
         let looked_up_session_id = store.lookup(session_id, SystemTime::now()).await;
@@ -343,7 +347,7 @@ mod tests {
     #[tokio::test]
     async fn destroyed_session_cannot_be_looked_up() {
         // Given
-        let mut store = InMemorySessionStore::new(DEFAULT_SESSION_EXPIRY);
+        let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
         let session_id = store.create(UserId::ALICE, SystemTime::now()).await;
         // When
         store.destroy(session_id).await;
