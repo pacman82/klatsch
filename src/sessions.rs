@@ -8,10 +8,10 @@ pub use self::{
     sessions_runtime::{SessionLifecycle, SessionLookup, SessionsRuntime},
 };
 
-use self::session_store::{InMemorySessionStore, SessionStore};
+use self::session_store::{ExpiringSessions, SessionStore};
 
 impl SessionsRuntime {
     pub fn new(expiry: SessionExpiry) -> Self {
-        Self::with_session_store(InMemorySessionStore::new(expiry))
+        Self::with_session_store(ExpiringSessions::new(expiry))
     }
 }
