@@ -105,7 +105,7 @@ impl<S: SessionStore> SessionActor<S> {
 
     async fn run(mut self) {
         loop {
-            let earliest_possible_expiry = self.store.earliest_possible_expiry();
+            let earliest_possible_expiry = self.store.earliest_possible_expiry().await;
             let sleep_until_earliest_possible_expiry = async {
                 if let Some(earliest_possible_expiry) = earliest_possible_expiry {
                     self.clock_anchor
@@ -117,29 +117,29 @@ impl<S: SessionStore> SessionActor<S> {
             };
             select! {
                 msg = self.receiver.recv() => match msg {
-                    Some(msg) => self.handle(msg),
+                    Some(msg) => self.handle(msg).await,
                     None => return,
                 },
                 () = sleep_until_earliest_possible_expiry => {
                     self.store.remove_expired(
                         earliest_possible_expiry
                             .expect("the timer only completes when a bound was armed"),
-                    );
+                    ).await;
                 }
             }
         }
     }
 
-    fn handle(&mut self, msg: SessionMsg) {
+    async fn handle(&mut self, msg: SessionMsg) {
         match msg {
             SessionMsg::Create { user_id, reply } => {
-                let _ = reply.send(self.store.create(user_id, SystemTime::now()));
+                let _ = reply.send(self.store.create(user_id, SystemTime::now()).await);
             }
             SessionMsg::Lookup { session_id, reply } => {
-                let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
+                let _ = reply.send(self.store.lookup(session_id, SystemTime::now()).await);
             }
             SessionMsg::Destroy { session_id } => {
-                self.store.destroy(session_id);
+                self.store.destroy(session_id).await;
             }
         }
     }
@@ -217,7 +217,7 @@ mod tests {
             record: Arc<Mutex<Option<(UserId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
+            async fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
                 *self.record.lock().unwrap() = Some((user_id, now));
                 SessionId::ALPHA
             }
@@ -252,7 +252,7 @@ mod tests {
             record: Arc<Mutex<Option<(SessionId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
+            async fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
                 *self.record.lock().unwrap() = Some((session_id, now));
                 Some(UserId::ALICE)
             }
@@ -287,7 +287,7 @@ mod tests {
             destroyed: Arc<Mutex<Option<SessionId>>>,
         }
         impl SessionStore for Spy {
-            fn destroy(&mut self, session_id: SessionId) {
+            async fn destroy(&mut self, session_id: SessionId) {
                 *self.destroyed.lock().unwrap() = Some(session_id);
             }
         }
@@ -315,10 +315,10 @@ mod tests {
             tx: mpsc::Sender<SystemTime>,
         }
         impl SessionStore for SessionStoreDouble {
-            fn earliest_possible_expiry(&self) -> Option<SystemTime> {
+            async fn earliest_possible_expiry(&self) -> Option<SystemTime> {
                 Some(self.start + TTL)
             }
-            fn remove_expired(&mut self, now: SystemTime) {
+            async fn remove_expired(&mut self, now: SystemTime) {
                 let _ = self.tx.try_send(now);
             }
         }
