@@ -29,12 +29,12 @@ pub trait SessionStore {
     /// active sessions. This is a conservative lower bound: no session expires before this
     /// instant, but the actual next expiry may be later.
     fn earliest_possible_expiry(&self) -> Option<SystemTime>;
-    /// Remove all expired sessions.
+    /// Remove all expired sessions and report which ones were removed.
     ///
-    /// Since lookup would also return `None` for expired sessions which are still stored this has
-    /// no visible effect from the outside. Calling it however allows the store to free up resources
-    /// used by expired sessions.
-    fn remove_expired(&mut self, now: SystemTime);
+    /// Lookup already returns `None` for expired sessions which are still stored; calling this
+    /// frees their resources and tells the caller which sessions ended, so revocation can be
+    /// propagated (e.g. to persistence, or by closing streams the sessions kept open).
+    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId>;
 }
 
 pub struct ExpiringSessions {
@@ -71,9 +71,10 @@ impl SessionStore for ExpiringSessions {
 
     fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
         let info = self.sessions.get_mut(&session_id)?;
-        // Expired sessions linger until the next sweep; don't let them authenticate.
+        // Defensive, we runtime makes sure `remove_expired` is called on time. So outdated sessions
+        // likely do not survive more than a few milliseconds (micro?). However, better safe than
+        // sorry.
         if !info.is_valid(now, &self.expiry) {
-            self.sessions.remove(&session_id);
             return None;
         }
         info.last_activity = now;
@@ -88,14 +89,32 @@ impl SessionStore for ExpiringSessions {
         self.earliest_possible_expiry
     }
 
-    fn remove_expired(&mut self, now: SystemTime) {
+    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId> {
         let expiry = &self.expiry;
-        self.sessions.retain(|_, info| info.is_valid(now, expiry));
-        self.earliest_possible_expiry = self
+        // Earliest expiration of any remaining session already visited.
+        let mut earliest_remaining: Option<SystemTime> = None;
+        // Updates `earliest_remaining`. `true` for any expired session, false` for valid sessions.
+        let is_expired = |_: &SessionId, info: &mut SessionInfo| {
+            let valid_until = info.valid_until(expiry);
+            if valid_until <= now {
+                // Session is expired
+                return true;
+            }
+            earliest_remaining = Some(match earliest_remaining {
+                Some(bound) => bound.min(valid_until),
+                None => valid_until,
+            });
+            false
+        };
+        // Remove all expired sesions.
+        let expired = self
             .sessions
-            .values()
-            .map(|info| info.valid_until(&self.expiry))
-            .min();
+            .extract_if(is_expired)
+            .map(|(session_id, _)| session_id)
+            .collect();
+        self.earliest_possible_expiry = earliest_remaining;
+        // Return expired sessions, which have been removed from the store.
+        expired
     }
 }
 
@@ -121,7 +140,7 @@ impl SessionInfo {
     }
 
     fn is_valid(&self, now: SystemTime, expiry: &SessionExpiry) -> bool {
-        now <= self.valid_until(expiry)
+        now < self.valid_until(expiry)
     }
 }
 
@@ -265,6 +284,26 @@ mod tests {
         // Then
         assert_eq!(store.lookup(expired, sweep_time), None);
         assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
+    }
+
+    #[test]
+    fn remove_expired_reports_which_sessions_expired() {
+        // Given
+        let now = SystemTime::now();
+        let idle_timeout = Duration::from_hours(48);
+        let mut store = ExpiringSessions::new(SessionExpiry {
+            idle_timeout,
+            max_lifetime: Duration::from_hours(365 * 24),
+        });
+        let expired = store.create(UserId::ALICE, now);
+        store.create(UserId::BOB, now + Duration::from_hours(24));
+
+        // When — past Alice's expiry, but 24 hours before Bob's
+        let sweep_time = now + idle_timeout + Duration::from_secs(1);
+        let reported = store.remove_expired(sweep_time);
+
+        // Then
+        assert_eq!(reported, vec![expired]);
     }
 
     #[test]

@@ -318,8 +318,9 @@ mod tests {
             fn earliest_possible_expiry(&self) -> Option<SystemTime> {
                 Some(self.start + TTL)
             }
-            fn remove_expired(&mut self, now: SystemTime) {
+            fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId> {
                 let _ = self.tx.try_send(now);
+                Vec::new()
             }
         }
         let runtime = SessionsRuntime::with_session_store(SessionStoreDouble { start, tx });
