@@ -10,10 +10,10 @@ use anyhow::{Context, anyhow};
 use crate::sessions::SessionExpiry;
 
 /// Session idle timeout if SESSION_IDLE_TIMEOUT is not set.
-const DEFAULT_SESSION_IDLE_TIMEOUT: Duration = Duration::from_hours(30 * 24);
+const DEFAULT_SESSION_IDLE_TIMEOUT: Duration = Duration::from_hours(3 * 24);
 
 /// Session lifetime cap if SESSION_MAX_LIFETIME is not set.
-const DEFAULT_SESSION_MAX_LIFETIME: Duration = Duration::from_hours(90 * 24);
+const DEFAULT_SESSION_MAX_LIFETIME: Duration = Duration::from_hours(30 * 24);
 
 /// All static configuration for the application. I.e. configuration which does not change during
 /// the runtime without a restart.
