@@ -20,29 +20,21 @@ pub struct SessionExpiry {
 pub trait SessionStore {
     /// Creates a new session associated with the given user. The timestamp is required to track
     /// expiry.
-    fn create(
-        &mut self,
-        user_id: UserId,
-        now: SystemTime,
-    ) -> impl Future<Output = SessionId> + Send;
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId;
     /// Returns the user ID if the session exists and is not expired, `None` otherwise.
-    fn lookup(
-        &mut self,
-        session_id: SessionId,
-        now: SystemTime,
-    ) -> impl Future<Output = Option<UserId>> + Send;
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId>;
     /// Revokes a session. This should happen if a user logs out of a client.
-    fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
+    fn destroy(&mut self, session_id: SessionId);
     /// The earliest point in time at which any session may expire, or `None` if there are no
     /// active sessions. This is a conservative lower bound: no session expires before this
     /// instant, but the actual next expiry may be later.
-    fn earliest_possible_expiry(&self) -> impl Future<Output = Option<SystemTime>> + Send;
+    fn earliest_possible_expiry(&self) -> Option<SystemTime>;
     /// Remove all expired sessions.
     ///
     /// Since lookup would also return `None` for expired sessions which are still stored this has
     /// no visible effect from the outside. Calling it however allows the store to free up resources
     /// used by expired sessions.
-    fn remove_expired(&mut self, now: SystemTime) -> impl Future<Output = ()> + Send;
+    fn remove_expired(&mut self, now: SystemTime);
 }
 
 pub struct ExpiringSessions {
@@ -65,7 +57,7 @@ impl ExpiringSessions {
 }
 
 impl SessionStore for ExpiringSessions {
-    async fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
         let session_id = SessionId::new();
         let session_info = SessionInfo::new(user_id, now);
         let valid_until = session_info.valid_until(&self.expiry);
@@ -77,7 +69,7 @@ impl SessionStore for ExpiringSessions {
         session_id
     }
 
-    async fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
         let info = self.sessions.get_mut(&session_id)?;
         // Expired sessions linger until the next sweep; don't let them authenticate.
         if !info.is_valid(now, &self.expiry) {
@@ -88,15 +80,15 @@ impl SessionStore for ExpiringSessions {
         Some(info.user_id)
     }
 
-    async fn destroy(&mut self, session_id: SessionId) {
+    fn destroy(&mut self, session_id: SessionId) {
         self.sessions.remove(&session_id);
     }
 
-    async fn earliest_possible_expiry(&self) -> Option<SystemTime> {
+    fn earliest_possible_expiry(&self) -> Option<SystemTime> {
         self.earliest_possible_expiry
     }
 
-    async fn remove_expired(&mut self, now: SystemTime) {
+    fn remove_expired(&mut self, now: SystemTime) {
         let expiry = &self.expiry;
         self.sessions.retain(|_, info| info.is_valid(now, expiry));
         self.earliest_possible_expiry = self
@@ -147,8 +139,8 @@ mod tests {
         max_lifetime: Duration::from_hours(90 * 24),
     };
 
-    #[tokio::test]
-    async fn session_expires_after_idle_timeout() {
+    #[test]
+    fn session_expires_after_idle_timeout() {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
@@ -158,15 +150,15 @@ mod tests {
         });
 
         // When
-        store.create(UserId::ALICE, now).await;
-        let earliest_possible_expiry = store.earliest_possible_expiry().await;
+        store.create(UserId::ALICE, now);
+        let earliest_possible_expiry = store.earliest_possible_expiry();
 
         // Then
         assert_eq!(earliest_possible_expiry, Some(now + idle_timeout));
     }
 
-    #[tokio::test]
-    async fn next_expiry_reflects_earliest_session_only() {
+    #[test]
+    fn next_expiry_reflects_earliest_session_only() {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
@@ -174,22 +166,17 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        store.create(UserId::ALICE, now).await;
+        store.create(UserId::ALICE, now);
 
         // When
-        store
-            .create(UserId::BOB, now + Duration::from_secs(1))
-            .await;
+        store.create(UserId::BOB, now + Duration::from_secs(1));
 
         // Then
-        assert_eq!(
-            store.earliest_possible_expiry().await,
-            Some(now + idle_timeout)
-        );
+        assert_eq!(store.earliest_possible_expiry(), Some(now + idle_timeout));
     }
 
-    #[tokio::test]
-    async fn activity_delays_expiry() {
+    #[test]
+    fn activity_delays_expiry() {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
@@ -197,22 +184,22 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now).await;
+        let session_id = store.create(UserId::ALICE, now);
 
         // When
         let one_day_later = now + Duration::from_hours(24);
-        store.lookup(session_id, one_day_later).await;
+        store.lookup(session_id, one_day_later);
 
         // Then — the session is still valid past its original deadline
         let past_original_deadline = now + Duration::from_hours(60);
         assert_eq!(
-            store.lookup(session_id, past_original_deadline).await,
+            store.lookup(session_id, past_original_deadline),
             Some(UserId::ALICE)
         );
     }
 
-    #[tokio::test]
-    async fn sweep_at_the_expiry_bound_never_removes_live_sessions() {
+    #[test]
+    fn sweep_at_the_expiry_bound_never_removes_live_sessions() {
         // Given — a session extended past the reported expiry bound
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
@@ -220,24 +207,21 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now).await;
-        store
-            .lookup(session_id, now + Duration::from_hours(24))
-            .await;
+        let session_id = store.create(UserId::ALICE, now);
+        store.lookup(session_id, now + Duration::from_hours(24));
 
         // When
         let bound = store
             .earliest_possible_expiry()
-            .await
             .expect("one session is active");
-        store.remove_expired(bound).await;
+        store.remove_expired(bound);
 
         // Then
-        assert_eq!(store.lookup(session_id, bound).await, Some(UserId::ALICE));
+        assert_eq!(store.lookup(session_id, bound), Some(UserId::ALICE));
     }
 
-    #[tokio::test]
-    async fn sweep_restores_exact_expiry_after_activity() {
+    #[test]
+    fn sweep_restores_exact_expiry_after_activity() {
         // Given — a session extended past the reported expiry bound
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
@@ -245,26 +229,25 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now).await;
+        let session_id = store.create(UserId::ALICE, now);
         let one_day_later = now + Duration::from_hours(24);
-        store.lookup(session_id, one_day_later).await;
+        store.lookup(session_id, one_day_later);
 
         // When
         let bound = store
             .earliest_possible_expiry()
-            .await
             .expect("one session is active");
-        store.remove_expired(bound).await;
+        store.remove_expired(bound);
 
         // Then
         assert_eq!(
-            store.earliest_possible_expiry().await,
+            store.earliest_possible_expiry(),
             Some(one_day_later + idle_timeout)
         );
     }
 
-    #[tokio::test]
-    async fn remove_expired_removes_expired_sessions_leaving_active_ones() {
+    #[test]
+    fn remove_expired_removes_expired_sessions_leaving_active_ones() {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(48);
@@ -272,22 +255,20 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let expired = store.create(UserId::ALICE, now).await;
-        let active = store
-            .create(UserId::BOB, now + Duration::from_hours(24))
-            .await;
+        let expired = store.create(UserId::ALICE, now);
+        let active = store.create(UserId::BOB, now + Duration::from_hours(24));
 
         // When — past Alice's expiry, but 24 hours before Bob's
         let sweep_time = now + idle_timeout + Duration::from_secs(1);
-        store.remove_expired(sweep_time).await;
+        store.remove_expired(sweep_time);
 
         // Then
-        assert_eq!(store.lookup(expired, sweep_time).await, None);
-        assert_eq!(store.lookup(active, sweep_time).await, Some(UserId::BOB));
+        assert_eq!(store.lookup(expired, sweep_time), None);
+        assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
     }
 
-    #[tokio::test]
-    async fn activity_cannot_extend_a_session_beyond_max_lifetime() {
+    #[test]
+    fn activity_cannot_extend_a_session_beyond_max_lifetime() {
         // Given
         let created_at = SystemTime::now();
         let max_lifetime = Duration::from_hours(7 * 24);
@@ -295,27 +276,21 @@ mod tests {
             idle_timeout: Duration::from_hours(3 * 24),
             max_lifetime,
         });
-        let session_id = store.create(UserId::ALICE, created_at).await;
+        let session_id = store.create(UserId::ALICE, created_at);
 
         // When regular activity would keeps the sliding window open until past the absolute
         // deadline
-        store
-            .lookup(session_id, created_at + Duration::from_hours(2 * 24))
-            .await;
-        store
-            .lookup(session_id, created_at + Duration::from_hours(4 * 24))
-            .await;
-        store
-            .lookup(session_id, created_at + Duration::from_hours(6 * 24))
-            .await;
+        store.lookup(session_id, created_at + Duration::from_hours(2 * 24));
+        store.lookup(session_id, created_at + Duration::from_hours(4 * 24));
+        store.lookup(session_id, created_at + Duration::from_hours(6 * 24));
 
         // Then the session is unusable once the absolute deadline is hit.
         let past_deadline = created_at + max_lifetime + Duration::from_secs(1);
-        assert_eq!(store.lookup(session_id, past_deadline).await, None);
+        assert_eq!(store.lookup(session_id, past_deadline), None);
     }
 
-    #[tokio::test]
-    async fn lookup_rejects_expired_session_that_has_not_been_swept_yet() {
+    #[test]
+    fn lookup_rejects_expired_session_that_has_not_been_swept_yet() {
         // Given
         let now = SystemTime::now();
         let idle_timeout = Duration::from_hours(24);
@@ -323,35 +298,35 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now).await;
+        let session_id = store.create(UserId::ALICE, now);
 
         // When — past expiry, but no sweep has run
         let past_expiry = now + idle_timeout + Duration::from_secs(1);
-        let looked_up = store.lookup(session_id, past_expiry).await;
+        let looked_up = store.lookup(session_id, past_expiry);
 
         // Then
         assert_eq!(looked_up, None);
     }
 
-    #[tokio::test]
-    async fn lookup_returns_user_id_session_was_created_for() {
+    #[test]
+    fn lookup_returns_user_id_session_was_created_for() {
         // Given
         let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
         // When
-        let session_id = store.create(UserId::ALICE, SystemTime::now()).await;
-        let looked_up_session_id = store.lookup(session_id, SystemTime::now()).await;
+        let session_id = store.create(UserId::ALICE, SystemTime::now());
+        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
         // Then
         assert_eq!(looked_up_session_id, Some(UserId::ALICE));
     }
 
-    #[tokio::test]
-    async fn destroyed_session_cannot_be_looked_up() {
+    #[test]
+    fn destroyed_session_cannot_be_looked_up() {
         // Given
         let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
-        let session_id = store.create(UserId::ALICE, SystemTime::now()).await;
+        let session_id = store.create(UserId::ALICE, SystemTime::now());
         // When
-        store.destroy(session_id).await;
-        let looked_up_session_id = store.lookup(session_id, SystemTime::now()).await;
+        store.destroy(session_id);
+        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
         // Then
         assert_eq!(looked_up_session_id, None);
     }

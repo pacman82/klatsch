@@ -137,7 +137,8 @@ mod tests {
 
     #[test]
     fn session_timeouts_are_human_readable_durations() {
-        let result = parse_duration_from_env_result("SESSION_IDLE_TIMEOUT", Ok("30days".to_owned()));
+        let result =
+            parse_duration_from_env_result("SESSION_IDLE_TIMEOUT", Ok("30days".to_owned()));
 
         let duration = result.unwrap().expect("value is present");
 
@@ -146,7 +147,8 @@ mod tests {
 
     #[test]
     fn invalid_duration_error_names_variable_and_expected_format() {
-        let result = parse_duration_from_env_result("SESSION_IDLE_TIMEOUT", Ok("banana".to_owned()));
+        let result =
+            parse_duration_from_env_result("SESSION_IDLE_TIMEOUT", Ok("banana".to_owned()));
 
         let error = result.unwrap_err();
 
