@@ -219,7 +219,7 @@ mod tests {
         impl SessionStore for Spy {
             fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
                 *self.record.lock().unwrap() = Some((user_id, now));
-                SessionId::ALPHA
+                SessionId::ALICE
             }
         }
         let store = Spy::default();
@@ -232,7 +232,7 @@ mod tests {
         let after = SystemTime::now();
 
         // Then
-        assert_eq!(session_id, SessionId::ALPHA);
+        assert_eq!(session_id, SessionId::ALICE);
         let (user_id, at) = (*store.record.lock().unwrap()).expect("create must reach the store");
         assert_eq!(user_id, UserId::ALICE);
         assert!(
@@ -263,14 +263,14 @@ mod tests {
 
         // When
         let before = SystemTime::now();
-        let returned = client.lookup(SessionId::ALPHA).await;
+        let returned = client.lookup(SessionId::ALICE).await;
         let after = SystemTime::now();
 
         // Then
         assert_eq!(returned, Some(UserId::ALICE));
         let (session_id, at) =
             (*store.record.lock().unwrap()).expect("lookup must reach the store");
-        assert_eq!(session_id, SessionId::ALPHA);
+        assert_eq!(session_id, SessionId::ALICE);
         assert!(
             before <= at && at <= after,
             "store must see the current time"
@@ -295,12 +295,12 @@ mod tests {
         let runtime = SessionsRuntime::with_session_store(store.clone());
         let mut client = runtime.client();
 
-        client.destroy(SessionId::ALPHA).await;
+        client.destroy(SessionId::ALICE).await;
         // Destroy has no reply channel; shutdown drains the actor's queue before returning.
         drop(client);
         runtime.shutdown().await;
 
-        assert_eq!(*store.destroyed.lock().unwrap(), Some(SessionId::ALPHA));
+        assert_eq!(*store.destroyed.lock().unwrap(), Some(SessionId::ALICE));
     }
 
     #[tokio::test(start_paused = true)]

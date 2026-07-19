@@ -16,11 +16,34 @@ pub struct SessionExpiry {
     pub max_lifetime: Duration,
 }
 
+/// A session as it crosses the store's boundary, e.g. when restored from persistence.
+pub struct Session {
+    pub id: SessionId,
+    pub user_id: UserId,
+    pub created_at: SystemTime,
+    pub last_activity: SystemTime,
+}
+
+impl Session {
+    fn to_info(&self) -> SessionInfo {
+        SessionInfo {
+            user_id: self.user_id,
+            created_at: self.created_at,
+            last_activity: self.last_activity,
+        }
+    }
+}
+
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionStore {
     /// Creates a new session associated with the given user. The timestamp is required to track
     /// expiry.
     fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId;
+    /// Admit sessions persisted by an earlier run. Intended to be invoked once at boot, before
+    /// the store serves requests. Sessions which expired while persisted are not admitted; they
+    /// are reported back so the caller can propagate the revocation, just like with
+    /// [`Self::remove_expired`].
+    fn restore(&mut self, sessions: Vec<Session>, now: SystemTime) -> Vec<SessionId>;
     /// Returns the user ID if the session exists and is not expired, `None` otherwise.
     fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId>;
     /// Revokes a session. This should happen if a user logs out of a client.
@@ -54,6 +77,7 @@ impl ExpiringSessions {
             earliest_possible_expiry: None,
         }
     }
+
 }
 
 impl SessionStore for ExpiringSessions {
@@ -67,6 +91,24 @@ impl SessionStore for ExpiringSessions {
         });
         self.sessions.insert(session_id, session_info);
         session_id
+    }
+
+    fn restore(&mut self, mut sessions: Vec<Session>, now: SystemTime) -> Vec<SessionId> {
+        sessions.retain(|session| {
+            let info = session.to_info();
+            let valid_until = info.valid_until(&self.expiry);
+            if valid_until <= now {
+                // Keep expired sessions in the input; they become the report.
+                return true;
+            }
+            self.earliest_possible_expiry = Some(match self.earliest_possible_expiry {
+                Some(bound) => bound.min(valid_until),
+                None => valid_until,
+            });
+            self.sessions.insert(session.id, info);
+            false
+        });
+        sessions.into_iter().map(|session| session.id).collect()
     }
 
     fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
@@ -150,7 +192,7 @@ mod tests {
 
     use std::time::{Duration, SystemTime};
 
-    use super::{ExpiringSessions, SessionExpiry, SessionStore as _};
+    use super::{ExpiringSessions, Session, SessionExpiry, SessionId, SessionStore as _};
 
     /// For tests which are not concerned with expiry at all.
     const DEFAULT_SESSION_EXPIRY: SessionExpiry = SessionExpiry {
@@ -274,16 +316,32 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let expired = store.create(UserId::ALICE, now);
-        let active = store.create(UserId::BOB, now + Duration::from_hours(24));
+        let one_day_later = now + Duration::from_hours(24);
+        store.restore(
+            vec![
+                Session {
+                    id: SessionId::ALICE,
+                    user_id: UserId::ALICE,
+                    created_at: now,
+                    last_activity: now,
+                },
+                Session {
+                    id: SessionId::BOB,
+                    user_id: UserId::BOB,
+                    created_at: one_day_later,
+                    last_activity: one_day_later,
+                },
+            ],
+            one_day_later,
+        );
 
         // When — past Alice's expiry, but 24 hours before Bob's
         let sweep_time = now + idle_timeout + Duration::from_secs(1);
         store.remove_expired(sweep_time);
 
         // Then
-        assert_eq!(store.lookup(expired, sweep_time), None);
-        assert_eq!(store.lookup(active, sweep_time), Some(UserId::BOB));
+        assert_eq!(store.lookup(SessionId::ALICE, sweep_time), None);
+        assert_eq!(store.lookup(SessionId::BOB, sweep_time), Some(UserId::BOB));
     }
 
     #[test]
@@ -295,15 +353,31 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let expired = store.create(UserId::ALICE, now);
-        store.create(UserId::BOB, now + Duration::from_hours(24));
+        let one_day_later = now + Duration::from_hours(24);
+        store.restore(
+            vec![
+                Session {
+                    id: SessionId::ALICE,
+                    user_id: UserId::ALICE,
+                    created_at: now,
+                    last_activity: now,
+                },
+                Session {
+                    id: SessionId::BOB,
+                    user_id: UserId::BOB,
+                    created_at: one_day_later,
+                    last_activity: one_day_later,
+                },
+            ],
+            one_day_later,
+        );
 
         // When — past Alice's expiry, but 24 hours before Bob's
         let sweep_time = now + idle_timeout + Duration::from_secs(1);
         let reported = store.remove_expired(sweep_time);
 
         // Then
-        assert_eq!(reported, vec![expired]);
+        assert_eq!(reported, vec![SessionId::ALICE]);
     }
 
     #[test]
@@ -345,6 +419,38 @@ mod tests {
 
         // Then
         assert_eq!(looked_up, None);
+    }
+
+    #[test]
+    fn restore_admits_live_sessions_and_reports_expired_ones() {
+        // Given
+        let now = SystemTime::now();
+        let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
+        let live = Session {
+            id: SessionId::ALICE,
+            user_id: UserId::ALICE,
+            created_at: now,
+            last_activity: now,
+        };
+        let long_gone = now - DEFAULT_SESSION_EXPIRY.idle_timeout - Duration::from_secs(1);
+        let expired = Session {
+            id: SessionId::BOB,
+            user_id: UserId::BOB,
+            created_at: long_gone,
+            last_activity: long_gone,
+        };
+
+        // When
+        let reported = store.restore(vec![live, expired], now);
+
+        // Then
+        assert_eq!(store.lookup(SessionId::BOB, now), None);
+        assert_eq!(reported, vec![SessionId::BOB]);
+        assert_eq!(
+            store.earliest_possible_expiry(),
+            Some(now + DEFAULT_SESSION_EXPIRY.idle_timeout)
+        );
+        assert_eq!(store.lookup(SessionId::ALICE, now), Some(UserId::ALICE));
     }
 
     #[test]
