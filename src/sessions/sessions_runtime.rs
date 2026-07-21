@@ -109,6 +109,11 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
     }
 
     async fn run(mut self) {
+        // Before we are acting on messages, let's restore the state of the session store from
+        // persistence.
+        let sessions = self.persistence.all_sessions().await;
+        self.store.restore(sessions, SystemTime::now());
+
         loop {
             let earliest_possible_expiry = self.store.earliest_possible_expiry();
             let sleep_until_earliest_possible_expiry = async {
@@ -201,7 +206,10 @@ mod tests {
     use double_trait::Dummy;
     use tokio::time::timeout;
 
-    use crate::user::UserId;
+    use crate::{
+        sessions::{session_persistence::SessionPersistence, session_store::Session},
+        user::UserId,
+    };
 
     use super::{
         SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore, SessionsRuntime,
@@ -343,6 +351,47 @@ mod tests {
 
         // Cleanup
         drop(client);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_are_restored_at_start() {
+        // Given a persisted sessions for Alice and Bob
+        fn persisted_sessions() -> Vec<Session> {
+            vec![
+                Session {
+                    id: SessionId::ALICE,
+                    user_id: UserId::ALICE,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    last_activity: SystemTime::UNIX_EPOCH,
+                },
+                Session {
+                    id: SessionId::BOB,
+                    user_id: UserId::BOB,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    last_activity: SystemTime::UNIX_EPOCH,
+                },
+            ]
+        }
+        struct PersistenceStub;
+        impl SessionPersistence for PersistenceStub {
+            async fn all_sessions(&self) -> Vec<Session> {
+                persisted_sessions()
+            }
+        }
+        struct SessionStoreMock;
+
+        // When starting the runtime
+        let runtime = SessionsRuntime::start(SessionStoreMock, PersistenceStub);
+
+        // Then the runtime should restore the sessions
+        impl SessionStore for SessionStoreMock {
+            fn restore(&mut self, sessions: Vec<Session>, _now: SystemTime) {
+                assert_eq!(sessions, persisted_sessions());
+            }
+        }
+
+        // Cleanup
         runtime.shutdown().await;
     }
 }

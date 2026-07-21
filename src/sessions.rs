@@ -11,7 +11,7 @@ pub use self::{
 
 use self::{
     session_persistence::{NoPersistence, SessionPersistence},
-    session_store::{ExpiringSessions, SessionStore},
+    session_store::{ExpiringSessions, Session, SessionStore},
 };
 
 impl SessionsRuntime {
