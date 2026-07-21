@@ -12,7 +12,7 @@ use tokio::{
 
 use crate::user::UserId;
 
-use super::{SessionId, SessionStore};
+use super::{SessionId, SessionPersistence, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLookup {
@@ -31,9 +31,12 @@ pub struct SessionsRuntime {
 }
 
 impl SessionsRuntime {
-    pub(super) fn with_session_store(store: impl SessionStore + Send + 'static) -> Self {
+    pub(super) fn start(
+        store: impl SessionStore + Send + 'static,
+        persistence: impl SessionPersistence + Send + 'static,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = SessionActor::new(store, receiver);
+        let actor = SessionActor::new(store, persistence, receiver);
         let handle = tokio::spawn(async move { actor.run().await });
         Self { sender, handle }
     }
@@ -88,16 +91,18 @@ impl SessionLifecycle for SessionsClient {
     }
 }
 
-struct SessionActor<S> {
+struct SessionActor<S, P> {
     store: S,
+    persistence: P,
     receiver: mpsc::Receiver<SessionMsg>,
     clock_anchor: ClockAnchor,
 }
 
-impl<S: SessionStore> SessionActor<S> {
-    fn new(store: S, receiver: mpsc::Receiver<SessionMsg>) -> Self {
+impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
+    fn new(store: S, persistence: P, receiver: mpsc::Receiver<SessionMsg>) -> Self {
         SessionActor {
             store,
+            persistence,
             receiver,
             clock_anchor: ClockAnchor::new(),
         }
@@ -204,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
-        let runtime = SessionsRuntime::with_session_store(Dummy);
+        let runtime = SessionsRuntime::start(Dummy, Dummy);
         let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
@@ -223,7 +228,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let mut client = runtime.client();
 
         // When
@@ -258,7 +263,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let client = runtime.client();
 
         // When
@@ -292,7 +297,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let mut client = runtime.client();
 
         client.destroy(SessionId::ALICE).await;
@@ -323,7 +328,7 @@ mod tests {
                 Vec::new()
             }
         }
-        let runtime = SessionsRuntime::with_session_store(SessionStoreDouble { start, tx });
+        let runtime = SessionsRuntime::start(SessionStoreDouble { start, tx }, Dummy);
         let client = runtime.client();
 
         // When
