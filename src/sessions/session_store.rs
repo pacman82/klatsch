@@ -18,9 +18,14 @@ pub struct SessionExpiry {
 
 /// A session as it crosses the store's boundary, e.g. when restored from persistence.
 pub struct Session {
+    /// Unique identifier for the session. Used for authentication and therfore security critical.
     pub id: SessionId,
+    /// User associated with this session.
     pub user_id: UserId,
+    /// The time at which this session was created. Used to track absolute expiry.
     pub created_at: SystemTime,
+    /// The time at which this session last had activity. Used to track relative expiry using a
+    /// sliding window.
     pub last_activity: SystemTime,
 }
 
@@ -77,7 +82,6 @@ impl ExpiringSessions {
             earliest_possible_expiry: None,
         }
     }
-
 }
 
 impl SessionStore for ExpiringSessions {
