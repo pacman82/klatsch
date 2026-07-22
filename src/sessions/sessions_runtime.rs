@@ -21,7 +21,14 @@ pub trait SessionLookup {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLifecycle {
+    #[cfg(not(test))]
     fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send;
+
+    #[cfg(test)]
+    fn create(&mut self, _user_id: UserId) -> impl Future<Output = SessionId> + Send {
+        async { SessionId::new() }
+    }
+
     fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 }
 
