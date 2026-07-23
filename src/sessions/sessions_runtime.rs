@@ -10,7 +10,7 @@ use tokio::{
     time::{Instant, Sleep, sleep_until},
 };
 
-use crate::user::UserId;
+use crate::{sessions::session_store::Session, user::UserId};
 
 use super::{SessionId, SessionPersistence, SessionStore};
 
@@ -150,7 +150,16 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
     async fn handle(&mut self, msg: SessionMsg) {
         match msg {
             SessionMsg::Create { user_id, reply } => {
-                let _ = reply.send(self.store.create(user_id, SystemTime::now()));
+                let now = SystemTime::now();
+                let session_id = self.store.create(user_id, now);
+                let session = Session {
+                    id: session_id,
+                    user_id,
+                    created_at: now,
+                    last_activity: now,
+                };
+                self.persistence.insert(session).await;
+                let _ = reply.send(session_id);
             }
             SessionMsg::Lookup { session_id, reply } => {
                 let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
@@ -204,6 +213,7 @@ enum SessionMsg {
 #[cfg(test)]
 mod tests {
     use std::{
+        mem::take,
         sync::{Arc, Mutex},
         time::{Duration, SystemTime},
     };
@@ -400,5 +410,45 @@ mod tests {
 
         // Cleanup
         runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn persist_new_sessions() {
+        // Given
+        struct StubSessionStore;
+        impl SessionStore for StubSessionStore {
+            fn create(&mut self, _: UserId, _: SystemTime) -> SessionId {
+                SessionId::ALICE
+            }
+        }
+        let spy = SessionPersistenceSpy::default();
+        let runtime = SessionsRuntime::start(StubSessionStore, spy.clone());
+        let mut client = runtime.client();
+
+        // When
+        client.create(UserId::ALICE).await;
+
+        // Then
+        let inserted_sessions = spy.take_insert_record();
+        assert_eq!(inserted_sessions.len(), 1);
+        assert_eq!(inserted_sessions[0].id, SessionId::ALICE);
+        assert_eq!(inserted_sessions[0].user_id, UserId::ALICE);
+    }
+
+    #[derive(Default, Clone)]
+    struct SessionPersistenceSpy {
+        insert: Arc<Mutex<Vec<Session>>>,
+    }
+
+    impl SessionPersistenceSpy {
+        fn take_insert_record(&self) -> Vec<Session> {
+            take(&mut *self.insert.lock().unwrap())
+        }
+    }
+
+    impl SessionPersistence for SessionPersistenceSpy {
+        async fn insert(&mut self, session: Session) {
+            self.insert.lock().unwrap().push(session);
+        }
     }
 }
