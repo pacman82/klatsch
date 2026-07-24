@@ -1,4 +1,4 @@
-use tracing_subscriber::fmt::time::SystemTime;
+use std::time::SystemTime;
 
 use super::{Session, SessionId};
 

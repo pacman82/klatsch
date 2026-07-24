@@ -168,7 +168,10 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                 let _ = reply.send(session_id);
             }
             SessionMsg::Lookup { session_id, reply } => {
-                let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
+                let now = SystemTime::now();
+                let user_id = self.store.lookup(session_id, now);
+                self.persistence.update_activity(session_id, now).await;
+                let _ = reply.send(user_id);
             }
             SessionMsg::Destroy { session_id } => {
                 self.revoked_session_ids.push(session_id);
@@ -500,10 +503,38 @@ mod tests {
         runtime.shutdown().await;
     }
 
+    #[tokio::test]
+    async fn update_activity_in_persistence() {
+        // Given a session which
+        struct SessionStoreStub;
+        impl SessionStore for SessionStoreStub {
+            fn lookup(&mut self, _: SessionId, _: SystemTime) -> Option<UserId> {
+                Some(UserId::nil())
+            }
+        }
+        let start = SystemTime::now();
+        let persistence = SessionPersistenceSpy::default();
+        let runtime = SessionsRuntime::start(SessionStoreStub, persistence.clone());
+
+        // When the session is looked up
+        runtime.client().lookup(SessionId::ALICE).await;
+
+        // Then its timestamp is updated
+        let record = persistence.take_updated_record();
+        assert_eq!(1, record.len());
+        let (session_id, last_activity) = record[0];
+        assert_eq!(SessionId::ALICE, session_id);
+        assert!(last_activity >= start);
+
+        // Cleanup
+        runtime.shutdown().await;
+    }
+
     #[derive(Clone, Default)]
     struct SessionPersistenceSpy {
         inserted: Arc<Mutex<Vec<Session>>>,
         removed: Arc<Mutex<Vec<SessionId>>>,
+        updated: Arc<Mutex<Vec<(SessionId, SystemTime)>>>,
     }
 
     impl SessionPersistenceSpy {
@@ -514,6 +545,10 @@ mod tests {
         fn take_remove_record(&self) -> Vec<SessionId> {
             take(&mut *self.removed.lock().unwrap())
         }
+
+        fn take_updated_record(&self) -> Vec<(SessionId, SystemTime)> {
+            take(&mut *self.updated.lock().unwrap())
+        }
     }
 
     impl SessionPersistence for SessionPersistenceSpy {
@@ -523,6 +558,10 @@ mod tests {
 
         async fn remove(&mut self, session_id: SessionId) {
             self.removed.lock().unwrap().push(session_id);
+        }
+
+        async fn update_activity(&mut self, id: SessionId, last_activity: SystemTime) {
+            self.updated.lock().unwrap().push((id, last_activity));
         }
     }
 }
