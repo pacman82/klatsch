@@ -29,7 +29,7 @@ pub trait SessionLifecycle {
         async { SessionId::new() }
     }
 
-    fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
+    fn revoke(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 }
 
 pub struct SessionsRuntime {
@@ -90,7 +90,7 @@ impl SessionLifecycle for SessionsClient {
             .expect("SessionsRuntime must outlive its clients.")
     }
 
-    async fn destroy(&mut self, session_id: SessionId) {
+    async fn revoke(&mut self, session_id: SessionId) {
         self.sender
             .send(SessionMsg::Destroy { session_id })
             .await
@@ -165,6 +165,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                 let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
             }
             SessionMsg::Destroy { session_id } => {
+                self.persistence.remove(session_id).await;
                 self.store.destroy(session_id);
             }
         }
@@ -311,7 +312,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn destroy_forwards_session_id_to_store() {
+    async fn revoke_forwards_session_id_to_store() {
         #[derive(Clone, Default)]
         struct Spy {
             destroyed: Arc<Mutex<Option<SessionId>>>,
@@ -325,8 +326,8 @@ mod tests {
         let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let mut client = runtime.client();
 
-        client.destroy(SessionId::ALICE).await;
-        // Destroy has no reply channel; shutdown drains the actor's queue before returning.
+        client.revoke(SessionId::ALICE).await;
+        // Revoke has no reply channel; shutdown drains the actor's queue before returning.
         drop(client);
         runtime.shutdown().await;
 
@@ -435,20 +436,44 @@ mod tests {
         assert_eq!(inserted_sessions[0].user_id, UserId::ALICE);
     }
 
+    #[tokio::test]
+    async fn remove_revoked_sessions_from_persistence() {
+        // Given
+        let persistence = SessionPersistenceSpy::default();
+        let runtime = SessionsRuntime::start(Dummy, persistence.clone());
+
+        // When revoking a session
+        runtime.client().revoke(SessionId::ALICE).await;
+
+        // Then it is also removed from persistence
+
+        runtime.shutdown().await; // Revoke has no reply channel; shutdown drains the actor's queue.
+        assert_eq!(persistence.take_remove_record(), [SessionId::ALICE]);
+    }
+
     #[derive(Default, Clone)]
     struct SessionPersistenceSpy {
-        insert: Arc<Mutex<Vec<Session>>>,
+        inserted: Arc<Mutex<Vec<Session>>>,
+        removed: Arc<Mutex<Vec<SessionId>>>,
     }
 
     impl SessionPersistenceSpy {
         fn take_insert_record(&self) -> Vec<Session> {
-            take(&mut *self.insert.lock().unwrap())
+            take(&mut *self.inserted.lock().unwrap())
+        }
+
+        fn take_remove_record(&self) -> Vec<SessionId> {
+            take(&mut *self.removed.lock().unwrap())
         }
     }
 
     impl SessionPersistence for SessionPersistenceSpy {
         async fn insert(&mut self, session: Session) {
-            self.insert.lock().unwrap().push(session);
+            self.inserted.lock().unwrap().push(session);
+        }
+
+        async fn remove(&mut self, session_id: SessionId) {
+            self.removed.lock().unwrap().push(session_id);
         }
     }
 }
