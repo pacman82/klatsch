@@ -103,6 +103,9 @@ struct SessionActor<S, P> {
     persistence: P,
     receiver: mpsc::Receiver<SessionMsg>,
     clock_anchor: ClockAnchor,
+    /// We hold a list of revoked sessions, which have not been removed from persistence, yet. This
+    /// allows to retry their removal in case of persistence errors.
+    revoked_session_ids: Vec<SessionId>,
 }
 
 impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
@@ -112,6 +115,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
             persistence,
             receiver,
             clock_anchor: ClockAnchor::new(),
+            revoked_session_ids: Vec::new(),
         }
     }
 
@@ -138,10 +142,12 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                     None => return,
                 },
                 () = sleep_until_earliest_possible_expiry => {
-                    self.store.remove_expired(
+                    let revoked_sessions = self.store.remove_expired(
                         earliest_possible_expiry
                             .expect("the timer only completes when a bound was armed"),
                     );
+                    self.revoked_session_ids.extend(revoked_sessions);
+                    self.remove_revoked_session().await;
                 }
             }
         }
@@ -165,10 +171,18 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                 let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
             }
             SessionMsg::Destroy { session_id } => {
-                self.persistence.remove(session_id).await;
+                self.revoked_session_ids.push(session_id);
+                self.remove_revoked_session().await;
                 self.store.destroy(session_id);
             }
         }
+    }
+
+    async fn remove_revoked_session(&mut self) {
+        for session_id in &self.revoked_session_ids {
+            self.persistence.remove(*session_id).await;
+        }
+        self.revoked_session_ids.clear();
     }
 }
 
@@ -446,12 +460,47 @@ mod tests {
         runtime.client().revoke(SessionId::ALICE).await;
 
         // Then it is also removed from persistence
-
         runtime.shutdown().await; // Revoke has no reply channel; shutdown drains the actor's queue.
         assert_eq!(persistence.take_remove_record(), [SessionId::ALICE]);
     }
 
-    #[derive(Default, Clone)]
+    #[tokio::test(start_paused = true)]
+    async fn remove_expired_sessions_from_persistence() {
+        // Given a session which expires in less than a day
+        struct PersistenceSpy(mpsc::UnboundedSender<SessionId>);
+        impl SessionPersistence for PersistenceSpy {
+            async fn remove(&mut self, id: SessionId) {
+                self.0.send(id).unwrap();
+            }
+        }
+        let (sender, mut removed_session) = mpsc::unbounded_channel();
+        let persistence = PersistenceSpy(sender);
+        struct SessionStoreStub;
+        impl SessionStore for SessionStoreStub {
+            fn earliest_possible_expiry(&self) -> Option<SystemTime> {
+                Some(SystemTime::now() + Duration::from_hours(23))
+            }
+
+            fn remove_expired(&mut self, _: SystemTime) -> Vec<SessionId> {
+                vec![SessionId::ALICE]
+            }
+        }
+        let runtime = SessionsRuntime::start(SessionStoreStub, persistence);
+
+        // When a day passes
+        time::advance(Duration::from_hours(24)).await;
+
+        // Then it is also removed from persistence
+        let session_id = timeout(Duration::from_secs(1), removed_session.recv())
+            .await
+            .expect("Session must be removed, timely after expiration");
+        assert_eq!(session_id, Some(SessionId::ALICE));
+
+        // Cleanup
+        runtime.shutdown().await;
+    }
+
+    #[derive(Clone, Default)]
     struct SessionPersistenceSpy {
         inserted: Arc<Mutex<Vec<Session>>>,
         removed: Arc<Mutex<Vec<SessionId>>>,
