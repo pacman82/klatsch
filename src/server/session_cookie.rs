@@ -79,7 +79,7 @@ where
         .get("session")
         .and_then(|c| c.value().parse::<SessionId>().ok())
     {
-        sessions.destroy(session_id).await;
+        sessions.revoke(session_id).await;
     }
     jar.remove(
         Cookie::build("session")
@@ -407,7 +407,7 @@ mod tests {
             destroyed: Arc<Mutex<Vec<SessionId>>>,
         }
         impl SessionLifecycle for SessionsSpy {
-            async fn destroy(&mut self, session_id: SessionId) {
+            async fn revoke(&mut self, session_id: SessionId) {
                 self.destroyed.lock().unwrap().push(session_id);
             }
         }
