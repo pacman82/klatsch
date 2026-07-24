@@ -10,9 +10,9 @@ use tokio::{
     time::{Instant, Sleep, sleep_until},
 };
 
-use crate::user::UserId;
+use crate::{sessions::session_store::Session, user::UserId};
 
-use super::{SessionId, SessionStore};
+use super::{SessionId, SessionPersistence, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLookup {
@@ -21,7 +21,14 @@ pub trait SessionLookup {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLifecycle {
+    #[cfg(not(test))]
     fn create(&mut self, user_id: UserId) -> impl Future<Output = SessionId> + Send;
+
+    #[cfg(test)]
+    fn create(&mut self, _user_id: UserId) -> impl Future<Output = SessionId> + Send {
+        async { SessionId::new() }
+    }
+
     fn destroy(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 }
 
@@ -31,9 +38,12 @@ pub struct SessionsRuntime {
 }
 
 impl SessionsRuntime {
-    pub(super) fn with_session_store(store: impl SessionStore + Send + 'static) -> Self {
+    pub(super) fn start(
+        store: impl SessionStore + Send + 'static,
+        persistence: impl SessionPersistence + Send + 'static,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = SessionActor::new(store, receiver);
+        let actor = SessionActor::new(store, persistence, receiver);
         let handle = tokio::spawn(async move { actor.run().await });
         Self { sender, handle }
     }
@@ -88,22 +98,29 @@ impl SessionLifecycle for SessionsClient {
     }
 }
 
-struct SessionActor<S> {
+struct SessionActor<S, P> {
     store: S,
+    persistence: P,
     receiver: mpsc::Receiver<SessionMsg>,
     clock_anchor: ClockAnchor,
 }
 
-impl<S: SessionStore> SessionActor<S> {
-    fn new(store: S, receiver: mpsc::Receiver<SessionMsg>) -> Self {
+impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
+    fn new(store: S, persistence: P, receiver: mpsc::Receiver<SessionMsg>) -> Self {
         SessionActor {
             store,
+            persistence,
             receiver,
             clock_anchor: ClockAnchor::new(),
         }
     }
 
     async fn run(mut self) {
+        // Before we are acting on messages, let's restore the state of the session store from
+        // persistence.
+        let sessions = self.persistence.all_sessions().await;
+        self.store.restore(sessions, SystemTime::now());
+
         loop {
             let earliest_possible_expiry = self.store.earliest_possible_expiry();
             let sleep_until_earliest_possible_expiry = async {
@@ -133,7 +150,16 @@ impl<S: SessionStore> SessionActor<S> {
     async fn handle(&mut self, msg: SessionMsg) {
         match msg {
             SessionMsg::Create { user_id, reply } => {
-                let _ = reply.send(self.store.create(user_id, SystemTime::now()));
+                let now = SystemTime::now();
+                let session_id = self.store.create(user_id, now);
+                let session = Session {
+                    id: session_id,
+                    user_id,
+                    created_at: now,
+                    last_activity: now,
+                };
+                self.persistence.insert(session).await;
+                let _ = reply.send(session_id);
             }
             SessionMsg::Lookup { session_id, reply } => {
                 let _ = reply.send(self.store.lookup(session_id, SystemTime::now()));
@@ -187,6 +213,7 @@ enum SessionMsg {
 #[cfg(test)]
 mod tests {
     use std::{
+        mem::take,
         sync::{Arc, Mutex},
         time::{Duration, SystemTime},
     };
@@ -196,7 +223,10 @@ mod tests {
     use double_trait::Dummy;
     use tokio::time::timeout;
 
-    use crate::user::UserId;
+    use crate::{
+        sessions::{session_persistence::SessionPersistence, session_store::Session},
+        user::UserId,
+    };
 
     use super::{
         SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore, SessionsRuntime,
@@ -204,7 +234,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
-        let runtime = SessionsRuntime::with_session_store(Dummy);
+        let runtime = SessionsRuntime::start(Dummy, Dummy);
         let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
@@ -223,7 +253,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let mut client = runtime.client();
 
         // When
@@ -258,7 +288,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let client = runtime.client();
 
         // When
@@ -292,7 +322,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::with_session_store(store.clone());
+        let runtime = SessionsRuntime::start(store.clone(), Dummy);
         let mut client = runtime.client();
 
         client.destroy(SessionId::ALICE).await;
@@ -323,7 +353,7 @@ mod tests {
                 Vec::new()
             }
         }
-        let runtime = SessionsRuntime::with_session_store(SessionStoreDouble { start, tx });
+        let runtime = SessionsRuntime::start(SessionStoreDouble { start, tx }, Dummy);
         let client = runtime.client();
 
         // When
@@ -339,5 +369,86 @@ mod tests {
         // Cleanup
         drop(client);
         runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_are_restored_at_start() {
+        // Given a persisted sessions for Alice and Bob
+        fn persisted_sessions() -> Vec<Session> {
+            vec![
+                Session {
+                    id: SessionId::ALICE,
+                    user_id: UserId::ALICE,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    last_activity: SystemTime::UNIX_EPOCH,
+                },
+                Session {
+                    id: SessionId::BOB,
+                    user_id: UserId::BOB,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    last_activity: SystemTime::UNIX_EPOCH,
+                },
+            ]
+        }
+        struct PersistenceStub;
+        impl SessionPersistence for PersistenceStub {
+            async fn all_sessions(&self) -> Vec<Session> {
+                persisted_sessions()
+            }
+        }
+        struct SessionStoreMock;
+
+        // When starting the runtime
+        let runtime = SessionsRuntime::start(SessionStoreMock, PersistenceStub);
+
+        // Then the runtime should restore the sessions
+        impl SessionStore for SessionStoreMock {
+            fn restore(&mut self, sessions: Vec<Session>, _now: SystemTime) {
+                assert_eq!(sessions, persisted_sessions());
+            }
+        }
+
+        // Cleanup
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn persist_new_sessions() {
+        // Given
+        struct StubSessionStore;
+        impl SessionStore for StubSessionStore {
+            fn create(&mut self, _: UserId, _: SystemTime) -> SessionId {
+                SessionId::ALICE
+            }
+        }
+        let spy = SessionPersistenceSpy::default();
+        let runtime = SessionsRuntime::start(StubSessionStore, spy.clone());
+        let mut client = runtime.client();
+
+        // When
+        client.create(UserId::ALICE).await;
+
+        // Then
+        let inserted_sessions = spy.take_insert_record();
+        assert_eq!(inserted_sessions.len(), 1);
+        assert_eq!(inserted_sessions[0].id, SessionId::ALICE);
+        assert_eq!(inserted_sessions[0].user_id, UserId::ALICE);
+    }
+
+    #[derive(Default, Clone)]
+    struct SessionPersistenceSpy {
+        insert: Arc<Mutex<Vec<Session>>>,
+    }
+
+    impl SessionPersistenceSpy {
+        fn take_insert_record(&self) -> Vec<Session> {
+            take(&mut *self.insert.lock().unwrap())
+        }
+    }
+
+    impl SessionPersistence for SessionPersistenceSpy {
+        async fn insert(&mut self, session: Session) {
+            self.insert.lock().unwrap().push(session);
+        }
     }
 }

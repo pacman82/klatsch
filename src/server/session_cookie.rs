@@ -245,7 +245,7 @@ mod tests {
     async fn signup_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), SessionsDummy);
+        let app = session_routes(spy.clone(), Dummy);
 
         // When
         let response = app
@@ -280,7 +280,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, SessionsDummy);
+        let app = session_routes(UsersStub, Dummy);
 
         // When
         let response = app
@@ -309,7 +309,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(UserDummy, SessionsStub);
+        let app = session_routes(Dummy, SessionsStub);
 
         // When
         let response = app
@@ -344,7 +344,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(UserDummy, SessionsStub);
+        let app = session_routes(Dummy, SessionsStub);
 
         // When
         let response = app
@@ -372,7 +372,7 @@ mod tests {
     #[tokio::test]
     async fn logout_clears_session_cookie() {
         // Given
-        let app = session_routes(UserDummy, SessionsDummy);
+        let app = session_routes(Dummy, Dummy);
 
         // When
         let response = app
@@ -412,7 +412,7 @@ mod tests {
             }
         }
         let spy = SessionsSpy::default();
-        let app = session_routes(UserDummy, spy.clone());
+        let app = session_routes(Dummy, spy.clone());
 
         // When
         app.oneshot(
@@ -432,7 +432,7 @@ mod tests {
     async fn login_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), SessionsDummy);
+        let app = session_routes(spy.clone(), Dummy);
 
         // When
         let response = app
@@ -467,7 +467,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, SessionsDummy);
+        let app = session_routes(UsersStub, Dummy);
 
         // When
         let response = app
@@ -541,28 +541,6 @@ mod tests {
 
         async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
-            Ok(UserId::nil())
-        }
-    }
-
-    #[derive(Clone)]
-    struct SessionsDummy;
-
-    impl SessionLifecycle for SessionsDummy {
-        async fn create(&mut self, _user_id: UserId) -> SessionId {
-            SessionId::from_uuid(Uuid::nil())
-        }
-    }
-
-    #[derive(Clone)]
-    struct UserDummy;
-
-    impl Users for UserDummy {
-        async fn signup(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
-            Ok(UserId::nil())
-        }
-
-        async fn login(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
             Ok(UserId::nil())
         }
     }
