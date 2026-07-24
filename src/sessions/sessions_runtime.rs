@@ -167,7 +167,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                     created_at: now,
                     last_activity: now,
                 };
-                self.persistence.insert(session).await;
+                let _ = self.persistence.insert(session).await;
                 let _ = reply.send(session_id);
             }
             SessionMsg::Lookup { session_id, reply } => {
@@ -480,6 +480,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_creation_succeeds_despite_persistence_failure() {
+        // Given a session store that succeeds, but persistence that fails to insert
+        struct StubSessionStore;
+        impl SessionStore for StubSessionStore {
+            fn create(&mut self, _: UserId, _: SystemTime) -> SessionId {
+                SessionId::ALICE
+            }
+        }
+        struct SessionInsertSaboteur;
+        impl SessionPersistence for SessionInsertSaboteur {
+            async fn insert(&mut self, _: Session) -> anyhow::Result<()> {
+                anyhow::bail!("simulated persistence failure")
+            }
+        }
+        let runtime = SessionsRuntime::start(StubSessionStore, SessionInsertSaboteur)
+            .await
+            .unwrap();
+        let mut client = runtime.client();
+
+        // When creating a session while persistence is broken
+        let session_id = client.create(UserId::ALICE).await;
+
+        // Then the store still creates the session and reports it back to the caller
+        assert_eq!(session_id, SessionId::ALICE);
+
+        // Cleanup
+        drop(client);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn remove_revoked_sessions_from_persistence() {
         // Given
         let persistence = SessionPersistenceSpy::default();
@@ -584,8 +615,9 @@ mod tests {
     }
 
     impl SessionPersistence for SessionPersistenceSpy {
-        async fn insert(&mut self, session: Session) {
+        async fn insert(&mut self, session: Session) -> anyhow::Result<()> {
             self.inserted.lock().unwrap().push(session);
+            Ok(())
         }
 
         async fn remove(&mut self, session_id: SessionId) {
