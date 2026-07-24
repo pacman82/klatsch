@@ -8,7 +8,7 @@ pub trait SessionPersistence {
     fn all_sessions(&self) -> impl Future<Output = anyhow::Result<Vec<Session>>> + Send;
 
     /// To insert a session after creation, so it is remembered after a reboot.
-    fn insert(&mut self, session: Session) -> impl Future<Output = ()> + Send;
+    fn insert(&mut self, session: Session) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     /// Free memory used to remember the session after it has been revoked.
     fn remove(&mut self, session: SessionId) -> impl Future<Output = ()> + Send;
@@ -29,7 +29,9 @@ impl SessionPersistence for NoPersistence {
         Ok(Vec::new())
     }
 
-    async fn insert(&mut self, _: Session) {}
+    async fn insert(&mut self, _: Session) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     async fn remove(&mut self, _: SessionId) {}
 
