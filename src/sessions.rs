@@ -15,7 +15,7 @@ use self::{
 };
 
 impl SessionsRuntime {
-    pub fn new(expiry: SessionExpiry) -> Self {
-        Self::start(ExpiringSessions::new(expiry), NoPersistence)
+    pub async fn new(expiry: SessionExpiry) -> anyhow::Result<Self> {
+        Self::start(ExpiringSessions::new(expiry), NoPersistence).await
     }
 }

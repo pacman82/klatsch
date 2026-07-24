@@ -3,6 +3,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Context as _;
+
 use tokio::{
     select,
     sync::{mpsc, oneshot},
@@ -38,14 +40,20 @@ pub struct SessionsRuntime {
 }
 
 impl SessionsRuntime {
-    pub(super) fn start(
-        store: impl SessionStore + Send + 'static,
+    pub(super) async fn start(
+        mut store: impl SessionStore + Send + 'static,
         persistence: impl SessionPersistence + Send + 'static,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        let sessions = persistence
+            .all_sessions()
+            .await
+            .context("Failed to restore sessions from persistence")?;
+        store.restore(sessions, SystemTime::now());
+
         let (sender, receiver) = mpsc::channel(16);
         let actor = SessionActor::new(store, persistence, receiver);
         let handle = tokio::spawn(async move { actor.run().await });
-        Self { sender, handle }
+        Ok(Self { sender, handle })
     }
 
     pub async fn shutdown(self) {
@@ -120,11 +128,6 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
     }
 
     async fn run(mut self) {
-        // Before we are acting on messages, let's restore the state of the session store from
-        // persistence.
-        let sessions = self.persistence.all_sessions().await;
-        self.store.restore(sessions, SystemTime::now());
-
         loop {
             let earliest_possible_expiry = self.store.earliest_possible_expiry();
             let sleep_until_earliest_possible_expiry = async {
@@ -252,7 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_completes_within_one_second() {
-        let runtime = SessionsRuntime::start(Dummy, Dummy);
+        let runtime = SessionsRuntime::start(Dummy, Dummy).await.unwrap();
         let result = timeout(Duration::from_secs(1), runtime.shutdown()).await;
         assert!(result.is_ok(), "Shutdown did not complete within 1 second");
     }
@@ -271,7 +274,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::start(store.clone(), Dummy);
+        let runtime = SessionsRuntime::start(store.clone(), Dummy).await.unwrap();
         let mut client = runtime.client();
 
         // When
@@ -306,7 +309,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::start(store.clone(), Dummy);
+        let runtime = SessionsRuntime::start(store.clone(), Dummy).await.unwrap();
         let client = runtime.client();
 
         // When
@@ -340,7 +343,7 @@ mod tests {
             }
         }
         let store = Spy::default();
-        let runtime = SessionsRuntime::start(store.clone(), Dummy);
+        let runtime = SessionsRuntime::start(store.clone(), Dummy).await.unwrap();
         let mut client = runtime.client();
 
         client.revoke(SessionId::ALICE).await;
@@ -371,7 +374,9 @@ mod tests {
                 Vec::new()
             }
         }
-        let runtime = SessionsRuntime::start(SessionStoreDouble { start, tx }, Dummy);
+        let runtime = SessionsRuntime::start(SessionStoreDouble { start, tx }, Dummy)
+            .await
+            .unwrap();
         let client = runtime.client();
 
         // When
@@ -410,14 +415,16 @@ mod tests {
         }
         struct PersistenceStub;
         impl SessionPersistence for PersistenceStub {
-            async fn all_sessions(&self) -> Vec<Session> {
-                persisted_sessions()
+            async fn all_sessions(&self) -> anyhow::Result<Vec<Session>> {
+                Ok(persisted_sessions())
             }
         }
         struct SessionStoreMock;
 
         // When starting the runtime
-        let runtime = SessionsRuntime::start(SessionStoreMock, PersistenceStub);
+        let runtime = SessionsRuntime::start(SessionStoreMock, PersistenceStub)
+            .await
+            .unwrap();
 
         // Then the runtime should restore the sessions
         impl SessionStore for SessionStoreMock {
@@ -431,6 +438,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn boot_aborts_when_persisted_sessions_cannot_be_loaded() {
+        // Given persistence which fails to report its sessions
+        struct FailingPersistence;
+        impl SessionPersistence for FailingPersistence {
+            async fn all_sessions(&self) -> anyhow::Result<Vec<Session>> {
+                anyhow::bail!("simulated persistence failure")
+            }
+        }
+
+        // When starting the runtime
+        let result = SessionsRuntime::start(Dummy, FailingPersistence).await;
+
+        // Then starting fails instead of silently continuing with an empty session store
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
     async fn persist_new_sessions() {
         // Given
         struct StubSessionStore;
@@ -440,7 +464,9 @@ mod tests {
             }
         }
         let spy = SessionPersistenceSpy::default();
-        let runtime = SessionsRuntime::start(StubSessionStore, spy.clone());
+        let runtime = SessionsRuntime::start(StubSessionStore, spy.clone())
+            .await
+            .unwrap();
         let mut client = runtime.client();
 
         // When
@@ -457,7 +483,9 @@ mod tests {
     async fn remove_revoked_sessions_from_persistence() {
         // Given
         let persistence = SessionPersistenceSpy::default();
-        let runtime = SessionsRuntime::start(Dummy, persistence.clone());
+        let runtime = SessionsRuntime::start(Dummy, persistence.clone())
+            .await
+            .unwrap();
 
         // When revoking a session
         runtime.client().revoke(SessionId::ALICE).await;
@@ -488,7 +516,9 @@ mod tests {
                 vec![SessionId::ALICE]
             }
         }
-        let runtime = SessionsRuntime::start(SessionStoreStub, persistence);
+        let runtime = SessionsRuntime::start(SessionStoreStub, persistence)
+            .await
+            .unwrap();
 
         // When a day passes
         time::advance(Duration::from_hours(24)).await;
@@ -514,7 +544,9 @@ mod tests {
         }
         let start = SystemTime::now();
         let persistence = SessionPersistenceSpy::default();
-        let runtime = SessionsRuntime::start(SessionStoreStub, persistence.clone());
+        let runtime = SessionsRuntime::start(SessionStoreStub, persistence.clone())
+            .await
+            .unwrap();
 
         // When the session is looked up
         runtime.client().lookup(SessionId::ALICE).await;
