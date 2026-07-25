@@ -95,8 +95,13 @@ impl ExpiringSessions {
 
 impl SessionStore for ExpiringSessions {
     fn create(&mut self, user_id: UserId, now: SystemTime) -> (SessionId, SessionHash) {
-        let session_id = SessionId::new();
-        let session_hash = SessionHash::from_session_id(session_id);
+        let (session_id, session_hash) = loop {
+            let session_id = SessionId::new();
+            let session_hash = SessionHash::from_session_id(session_id);
+            if !self.sessions.contains_key(&session_hash) {
+                break (session_id, session_hash);
+            }
+        };
         let session_info = SessionInfo::new(user_id, now);
         let valid_until = session_info.valid_until(&self.expiry);
         self.earliest_possible_expiry = Some(match self.earliest_possible_expiry {
