@@ -11,7 +11,7 @@ pub trait SessionPersistence {
     fn insert(&mut self, session: Session) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     /// Free memory used to remember the session after it has been revoked.
-    fn remove(&mut self, session: SessionId) -> impl Future<Output = ()> + Send;
+    fn remove(&mut self, session: SessionId) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     /// Update activity timestamp in persistence to prolong timeout window
     fn update_activity(
@@ -33,7 +33,9 @@ impl SessionPersistence for NoPersistence {
         Ok(())
     }
 
-    async fn remove(&mut self, _: SessionId) {}
+    async fn remove(&mut self, _: SessionId) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     async fn update_activity(&mut self, _: SessionId, _: SystemTime) {}
 }
