@@ -26,7 +26,7 @@ impl Klatsch {
         // Chat and sessions are independent of each other, so start them concurrently.
         let (chat, sessions) = tokio::try_join!(
             ChatRuntime::new(persistence.client()),
-            SessionsRuntime::new(cfg.session_expiry()),
+            SessionsRuntime::new(cfg.session_expiry(), persistence.client()),
         )?;
 
         // Answer incoming HTTP requests
