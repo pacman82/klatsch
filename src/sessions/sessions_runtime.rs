@@ -186,7 +186,14 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
 
     async fn remove_revoked_session(&mut self) {
         for session_id in &self.revoked_session_ids {
-            self.persistence.remove(*session_id).await;
+            match self.persistence.remove(*session_id).await {
+                Ok(_) => {}
+                // In case of error, we stop, do not clear `revoked_session_ids` and try again the
+                // next time.
+                Err(_) => {
+                    return;
+                }
+            }
         }
         self.revoked_session_ids.clear();
     }
@@ -531,8 +538,9 @@ mod tests {
         // Given a session which expires in less than a day
         struct PersistenceSpy(mpsc::UnboundedSender<SessionId>);
         impl SessionPersistence for PersistenceSpy {
-            async fn remove(&mut self, id: SessionId) {
+            async fn remove(&mut self, id: SessionId) -> anyhow::Result<()> {
                 self.0.send(id).unwrap();
+                Ok(())
             }
         }
         let (sender, mut removed_session) = mpsc::unbounded_channel();
@@ -620,8 +628,9 @@ mod tests {
             Ok(())
         }
 
-        async fn remove(&mut self, session_id: SessionId) {
+        async fn remove(&mut self, session_id: SessionId) -> anyhow::Result<()> {
             self.removed.lock().unwrap().push(session_id);
+            Ok(())
         }
 
         async fn update_activity(&mut self, id: SessionId, last_activity: SystemTime) {
