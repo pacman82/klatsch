@@ -13,6 +13,7 @@ pub enum Argument<'a> {
     I64(i64),
     Text(Cow<'a, str>),
     Uuid(Uuid),
+    Bytes(Cow<'a, [u8]>),
     Null,
 }
 

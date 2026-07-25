@@ -5,7 +5,7 @@ use std::{
 
 use crate::user::UserId;
 
-use super::SessionId;
+use super::{SessionHash, SessionId};
 
 /// When sessions expire. Static for the lifetime of the store.
 #[derive(Clone, Copy)]
@@ -19,8 +19,8 @@ pub struct SessionExpiry {
 /// A session as it crosses the store's boundary, e.g. when restored from persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
-    /// Unique identifier for the session. Used for authentication and therfore security critical.
-    pub id: SessionId,
+    /// Hash of the session's id. The plain id is a bearer token; only its hash is ever stored.
+    pub id: SessionHash,
     /// User associated with this session.
     pub user_id: UserId,
     /// The time at which this session was created. Used to track absolute expiry.
@@ -43,14 +43,17 @@ impl Session {
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionStore {
     /// Creates a new session associated with the given user. The timestamp is required to track
-    /// expiry.
-    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId;
+    /// expiry. Returns the session id to hand back to the caller, alongside its hash — the only
+    /// form the session is actually stored under — so callers needing the hash (e.g. persistence)
+    /// don't have to compute it themselves.
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> (SessionId, SessionHash);
     /// Intended to restore previously persisted sessions.
     fn restore(&mut self, sessions: Vec<Session>, now: SystemTime);
-    /// Returns the user ID if the session exists and is not expired, `None` otherwise.
-    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId>;
-    /// Revokes a session. This should happen if a user logs out of a client.
-    fn destroy(&mut self, session_id: SessionId);
+    /// Returns the session's hash and, if it exists and is not expired, its user ID.
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> (SessionHash, Option<UserId>);
+    /// Revokes a session. This should happen if a user logs out of a client. Returns the hash of
+    /// the revoked session.
+    fn destroy(&mut self, session_id: SessionId) -> SessionHash;
     /// The earliest point in time at which any session may expire, or `None` if there are no
     /// active sessions. This is a conservative lower bound: no session expires before this
     /// instant, but the actual next expiry may be later.
@@ -60,12 +63,12 @@ pub trait SessionStore {
     /// Lookup already returns `None` for expired sessions which are still stored; calling this
     /// frees their resources and tells the caller which sessions ended, so revocation can be
     /// propagated (e.g. to persistence, or by closing streams the sessions kept open).
-    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId>;
+    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionHash>;
 }
 
 pub struct ExpiringSessions {
     expiry: SessionExpiry,
-    sessions: HashMap<SessionId, SessionInfo>,
+    sessions: HashMap<SessionHash, SessionInfo>,
     /// Cached so answering it does not require a scan over all sessions. Lookups and removals
     /// only move true expiry later, so they leave the bound untouched and it goes stale early,
     /// never late. Only `create` lowers it; `remove_expired` restores it to the exact value.
@@ -91,16 +94,17 @@ impl ExpiringSessions {
 }
 
 impl SessionStore for ExpiringSessions {
-    fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
+    fn create(&mut self, user_id: UserId, now: SystemTime) -> (SessionId, SessionHash) {
         let session_id = SessionId::new();
+        let session_hash = SessionHash::from_session_id(session_id);
         let session_info = SessionInfo::new(user_id, now);
         let valid_until = session_info.valid_until(&self.expiry);
         self.earliest_possible_expiry = Some(match self.earliest_possible_expiry {
             Some(bound) => bound.min(valid_until),
             None => valid_until,
         });
-        self.sessions.insert(session_id, session_info);
-        session_id
+        self.sessions.insert(session_hash, session_info);
+        (session_id, session_hash)
     }
 
     fn restore(&mut self, sessions: Vec<Session>, now: SystemTime) {
@@ -114,32 +118,37 @@ impl SessionStore for ExpiringSessions {
         }
     }
 
-    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
-        let info = self.sessions.get_mut(&session_id)?;
+    fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> (SessionHash, Option<UserId>) {
+        let session_hash = SessionHash::from_session_id(session_id);
+        let Some(info) = self.sessions.get_mut(&session_hash) else {
+            return (session_hash, None);
+        };
         // Defensive, we runtime makes sure `remove_expired` is called on time. So outdated sessions
         // likely do not survive more than a few milliseconds (micro?). However, better safe than
         // sorry.
         if !info.is_valid(now, &self.expiry) {
-            return None;
+            return (session_hash, None);
         }
         info.last_activity = now;
-        Some(info.user_id)
+        (session_hash, Some(info.user_id))
     }
 
-    fn destroy(&mut self, session_id: SessionId) {
-        self.sessions.remove(&session_id);
+    fn destroy(&mut self, session_id: SessionId) -> SessionHash {
+        let session_hash = SessionHash::from_session_id(session_id);
+        self.sessions.remove(&session_hash);
+        session_hash
     }
 
     fn earliest_possible_expiry(&self) -> Option<SystemTime> {
         self.earliest_possible_expiry
     }
 
-    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId> {
+    fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionHash> {
         let expiry = &self.expiry;
         // Earliest expiration of any remaining session already visited.
         let mut earliest_remaining: Option<SystemTime> = None;
         // Updates `earliest_remaining`. `true` for any expired session, false` for valid sessions.
-        let is_expired = |_: &SessionId, info: &mut SessionInfo| {
+        let is_expired = |_: &SessionHash, info: &mut SessionInfo| {
             let valid_until = info.valid_until(expiry);
             if valid_until <= now {
                 // Session is expired
@@ -155,7 +164,7 @@ impl SessionStore for ExpiringSessions {
         let expired = self
             .sessions
             .extract_if(is_expired)
-            .map(|(session_id, _)| session_id)
+            .map(|(session_hash, _)| session_hash)
             .collect();
         self.earliest_possible_expiry = earliest_remaining;
         // Return expired sessions, which have been removed from the store.
@@ -195,7 +204,9 @@ mod tests {
 
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{ExpiringSessions, Session, SessionExpiry, SessionId, SessionStore as _};
+    use super::{
+        ExpiringSessions, Session, SessionExpiry, SessionHash, SessionId, SessionStore as _,
+    };
 
     /// For tests which are not concerned with expiry at all.
     const DEFAULT_SESSION_EXPIRY: SessionExpiry = SessionExpiry {
@@ -248,7 +259,7 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now);
+        let (session_id, _session_hash) = store.create(UserId::ALICE, now);
 
         // When
         let one_day_later = now + Duration::from_hours(24);
@@ -256,10 +267,8 @@ mod tests {
 
         // Then — the session is still valid past its original deadline
         let past_original_deadline = now + Duration::from_hours(60);
-        assert_eq!(
-            store.lookup(session_id, past_original_deadline),
-            Some(UserId::ALICE)
-        );
+        let (_session_hash, user_id) = store.lookup(session_id, past_original_deadline);
+        assert_eq!(user_id, Some(UserId::ALICE));
     }
 
     #[test]
@@ -271,7 +280,7 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now);
+        let (session_id, _session_hash) = store.create(UserId::ALICE, now);
         store.lookup(session_id, now + Duration::from_hours(24));
 
         // When
@@ -281,7 +290,8 @@ mod tests {
         store.remove_expired(bound);
 
         // Then
-        assert_eq!(store.lookup(session_id, bound), Some(UserId::ALICE));
+        let (_session_hash, user_id) = store.lookup(session_id, bound);
+        assert_eq!(user_id, Some(UserId::ALICE));
     }
 
     #[test]
@@ -293,7 +303,7 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now);
+        let (session_id, _session_hash) = store.create(UserId::ALICE, now);
         let one_day_later = now + Duration::from_hours(24);
         store.lookup(session_id, one_day_later);
 
@@ -323,13 +333,13 @@ mod tests {
         store.restore(
             vec![
                 Session {
-                    id: SessionId::ALICE,
+                    id: SessionHash::from_session_id(SessionId::ALICE),
                     user_id: UserId::ALICE,
                     created_at: now,
                     last_activity: now,
                 },
                 Session {
-                    id: SessionId::BOB,
+                    id: SessionHash::from_session_id(SessionId::BOB),
                     user_id: UserId::BOB,
                     created_at: one_day_later,
                     last_activity: one_day_later,
@@ -343,8 +353,10 @@ mod tests {
         store.remove_expired(sweep_time);
 
         // Then
-        assert_eq!(store.lookup(SessionId::ALICE, sweep_time), None);
-        assert_eq!(store.lookup(SessionId::BOB, sweep_time), Some(UserId::BOB));
+        let (_alice_hash, alice) = store.lookup(SessionId::ALICE, sweep_time);
+        assert_eq!(alice, None);
+        let (_bob_hash, bob) = store.lookup(SessionId::BOB, sweep_time);
+        assert_eq!(bob, Some(UserId::BOB));
     }
 
     #[test]
@@ -360,13 +372,13 @@ mod tests {
         store.restore(
             vec![
                 Session {
-                    id: SessionId::ALICE,
+                    id: SessionHash::from_session_id(SessionId::ALICE),
                     user_id: UserId::ALICE,
                     created_at: now,
                     last_activity: now,
                 },
                 Session {
-                    id: SessionId::BOB,
+                    id: SessionHash::from_session_id(SessionId::BOB),
                     user_id: UserId::BOB,
                     created_at: one_day_later,
                     last_activity: one_day_later,
@@ -380,7 +392,10 @@ mod tests {
         let reported = store.remove_expired(sweep_time);
 
         // Then
-        assert_eq!(reported, vec![SessionId::ALICE]);
+        assert_eq!(
+            reported,
+            vec![SessionHash::from_session_id(SessionId::ALICE)]
+        );
     }
 
     #[test]
@@ -392,7 +407,7 @@ mod tests {
             idle_timeout: Duration::from_hours(3 * 24),
             max_lifetime,
         });
-        let session_id = store.create(UserId::ALICE, created_at);
+        let (session_id, _session_hash) = store.create(UserId::ALICE, created_at);
 
         // When regular activity would keeps the sliding window open until past the absolute
         // deadline
@@ -402,7 +417,8 @@ mod tests {
 
         // Then the session is unusable once the absolute deadline is hit.
         let past_deadline = created_at + max_lifetime + Duration::from_secs(1);
-        assert_eq!(store.lookup(session_id, past_deadline), None);
+        let (_session_hash, user_id) = store.lookup(session_id, past_deadline);
+        assert_eq!(user_id, None);
     }
 
     #[test]
@@ -414,11 +430,11 @@ mod tests {
             idle_timeout,
             max_lifetime: Duration::from_hours(365 * 24),
         });
-        let session_id = store.create(UserId::ALICE, now);
+        let (session_id, _session_hash) = store.create(UserId::ALICE, now);
 
         // When — past expiry, but no sweep has run
         let past_expiry = now + idle_timeout + Duration::from_secs(1);
-        let looked_up = store.lookup(session_id, past_expiry);
+        let (_session_hash, looked_up) = store.lookup(session_id, past_expiry);
 
         // Then
         assert_eq!(looked_up, None);
@@ -430,14 +446,14 @@ mod tests {
         let now = SystemTime::now();
         let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
         let live = Session {
-            id: SessionId::ALICE,
+            id: SessionHash::from_session_id(SessionId::ALICE),
             user_id: UserId::ALICE,
             created_at: now,
             last_activity: now,
         };
         let long_gone = UNIX_EPOCH;
         let expired = Session {
-            id: SessionId::BOB,
+            id: SessionHash::from_session_id(SessionId::BOB),
             user_id: UserId::BOB,
             created_at: long_gone,
             last_activity: long_gone,
@@ -447,12 +463,14 @@ mod tests {
         store.restore(vec![live, expired], now);
 
         // Then
-        assert_eq!(store.lookup(SessionId::BOB, now), None);
+        let (_bob_hash, bob) = store.lookup(SessionId::BOB, now);
+        assert_eq!(bob, None);
         assert_eq!(
             store.earliest_possible_expiry(),
             Some(now + DEFAULT_SESSION_EXPIRY.idle_timeout)
         );
-        assert_eq!(store.lookup(SessionId::ALICE, now), Some(UserId::ALICE));
+        let (_alice_hash, alice) = store.lookup(SessionId::ALICE, now);
+        assert_eq!(alice, Some(UserId::ALICE));
     }
 
     #[test]
@@ -460,21 +478,21 @@ mod tests {
         // Given
         let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
         // When
-        let session_id = store.create(UserId::ALICE, SystemTime::now());
-        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
+        let (session_id, _session_hash) = store.create(UserId::ALICE, SystemTime::now());
+        let (_session_hash, looked_up_user_id) = store.lookup(session_id, SystemTime::now());
         // Then
-        assert_eq!(looked_up_session_id, Some(UserId::ALICE));
+        assert_eq!(looked_up_user_id, Some(UserId::ALICE));
     }
 
     #[test]
     fn destroyed_session_cannot_be_looked_up() {
         // Given
         let mut store = ExpiringSessions::new(DEFAULT_SESSION_EXPIRY);
-        let session_id = store.create(UserId::ALICE, SystemTime::now());
+        let (session_id, _session_hash) = store.create(UserId::ALICE, SystemTime::now());
         // When
         store.destroy(session_id);
-        let looked_up_session_id = store.lookup(session_id, SystemTime::now());
+        let (_session_hash, looked_up_user_id) = store.lookup(session_id, SystemTime::now());
         // Then
-        assert_eq!(looked_up_session_id, None);
+        assert_eq!(looked_up_user_id, None);
     }
 }

@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
@@ -22,6 +23,11 @@ impl SessionId {
         0x81, 0x3f, 0xe4, 0x6a, 0x1c, 0x0b, 0x4e, 0x52, 0xb7, 0x09, 0x24, 0x5d, 0x6f, 0x83, 0x1a,
         0xd7,
     ]));
+
+    #[cfg(test)]
+    pub const fn nil() -> Self {
+        Self::from_uuid(Uuid::nil())
+    }
 
     pub const fn from_uuid(uuid: Uuid) -> Self {
         SessionId(uuid)
@@ -54,14 +60,35 @@ impl AsArgument for SessionId {
     }
 }
 
-impl AsArgument for &SessionId {
-    fn as_argument(&self) -> Argument<'_> {
-        self.0.as_argument()
-    }
-}
-
 impl FromField for SessionId {
     fn from_at(row: &impl GetFieldNative, index: usize) -> Self {
         SessionId::from_uuid(row.get(index))
+    }
+}
+
+/// A one-way hash of a [`SessionId`]. Session ids act as bearer tokens, so neither the in-memory
+/// store nor persistence retain the plain id — only this hash, which is what they key sessions by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SessionHash([u8; 32]);
+
+impl SessionHash {
+    pub fn from_session_id(session_id: SessionId) -> Self {
+        SessionHash(*blake3::hash(session_id.0.as_bytes()).as_bytes())
+    }
+}
+
+impl AsArgument for SessionHash {
+    fn as_argument(&self) -> Argument<'_> {
+        Argument::Bytes(Cow::Borrowed(&self.0))
+    }
+}
+
+impl FromField for SessionHash {
+    fn from_at(row: &impl GetFieldNative, index: usize) -> Self {
+        let bytes: Vec<u8> = row.get(index);
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .expect("session hash column must be 32 bytes");
+        SessionHash(bytes)
     }
 }

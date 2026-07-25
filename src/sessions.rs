@@ -13,6 +13,7 @@ pub use self::{
 };
 
 use self::{
+    session_id::SessionHash,
     session_persistence::SessionPersistence,
     session_store::{ExpiringSessions, Session, SessionStore},
 };
