@@ -18,7 +18,7 @@ pub trait SessionPersistence {
         &mut self,
         session: SessionId,
         last_activity: SystemTime,
-    ) -> impl Future<Output = ()> + Send;
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 /// A [`SessionPersistence`] which does not persist anything. Sessions do not survive a restart.
@@ -37,5 +37,7 @@ impl SessionPersistence for NoPersistence {
         Ok(())
     }
 
-    async fn update_activity(&mut self, _: SessionId, _: SystemTime) {}
+    async fn update_activity(&mut self, _: SessionId, _: SystemTime) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

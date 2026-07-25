@@ -173,7 +173,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
             SessionMsg::Lookup { session_id, reply } => {
                 let now = SystemTime::now();
                 let user_id = self.store.lookup(session_id, now);
-                self.persistence.update_activity(session_id, now).await;
+                let _result = self.persistence.update_activity(session_id, now).await;
                 let _ = reply.send(user_id);
             }
             SessionMsg::Destroy { session_id } => {
@@ -633,8 +633,13 @@ mod tests {
             Ok(())
         }
 
-        async fn update_activity(&mut self, id: SessionId, last_activity: SystemTime) {
+        async fn update_activity(
+            &mut self,
+            id: SessionId,
+            last_activity: SystemTime,
+        ) -> anyhow::Result<()> {
             self.updated.lock().unwrap().push((id, last_activity));
+            Ok(())
         }
     }
 }
