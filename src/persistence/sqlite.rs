@@ -181,6 +181,12 @@ impl GetField<Uuid> for rusqlite::Row<'_> {
     }
 }
 
+impl GetField<Vec<u8>> for rusqlite::Row<'_> {
+    fn get(&self, index: usize) -> Vec<u8> {
+        self.get(index).unwrap()
+    }
+}
+
 impl ExecuteSqlSync for rusqlite::Connection {
     type Row<'a> = rusqlite::Row<'a>;
     type Error = rusqlite::Error;
@@ -324,6 +330,7 @@ impl ToSql for Argument<'_> {
             Argument::I64(i) => i.to_sql(),
             Argument::Text(s) => s.to_sql(),
             Argument::Uuid(id) => id.to_sql(),
+            Argument::Bytes(b) => b.to_sql(),
             Argument::Null => Ok(ToSqlOutput::Owned(Value::Null)),
         }
     }

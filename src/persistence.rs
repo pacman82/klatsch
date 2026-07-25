@@ -43,7 +43,12 @@ pub trait ExecuteSqlAsync {
 
 /// Rows allow access to types natively supported by persistence
 pub trait GetFieldNative:
-    GetField<i64> + GetField<Uuid> + GetField<Option<i64>> + GetField<String> + GetField<Option<String>>
+    GetField<i64>
+    + GetField<Uuid>
+    + GetField<Option<i64>>
+    + GetField<String>
+    + GetField<Option<String>>
+    + GetField<Vec<u8>>
 {
 }
 

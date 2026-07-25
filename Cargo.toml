@@ -17,6 +17,9 @@ async-sqlite = { version = "0.6.0", features = ["uuid"] }
 async-stream = "0.3.6"
 axum = { version = "0.8.9", features = ["macros"] }
 axum-extra = { version = "0.12.6", features = ["cookie"] }
+# Session ids are already high-entropy random tokens, so a fast hash suffices to derive their
+# storage key — unlike passwords, which need a slow, salted hash. Also used by build.rs.
+blake3 = "1.8.5"
 dotenvy = "0.15.7"
 fs2 = "0.4.3"
 futures-util = "0.3.32"

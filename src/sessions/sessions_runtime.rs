@@ -14,7 +14,7 @@ use tokio::{
 
 use crate::{sessions::session_store::Session, user::UserId};
 
-use super::{SessionId, SessionPersistence, SessionStore};
+use super::{SessionHash, SessionId, SessionPersistence, SessionStore};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionLookup {
@@ -113,7 +113,7 @@ struct SessionActor<S, P> {
     clock_anchor: ClockAnchor,
     /// We hold a list of revoked sessions, which have not been removed from persistence, yet. This
     /// allows to retry their removal in case of persistence errors.
-    revoked_session_ids: Vec<SessionId>,
+    revoked_session_hashes: Vec<SessionHash>,
 }
 
 impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
@@ -123,7 +123,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
             persistence,
             receiver,
             clock_anchor: ClockAnchor::new(),
-            revoked_session_ids: Vec::new(),
+            revoked_session_hashes: Vec::new(),
         }
     }
 
@@ -149,7 +149,7 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
                         earliest_possible_expiry
                             .expect("the timer only completes when a bound was armed"),
                     );
-                    self.revoked_session_ids.extend(revoked_sessions);
+                    self.revoked_session_hashes.extend(revoked_sessions);
                     self.remove_revoked_session().await;
                 }
             }
@@ -160,9 +160,9 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
         match msg {
             SessionMsg::Create { user_id, reply } => {
                 let now = SystemTime::now();
-                let session_id = self.store.create(user_id, now);
+                let (session_id, session_hash) = self.store.create(user_id, now);
                 let session = Session {
-                    id: session_id,
+                    id: session_hash,
                     user_id,
                     created_at: now,
                     last_activity: now,
@@ -172,30 +172,30 @@ impl<S: SessionStore, P: SessionPersistence> SessionActor<S, P> {
             }
             SessionMsg::Lookup { session_id, reply } => {
                 let now = SystemTime::now();
-                let user_id = self.store.lookup(session_id, now);
-                let _result = self.persistence.update_activity(session_id, now).await;
+                let (session_hash, user_id) = self.store.lookup(session_id, now);
+                let _result = self.persistence.update_activity(session_hash, now).await;
                 let _ = reply.send(user_id);
             }
             SessionMsg::Destroy { session_id } => {
-                self.revoked_session_ids.push(session_id);
+                let session_hash = self.store.destroy(session_id);
+                self.revoked_session_hashes.push(session_hash);
                 self.remove_revoked_session().await;
-                self.store.destroy(session_id);
             }
         }
     }
 
     async fn remove_revoked_session(&mut self) {
-        for session_id in &self.revoked_session_ids {
-            match self.persistence.remove(*session_id).await {
+        for session_hash in &self.revoked_session_hashes {
+            match self.persistence.remove(*session_hash).await {
                 Ok(_) => {}
-                // In case of error, we stop, do not clear `revoked_session_ids` and try again the
-                // next time.
+                // In case of error, we stop, do not clear `revoked_session_hashes` and try again
+                // the next time.
                 Err(_) => {
                     return;
                 }
             }
         }
-        self.revoked_session_ids.clear();
+        self.revoked_session_hashes.clear();
     }
 }
 
@@ -257,7 +257,8 @@ mod tests {
     };
 
     use super::{
-        SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore, SessionsRuntime,
+        SessionHash, SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore,
+        SessionsRuntime,
     };
 
     #[tokio::test]
@@ -275,9 +276,12 @@ mod tests {
             record: Arc<Mutex<Option<(UserId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn create(&mut self, user_id: UserId, now: SystemTime) -> SessionId {
+            fn create(&mut self, user_id: UserId, now: SystemTime) -> (SessionId, SessionHash) {
                 *self.record.lock().unwrap() = Some((user_id, now));
-                SessionId::ALICE
+                (
+                    SessionId::ALICE,
+                    SessionHash::from_session_id(SessionId::nil()),
+                )
             }
         }
         let store = Spy::default();
@@ -310,9 +314,16 @@ mod tests {
             record: Arc<Mutex<Option<(SessionId, SystemTime)>>>,
         }
         impl SessionStore for Spy {
-            fn lookup(&mut self, session_id: SessionId, now: SystemTime) -> Option<UserId> {
+            fn lookup(
+                &mut self,
+                session_id: SessionId,
+                now: SystemTime,
+            ) -> (SessionHash, Option<UserId>) {
                 *self.record.lock().unwrap() = Some((session_id, now));
-                Some(UserId::ALICE)
+                (
+                    SessionHash::from_session_id(SessionId::nil()),
+                    Some(UserId::ALICE),
+                )
             }
         }
         let store = Spy::default();
@@ -345,8 +356,9 @@ mod tests {
             destroyed: Arc<Mutex<Option<SessionId>>>,
         }
         impl SessionStore for Spy {
-            fn destroy(&mut self, session_id: SessionId) {
+            fn destroy(&mut self, session_id: SessionId) -> SessionHash {
                 *self.destroyed.lock().unwrap() = Some(session_id);
+                SessionHash::from_session_id(SessionId::nil())
             }
         }
         let store = Spy::default();
@@ -376,7 +388,7 @@ mod tests {
             fn earliest_possible_expiry(&self) -> Option<SystemTime> {
                 Some(self.start + TTL)
             }
-            fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionId> {
+            fn remove_expired(&mut self, now: SystemTime) -> Vec<SessionHash> {
                 let _ = self.tx.try_send(now);
                 Vec::new()
             }
@@ -407,13 +419,13 @@ mod tests {
         fn persisted_sessions() -> Vec<Session> {
             vec![
                 Session {
-                    id: SessionId::ALICE,
+                    id: SessionHash::from_session_id(SessionId::ALICE),
                     user_id: UserId::ALICE,
                     created_at: SystemTime::UNIX_EPOCH,
                     last_activity: SystemTime::UNIX_EPOCH,
                 },
                 Session {
-                    id: SessionId::BOB,
+                    id: SessionHash::from_session_id(SessionId::BOB),
                     user_id: UserId::BOB,
                     created_at: SystemTime::UNIX_EPOCH,
                     last_activity: SystemTime::UNIX_EPOCH,
@@ -466,8 +478,11 @@ mod tests {
         // Given
         struct StubSessionStore;
         impl SessionStore for StubSessionStore {
-            fn create(&mut self, _: UserId, _: SystemTime) -> SessionId {
-                SessionId::ALICE
+            fn create(&mut self, _: UserId, _: SystemTime) -> (SessionId, SessionHash) {
+                (
+                    SessionId::ALICE,
+                    SessionHash::from_session_id(SessionId::ALICE),
+                )
             }
         }
         let spy = SessionPersistenceSpy::default();
@@ -482,7 +497,10 @@ mod tests {
         // Then
         let inserted_sessions = spy.take_insert_record();
         assert_eq!(inserted_sessions.len(), 1);
-        assert_eq!(inserted_sessions[0].id, SessionId::ALICE);
+        assert_eq!(
+            inserted_sessions[0].id,
+            SessionHash::from_session_id(SessionId::ALICE)
+        );
         assert_eq!(inserted_sessions[0].user_id, UserId::ALICE);
     }
 
@@ -491,8 +509,11 @@ mod tests {
         // Given a session store that succeeds, but persistence that fails to insert
         struct StubSessionStore;
         impl SessionStore for StubSessionStore {
-            fn create(&mut self, _: UserId, _: SystemTime) -> SessionId {
-                SessionId::ALICE
+            fn create(&mut self, _: UserId, _: SystemTime) -> (SessionId, SessionHash) {
+                (
+                    SessionId::ALICE,
+                    SessionHash::from_session_id(SessionId::nil()),
+                )
             }
         }
         struct SessionInsertSaboteur;
@@ -520,8 +541,14 @@ mod tests {
     #[tokio::test]
     async fn remove_revoked_sessions_from_persistence() {
         // Given
+        struct StubSessionStore;
+        impl SessionStore for StubSessionStore {
+            fn destroy(&mut self, session_id: SessionId) -> SessionHash {
+                SessionHash::from_session_id(session_id)
+            }
+        }
         let persistence = SessionPersistenceSpy::default();
-        let runtime = SessionsRuntime::start(Dummy, persistence.clone())
+        let runtime = SessionsRuntime::start(StubSessionStore, persistence.clone())
             .await
             .unwrap();
 
@@ -530,16 +557,19 @@ mod tests {
 
         // Then it is also removed from persistence
         runtime.shutdown().await; // Revoke has no reply channel; shutdown drains the actor's queue.
-        assert_eq!(persistence.take_remove_record(), [SessionId::ALICE]);
+        assert_eq!(
+            persistence.take_remove_record(),
+            [SessionHash::from_session_id(SessionId::ALICE)]
+        );
     }
 
     #[tokio::test(start_paused = true)]
     async fn remove_expired_sessions_from_persistence() {
         // Given a session which expires in less than a day
-        struct PersistenceSpy(mpsc::UnboundedSender<SessionId>);
+        struct PersistenceSpy(mpsc::UnboundedSender<SessionHash>);
         impl SessionPersistence for PersistenceSpy {
-            async fn remove(&mut self, id: SessionId) -> anyhow::Result<()> {
-                self.0.send(id).unwrap();
+            async fn remove(&mut self, session_hash: SessionHash) -> anyhow::Result<()> {
+                self.0.send(session_hash).unwrap();
                 Ok(())
             }
         }
@@ -551,8 +581,8 @@ mod tests {
                 Some(SystemTime::now() + Duration::from_hours(23))
             }
 
-            fn remove_expired(&mut self, _: SystemTime) -> Vec<SessionId> {
-                vec![SessionId::ALICE]
+            fn remove_expired(&mut self, _: SystemTime) -> Vec<SessionHash> {
+                vec![SessionHash::from_session_id(SessionId::ALICE)]
             }
         }
         let runtime = SessionsRuntime::start(SessionStoreStub, persistence)
@@ -563,10 +593,13 @@ mod tests {
         time::advance(Duration::from_hours(24)).await;
 
         // Then it is also removed from persistence
-        let session_id = timeout(Duration::from_secs(1), removed_session.recv())
+        let session_hash = timeout(Duration::from_secs(1), removed_session.recv())
             .await
             .expect("Session must be removed, timely after expiration");
-        assert_eq!(session_id, Some(SessionId::ALICE));
+        assert_eq!(
+            session_hash,
+            Some(SessionHash::from_session_id(SessionId::ALICE))
+        );
 
         // Cleanup
         runtime.shutdown().await;
@@ -577,8 +610,15 @@ mod tests {
         // Given a session which
         struct SessionStoreStub;
         impl SessionStore for SessionStoreStub {
-            fn lookup(&mut self, _: SessionId, _: SystemTime) -> Option<UserId> {
-                Some(UserId::nil())
+            fn lookup(
+                &mut self,
+                session_id: SessionId,
+                _: SystemTime,
+            ) -> (SessionHash, Option<UserId>) {
+                (
+                    SessionHash::from_session_id(session_id),
+                    Some(UserId::nil()),
+                )
             }
         }
         let start = SystemTime::now();
@@ -593,8 +633,8 @@ mod tests {
         // Then its timestamp is updated
         let record = persistence.take_updated_record();
         assert_eq!(1, record.len());
-        let (session_id, last_activity) = record[0];
-        assert_eq!(SessionId::ALICE, session_id);
+        let (session_hash, last_activity) = record[0];
+        assert_eq!(SessionHash::from_session_id(SessionId::ALICE), session_hash);
         assert!(last_activity >= start);
 
         // Cleanup
@@ -604,8 +644,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct SessionPersistenceSpy {
         inserted: Arc<Mutex<Vec<Session>>>,
-        removed: Arc<Mutex<Vec<SessionId>>>,
-        updated: Arc<Mutex<Vec<(SessionId, SystemTime)>>>,
+        removed: Arc<Mutex<Vec<SessionHash>>>,
+        updated: Arc<Mutex<Vec<(SessionHash, SystemTime)>>>,
     }
 
     impl SessionPersistenceSpy {
@@ -613,11 +653,11 @@ mod tests {
             take(&mut *self.inserted.lock().unwrap())
         }
 
-        fn take_remove_record(&self) -> Vec<SessionId> {
+        fn take_remove_record(&self) -> Vec<SessionHash> {
             take(&mut *self.removed.lock().unwrap())
         }
 
-        fn take_updated_record(&self) -> Vec<(SessionId, SystemTime)> {
+        fn take_updated_record(&self) -> Vec<(SessionHash, SystemTime)> {
             take(&mut *self.updated.lock().unwrap())
         }
     }
@@ -628,14 +668,14 @@ mod tests {
             Ok(())
         }
 
-        async fn remove(&mut self, session_id: SessionId) -> anyhow::Result<()> {
-            self.removed.lock().unwrap().push(session_id);
+        async fn remove(&mut self, session_hash: SessionHash) -> anyhow::Result<()> {
+            self.removed.lock().unwrap().push(session_hash);
             Ok(())
         }
 
         async fn update_activity(
             &mut self,
-            id: SessionId,
+            id: SessionHash,
             last_activity: SystemTime,
         ) -> anyhow::Result<()> {
             self.updated.lock().unwrap().push((id, last_activity));

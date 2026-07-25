@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::persistence::{ExecuteSqlAsync, ExecuteSqlSync, GetField as _};
 
-use super::{Session, SessionId};
+use super::{Session, SessionHash};
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait SessionPersistence {
@@ -13,12 +13,12 @@ pub trait SessionPersistence {
     fn insert(&mut self, session: Session) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     /// Free memory used to remember the session after it has been revoked.
-    fn remove(&mut self, session: SessionId) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn remove(&mut self, session: SessionHash) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     /// Update activity timestamp in persistence to prolong timeout window
     fn update_activity(
         &mut self,
-        session: SessionId,
+        session: SessionHash,
         last_activity: SystemTime,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
@@ -29,7 +29,7 @@ where
 {
     async fn all_sessions(&self) -> anyhow::Result<Vec<Session>> {
         self.rows_vec(
-            "SELECT id, user_id, created_at_ms, last_activity_ms FROM sessions",
+            "SELECT hash, user_id, created_at_ms, last_activity_ms FROM sessions",
             (),
             |row| {
                 let id = row.get(0);
@@ -50,7 +50,7 @@ where
     async fn insert(&mut self, session: Session) -> anyhow::Result<()> {
         self.transaction(move |conn| {
             conn.execute(
-                "INSERT INTO sessions (id, user_id, created_at_ms, last_activity_ms) \
+                "INSERT INTO sessions (hash, user_id, created_at_ms, last_activity_ms) \
                     VALUES (?1, ?2, ?3, ?4)",
                 (
                     session.id,
@@ -63,19 +63,19 @@ where
         .await
     }
 
-    async fn remove(&mut self, session: SessionId) -> anyhow::Result<()> {
-        self.transaction(move |conn| conn.execute("DELETE FROM sessions WHERE id = ?1", session))
+    async fn remove(&mut self, session: SessionHash) -> anyhow::Result<()> {
+        self.transaction(move |conn| conn.execute("DELETE FROM sessions WHERE hash = ?1", session))
             .await
     }
 
     async fn update_activity(
         &mut self,
-        session: SessionId,
+        session: SessionHash,
         last_activity: SystemTime,
     ) -> anyhow::Result<()> {
         self.transaction(move |conn| {
             conn.execute(
-                "UPDATE sessions SET last_activity_ms = ?1 WHERE id = ?2",
+                "UPDATE sessions SET last_activity_ms = ?1 WHERE hash = ?2",
                 (millis_since_epoch(last_activity), session),
             )
         })
@@ -115,7 +115,7 @@ where
 {
     conn.execute(
         "CREATE TABLE sessions (
-            id BLOB PRIMARY KEY,
+            hash BLOB PRIMARY KEY,
             user_id BLOB NOT NULL,
             created_at_ms INTEGER NOT NULL,
             last_activity_ms INTEGER NOT NULL
@@ -131,9 +131,9 @@ mod tests {
 
     use async_sqlite::ClientBuilder;
 
-    use crate::user::UserId;
+    use crate::{sessions::SessionId, user::UserId};
 
-    use super::{Session, SessionId, SessionPersistence, migrate_session_persistence};
+    use super::{Session, SessionHash, SessionPersistence, migrate_session_persistence};
 
     #[tokio::test]
     async fn all_sessions_is_empty_when_none_persisted() {
@@ -149,7 +149,7 @@ mod tests {
         // Given
         let mut persistence = persistence_fake().await;
         let session = Session {
-            id: SessionId::ALICE,
+            id: SessionHash::from_session_id(SessionId::ALICE),
             user_id: UserId::ALICE,
             created_at: SystemTime::UNIX_EPOCH + Duration::from_millis(1_000),
             last_activity: SystemTime::UNIX_EPOCH + Duration::from_millis(2_000),
@@ -168,21 +168,30 @@ mod tests {
         // Given two persisted sessions
         let mut persistence = persistence_fake().await;
         persistence
-            .insert(dummy_session(SessionId::ALICE))
+            .insert(Session {
+                id: SessionHash::from_session_id(SessionId::ALICE),
+                ..dummy_session()
+            })
             .await
             .unwrap();
         persistence
-            .insert(dummy_session(SessionId::BOB))
+            .insert(Session {
+                id: SessionHash::from_session_id(SessionId::BOB),
+                ..dummy_session()
+            })
             .await
             .unwrap();
 
         // When removing one of them
-        persistence.remove(SessionId::ALICE).await.unwrap();
+        persistence
+            .remove(SessionHash::from_session_id(SessionId::ALICE))
+            .await
+            .unwrap();
 
         // Then only the other remains
         let sessions = persistence.all_sessions().await.unwrap();
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].id, SessionId::BOB);
+        assert_eq!(sessions[0].id, SessionHash::from_session_id(SessionId::BOB));
     }
 
     #[tokio::test]
@@ -191,17 +200,20 @@ mod tests {
         let mut persistence = persistence_fake().await;
         let created_at = SystemTime::UNIX_EPOCH + Duration::from_millis(1_000);
         let session = Session {
-            id: SessionId::ALICE,
-            user_id: UserId::ALICE,
+            id: SessionHash::from_session_id(SessionId::ALICE),
             created_at,
             last_activity: created_at,
+            ..dummy_session()
         };
         persistence.insert(session).await.unwrap();
 
         // When
         let new_last_activity = SystemTime::UNIX_EPOCH + Duration::from_millis(5_000);
         persistence
-            .update_activity(SessionId::ALICE, new_last_activity)
+            .update_activity(
+                SessionHash::from_session_id(SessionId::ALICE),
+                new_last_activity,
+            )
             .await
             .unwrap();
 
@@ -212,10 +224,12 @@ mod tests {
         assert_eq!(sessions[0].last_activity, new_last_activity);
     }
 
-    fn dummy_session(id: SessionId) -> Session {
+    /// A session whose fields carry no meaning — only override the fields a test actually cares
+    /// about via `..dummy_session()`.
+    fn dummy_session() -> Session {
         Session {
-            id,
-            user_id: UserId::ALICE,
+            id: SessionHash::from_session_id(SessionId::nil()),
+            user_id: UserId::nil(),
             created_at: SystemTime::UNIX_EPOCH,
             last_activity: SystemTime::UNIX_EPOCH,
         }
