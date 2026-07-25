@@ -5,6 +5,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::persistence::{Argument, AsArgument, FromField, GetFieldNative};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SessionId(Uuid);
 
@@ -43,5 +45,23 @@ impl FromStr for SessionId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse().map(SessionId)
+    }
+}
+
+impl AsArgument for SessionId {
+    fn as_argument(&self) -> Argument<'_> {
+        self.0.as_argument()
+    }
+}
+
+impl AsArgument for &SessionId {
+    fn as_argument(&self) -> Argument<'_> {
+        self.0.as_argument()
+    }
+}
+
+impl FromField for SessionId {
+    fn from_at(row: &impl GetFieldNative, index: usize) -> Self {
+        SessionId::from_uuid(row.get(index))
     }
 }
