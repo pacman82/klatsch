@@ -19,11 +19,20 @@ use uuid::Uuid;
 
 const CURRENT_SCHEMA_VERSION: u32 = 2;
 
+enum Backing {
+    File {
+        /// Held for the lifetime of the struct to prevent concurrent instances on the same
+        /// directory.
+        _lock_file: File,
+        conn: Client,
+    },
+    Memory {
+        conn: Client,
+    },
+}
+
 pub struct SqlitePersistence {
-    conn: Client,
-    /// Held for the lifetime of the struct to prevent concurrent instances on the same directory.
-    /// `None` for in-memory databases.
-    _lock_file: Option<File>,
+    backing: Backing,
 }
 
 impl SqlitePersistence {
@@ -56,15 +65,17 @@ impl SqlitePersistence {
             )?;
         outcome.report_migration_status()?;
 
-        let persistence = SqlitePersistence {
-            conn,
-            _lock_file: lock,
+        let backing = match lock {
+            Some(_lock_file) => Backing::File { _lock_file, conn },
+            None => Backing::Memory { conn },
         };
-        Ok(persistence)
+        Ok(SqlitePersistence { backing })
     }
 
     pub fn client(&self) -> Client {
-        self.conn.clone()
+        match &self.backing {
+            Backing::File { conn, .. } | Backing::Memory { conn } => conn.clone(),
+        }
     }
 }
 
