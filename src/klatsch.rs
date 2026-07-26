@@ -21,12 +21,12 @@ impl Klatsch {
 
         // users and history share the same persistence backend. This makes life easier for the
         // operators.
-        let users = UserStore::new(persistence.client());
+        let users = UserStore::new(persistence.client().await?);
 
         // Chat and sessions are independent of each other, so start them concurrently.
         let (chat, sessions) = tokio::try_join!(
-            ChatRuntime::new(persistence.client()),
-            SessionsRuntime::new(cfg.session_expiry(), persistence.client()),
+            async { ChatRuntime::new(persistence.client().await?).await },
+            async { SessionsRuntime::new(cfg.session_expiry(), persistence.client().await?).await },
         )?;
 
         // Answer incoming HTTP requests

@@ -45,6 +45,8 @@ mod tests {
     async fn schema(persistence: &SqlitePersistence) -> Vec<String> {
         persistence
             .client()
+            .await
+            .unwrap()
             .rows_vec(
                 "SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name",
                 (),

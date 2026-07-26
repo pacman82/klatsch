@@ -12,7 +12,10 @@ use async_sqlite::{
     },
 };
 use fs2::{FileExt as _, lock_contended_error};
-use std::{fs::File, path::Path};
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+};
 use tokio::fs::create_dir_all;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -21,10 +24,10 @@ const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 enum Backing {
     File {
+        db_path: PathBuf,
         /// Held for the lifetime of the struct to prevent concurrent instances on the same
         /// directory.
         _lock_file: File,
-        conn: Client,
     },
     Memory {
         conn: Client,
@@ -43,15 +46,15 @@ impl SqlitePersistence {
         + 'static,
     ) -> anyhow::Result<Self> {
         let mut builder = ClientBuilder::new();
-        let mut lock = None;
+        let mut file_backing = None;
         if let Some(dir) = directory {
             create_dir_all(dir).await.inspect_err(
                 |err| error!(target: "persistence", error=%err, "Failed to create database directory"),
             )?;
-            lock = Some(acquire_lock(dir)?);
-            builder = builder
-                .path(dir.join("klatsch.db"))
-                .journal_mode(JournalMode::Wal);
+            let _lock_file = acquire_lock(dir)?;
+            let db_path = dir.join("klatsch.db");
+            builder = builder.path(&db_path).journal_mode(JournalMode::Wal);
+            file_backing = Some((db_path, _lock_file));
         }
         let conn = builder.open().await.inspect_err(
             |err| error!(target: "persistence", error=%err, "Failed to open database"),
@@ -65,16 +68,28 @@ impl SqlitePersistence {
             )?;
         outcome.report_migration_status()?;
 
-        let backing = match lock {
-            Some(_lock_file) => Backing::File { _lock_file, conn },
+        let backing = match file_backing {
+            Some((db_path, _lock_file)) => Backing::File {
+                db_path,
+                _lock_file,
+            },
             None => Backing::Memory { conn },
         };
         Ok(SqlitePersistence { backing })
     }
 
-    pub fn client(&self) -> Client {
+    /// Opens a new connection for file-backed persistence, so independent readers can proceed
+    /// concurrently under WAL. In-memory persistence has no such benefit, so it stays on the
+    /// single connection created in [`Self::new`].
+    pub async fn client(&self) -> anyhow::Result<Client> {
         match &self.backing {
-            Backing::File { conn, .. } | Backing::Memory { conn } => conn.clone(),
+            Backing::File { db_path, .. } => ClientBuilder::new()
+                .path(db_path)
+                .journal_mode(JournalMode::Wal)
+                .open()
+                .await
+                .map_err(Into::into),
+            Backing::Memory { conn } => Ok(conn.clone()),
         }
     }
 }
@@ -438,6 +453,8 @@ mod tests {
             .unwrap();
         persistence
             .client()
+            .await
+            .unwrap()
             .transaction(|conn| {
                 conn.execute(
                     "INSERT INTO my_table (id, data) VALUES (1, 'Hello, World!')",
@@ -456,6 +473,8 @@ mod tests {
 
         let after = persistence
             .client()
+            .await
+            .unwrap()
             .rows_vec("SELECT id, data FROM my_table", (), |row| {
                 // Avoid confusion with rusqlite::Row::get
                 let id: i64 = <rusqlite::Row as GetField<i64>>::get(row, 0);
