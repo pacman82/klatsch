@@ -12,9 +12,7 @@
 	// Outcome of sending the last message. Null on success, otherwise a text describing the error.
 	let send_error: string | null = $state(null);
 	// If we try to send the **same** message again after a failure it is a retry.
-	let is_retry = $derived(
-		send_error != null && message_content.trim() === last_attempt?.content
-	);
+	let is_retry = $derived(send_error != null && message_content.trim() === last_attempt?.content);
 
 	async function handleSubmit(e: SubmitEvent) {
 		// We do not want the page to be reloaded, if we submit the message. Therfore we call
