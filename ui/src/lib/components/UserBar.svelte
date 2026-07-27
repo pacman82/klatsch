@@ -1,6 +1,10 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { user } from '$lib/user.svelte';
 	import { user_cache } from '$lib/user_cache.svelte';
+
+	const show_back_to_chat = $derived(page.url.pathname !== '/');
 
 	const user_info = $derived(user_cache.resolve(user.current!));
 
@@ -15,12 +19,17 @@
 </script>
 
 <div class="user-bar">
-	{#if user_info}
-		<span>Logged in as <strong>{user_info.name}</strong></span>
-	{:else}
-		<span>Fetching user info...</span>
+	{#if show_back_to_chat}
+		<a href={resolve('/')} class="back">← Back to chat</a>
 	{/if}
-	<button onclick={logout}>Log out</button>
+	<div class="account">
+		{#if user_info}
+			<span>Logged in as <a href={resolve('/profile')}><strong>{user_info.name}</strong></a></span>
+		{:else}
+			<span>Fetching user info...</span>
+		{/if}
+		<button onclick={logout}>Log out</button>
+	</div>
 </div>
 
 <style>
@@ -33,6 +42,14 @@
 		background: rgba(255, 255, 255, 0.95);
 		border-bottom: 1px solid #e5e7eb;
 	}
+	.account {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.back {
+		margin-right: auto;
+	}
 	button {
 		padding: 0.3rem 0.6rem;
 		border-radius: 6px;
@@ -43,5 +60,12 @@
 	}
 	button:hover {
 		background: #f3f4f6;
+	}
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
+	a:hover {
+		text-decoration: underline;
 	}
 </style>
