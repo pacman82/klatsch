@@ -6,8 +6,12 @@ import { user_cache } from '$lib/user_cache.svelte';
 
 const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 
+const mock_page = vi.hoisted(() => ({ url: new URL('http://localhost/') }));
+vi.mock('$app/state', () => ({ page: mock_page }));
+
 beforeEach(() => {
 	user.login(ALICE_ID);
+	mock_page.url = new URL('http://localhost/');
 });
 
 test('retries fetching the user name every 5 seconds after a failure', async () => {
@@ -32,6 +36,38 @@ test('displays the user name', async () => {
 	const screen = await render(UserBar);
 
 	await expect.element(screen.getByText('Logged in as Alice')).toBeVisible();
+});
+
+test('links the user name to the profile page', async () => {
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(UserBar);
+
+	await expect
+		.element(screen.getByRole('link', { name: 'Alice' }))
+		.toHaveAttribute('href', '/profile');
+});
+
+test('hides the back-to-chat link on the chat page', async () => {
+	mock_page.url = new URL('http://localhost/');
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(UserBar);
+
+	await expect
+		.element(screen.getByRole('link', { name: '← Back to chat' }))
+		.not.toBeInTheDocument();
+});
+
+test('shows a back-to-chat link when not on the chat page', async () => {
+	mock_page.url = new URL('http://localhost/profile');
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(UserBar);
+
+	await expect
+		.element(screen.getByRole('link', { name: '← Back to chat' }))
+		.toHaveAttribute('href', '/');
 });
 
 test('displays fetching user info while name is loading', async () => {
