@@ -1,8 +1,6 @@
 <script lang="ts">
 	type ChangePasswordResponse =
-		| { kind: 'success' }
-		| { kind: 'wrong_password' }
-		| { kind: 'server_error' };
+		{ kind: 'success' } | { kind: 'wrong_password' } | { kind: 'server_error' };
 
 	let current_password = $state('');
 	let new_password = $state('');
@@ -37,30 +35,38 @@
 	<h2>Change password</h2>
 	<input
 		type="password"
+		class="input"
 		bind:value={current_password}
 		placeholder="Current password"
 		autocomplete="off"
 	/>
-	<input type="password" bind:value={new_password} placeholder="New password" autocomplete="off" />
 	<input
 		type="password"
+		class="input"
+		bind:value={new_password}
+		placeholder="New password"
+		autocomplete="off"
+	/>
+	<input
+		type="password"
+		class="input"
 		bind:value={confirm_password}
 		placeholder="Confirm new password"
 		autocomplete="off"
 	/>
 	{#if !passwords_match}
-		<p class="change-password-error">New password and confirmation do not match</p>
+		<p class="error">New password and confirmation do not match</p>
 	{/if}
-	<button type="submit" onclick={change_password} disabled={!passwords_match}
+	<button type="submit" class="btn-primary" onclick={change_password} disabled={!passwords_match}
 		>Change password</button
 	>
 	{#if change_password_result}
 		{#if change_password_result.kind === 'success'}
 			<p class="change-password-success">Password changed</p>
 		{:else if change_password_result.kind === 'wrong_password'}
-			<p class="change-password-error">Current password is wrong</p>
+			<p class="error">Current password is wrong</p>
 		{:else if change_password_result.kind === 'server_error'}
-			<p class="change-password-error">Something went wrong, please try again</p>
+			<p class="error">Something went wrong, please try again</p>
 		{/if}
 	{/if}
 </form>
@@ -75,33 +81,13 @@
 		margin: 0;
 		font-size: 1.25rem;
 	}
-	.change-password-error {
-		color: #dc2626;
-		font-size: 0.875rem;
-		margin: 0;
-	}
 	.change-password-success {
-		color: #16a34a;
 		font-size: 0.875rem;
+		text-align: center;
 		margin: 0;
-	}
-	input {
-		padding: 0.5rem;
-		border-radius: 6px;
-		border: 1px solid #ccc;
-		font-size: 1rem;
-	}
-	button {
-		padding: 0.5rem 1.2rem;
-		border-radius: 6px;
-		border: none;
-		background: #6366f1;
-		color: #fff;
-		font-weight: bold;
-		cursor: pointer;
 	}
 	button:hover:not(:disabled) {
-		background: #4f46e5;
+		background: var(--color-primary-hover);
 	}
 	button:disabled {
 		background: #a5b4fc; /* lighter indigo */

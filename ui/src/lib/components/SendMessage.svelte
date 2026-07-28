@@ -49,16 +49,17 @@
 
 <form onsubmit={handleSubmit} class="send-message-form">
 	{#if send_error}
-		<p class="send-error">{send_error}</p>
+		<p class="error">{send_error}</p>
 	{/if}
 	<div class="send-controls">
 		<input
 			type="text"
+			class="input"
 			bind:value={message_content}
 			placeholder="Type your message..."
 			autocomplete="off"
 		/>
-		<button type="submit">{is_retry ? 'Retry' : 'Send'}</button>
+		<button type="submit" class="btn-primary">{is_retry ? 'Retry' : 'Send'}</button>
 	</div>
 </form>
 
@@ -70,33 +71,14 @@
 		margin: 1rem auto 0 auto;
 		max-width: 600px;
 	}
-	.send-error {
-		color: #dc2626;
-		font-size: 0.875rem;
-		margin: 0;
-	}
 	.send-controls {
 		display: flex;
 		gap: 0.5rem;
 	}
 	input[type='text'] {
 		flex: 1;
-		padding: 0.5rem;
-		border-radius: 6px;
-		border: 1px solid #ccc;
-		font-size: 1rem;
 	}
 	button {
-		padding: 0.5rem 1.2rem;
-		border-radius: 6px;
-		border: none;
-		background: #6366f1;
-		color: #fff;
-		font-weight: bold;
-		cursor: pointer;
 		transition: background 0.2s;
-	}
-	button:hover {
-		background: #4f46e5;
 	}
 </style>

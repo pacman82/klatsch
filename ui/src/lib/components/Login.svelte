@@ -51,12 +51,25 @@
 <form class="login">
 	<h1>Klatsch</h1>
 	<label for="name">Enter your name to join</label>
-	<input id="name" bind:value={name} placeholder="Your name" maxlength="32" autocomplete="off" />
-	<input type="password" bind:value={password} placeholder="Password" autocomplete="off" />
-	<button type="submit" onclick={log_in}>Log in</button>
-	<button type="submit" onclick={sign_up}>Sign up</button>
+	<input
+		id="name"
+		class="input"
+		bind:value={name}
+		placeholder="Your name"
+		maxlength="32"
+		autocomplete="off"
+	/>
+	<input
+		type="password"
+		class="input"
+		bind:value={password}
+		placeholder="Password"
+		autocomplete="off"
+	/>
+	<button type="submit" class="btn-primary" onclick={log_in}>Log in</button>
+	<button type="submit" class="btn-primary" onclick={sign_up}>Sign up</button>
 	{#if login_error}
-		<p class="login-error">
+		<p class="error">
 			{#if login_error.kind === 'wrong_credentials'}
 				User name or password is wrong
 			{:else}
@@ -82,28 +95,5 @@
 	}
 	label {
 		color: #666;
-	}
-	.login-error {
-		color: #dc2626;
-		font-size: 0.875rem;
-		margin: 0;
-	}
-	input {
-		padding: 0.5rem;
-		border-radius: 6px;
-		border: 1px solid #ccc;
-		font-size: 1rem;
-	}
-	button {
-		padding: 0.5rem 1.2rem;
-		border-radius: 6px;
-		border: none;
-		background: #6366f1;
-		color: #fff;
-		font-weight: bold;
-		cursor: pointer;
-	}
-	button:hover {
-		background: #4f46e5;
 	}
 </style>

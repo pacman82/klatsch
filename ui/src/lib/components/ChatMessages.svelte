@@ -71,7 +71,7 @@
 		</div>
 	{/each}
 	{#if disconnected}
-		<p class="receive-error">
+		<p class="error">
 			{#if serverError}
 				Server error: "{serverError}". Reconnecting...
 			{:else}
@@ -134,7 +134,7 @@
 	}
 
 	.message-row.me .bubble {
-		background: #6366f1;
+		background: var(--color-primary);
 		color: #fff;
 		border-bottom-right-radius: 8px;
 		border-bottom-left-radius: 18px;
@@ -155,7 +155,7 @@
 
 	.sender {
 		font-weight: 600;
-		color: #6366f1;
+		color: var(--color-primary);
 		font-size: 0.97rem;
 		text-align: left;
 		width: 100%;
@@ -183,12 +183,5 @@
 
 	.message-row.me .meta {
 		text-align: right;
-	}
-
-	.receive-error {
-		color: #dc2626;
-		font-size: 0.875rem;
-		text-align: center;
-		margin: 0;
 	}
 </style>
