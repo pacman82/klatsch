@@ -14,8 +14,10 @@ export function create_user_cache() {
 		fetching.add(id);
 		while (!(id in cache)) {
 			try {
-				const response = await fetch(`/api/v0/users/${id}`);
-				if (response.status >= 400 && response.status < 500) {
+        const response = await fetch(`/api/v0/users/${id}`);
+				// Querying removed user ids won't happen. Yet we can start a different instace with different
+				// persistence on the same endpoint. Most likely happens during development.
+				if (response.status === 404) {
 					cache[id] = null;
 					break;
 				}
