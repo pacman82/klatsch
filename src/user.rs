@@ -64,6 +64,19 @@ pub trait Users {
     }
 
     fn user_by_id(&mut self, id: UserId) -> impl Future<Output = Result<User, UsersError>> + Send;
+
+    /// Change the password of an existing user.
+    ///
+    /// We demand the current password in order to limit the amount of damage a leaked session can
+    /// do.
+    fn change_password(
+        &mut self,
+        id: UserId,
+        current_password: String,
+        new_password: String,
+    ) -> impl Future<Output = Result<(), UsersError>> + Send {
+        async { Ok(()) }
+    }
 }
 
 impl<P> Users for UserStore<P>

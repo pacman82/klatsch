@@ -46,7 +46,7 @@ test('server error during change shows a generic message', async () => {
 	await expect.element(screen.getByText('Something went wrong, please try again')).toBeVisible();
 });
 
-test('change password button sends current and new password to /api/v0/change_password', async () => {
+test('change password button sends current and new password to /api/v0/users/me/change_password', async () => {
 	const fetchSpy = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 	vi.stubGlobal('fetch', fetchSpy);
 
@@ -55,7 +55,7 @@ test('change password button sends current and new password to /api/v0/change_pa
 	await screen.getByRole('button', { name: 'Change password' }).click();
 
 	expect(fetchSpy).toHaveBeenCalledWith(
-		'/api/v0/change_password',
+		'/api/v0/users/me/change_password',
 		expect.objectContaining({
 			body: JSON.stringify({ current_password: 'old-secret', new_password: 'new-secret' })
 		})

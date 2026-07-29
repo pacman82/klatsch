@@ -6,8 +6,9 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{StatusCode, request::Parts},
-    routing::get,
+    routing::{get, post},
 };
+use serde::Deserialize;
 
 pub fn user_routes<U, S>(users: U, sessions: S) -> Router
 where
@@ -16,6 +17,10 @@ where
 {
     Router::new()
         .route("/api/v0/users/{id}", get(user_info::<U, S>))
+        .route(
+            "/api/v0/users/me/change_password",
+            post(change_password::<U, S>),
+        )
         .with_state(UserState { users, sessions })
 }
 
@@ -48,6 +53,28 @@ where
     Ok(Json(user))
 }
 
+#[derive(Deserialize)]
+struct ChangePasswordBody {
+    current_password: String,
+    new_password: String,
+}
+
+async fn change_password<U, S>(
+    AuthenticatedUser(id): AuthenticatedUser,
+    State(state): State<UserState<U, S>>,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<(), HttpError>
+where
+    U: Users + Send + Sync,
+    S: AuthenticateRequest + Send + Sync,
+{
+    let mut users = state.users;
+    users
+        .change_password(id, body.current_password, body.new_password)
+        .await?;
+    Ok(())
+}
+
 impl From<UsersError> for HttpError {
     fn from(err: UsersError) -> Self {
         match err {
@@ -69,6 +96,8 @@ impl From<UsersError> for HttpError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use axum::{
         body::Body,
@@ -152,6 +181,55 @@ mod tests {
         let body = String::from_utf8(body.to_bytes().to_vec()).unwrap();
 
         assert_eq!("Unknown user", body)
+    }
+
+    #[tokio::test]
+    async fn change_password_forwards_current_and_new_password() {
+        // Given
+        #[derive(Clone, Default)]
+        struct UsersSpy {
+            calls: Arc<Mutex<Vec<(UserId, String, String)>>>,
+        }
+        impl Users for UsersSpy {
+            async fn change_password(
+                &mut self,
+                id: UserId,
+                current_password: String,
+                new_password: String,
+            ) -> Result<(), UsersError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((id, current_password, new_password));
+                Ok(())
+            }
+        }
+        let spy = UsersSpy::default();
+        let app = user_routes(spy.clone(), AuthDummy);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/users/me/change_password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"current_password": "old-secret", "new_password": "new-secret"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            *spy.calls.lock().unwrap(),
+            [(
+                UserId::nil(),
+                "old-secret".to_owned(),
+                "new-secret".to_owned()
+            )]
+        );
     }
 
     #[derive(Clone)]
