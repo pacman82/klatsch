@@ -14,7 +14,7 @@
 	async function change_password(e: MouseEvent) {
 		e.preventDefault();
 		change_password_result = null;
-		const response = await fetch('/api/v0/change_password', {
+		const response = await fetch('/api/v0/users/me/change_password', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ current_password, new_password })

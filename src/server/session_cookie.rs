@@ -16,7 +16,10 @@ use crate::{
     user::{UserId, Users},
 };
 
-impl<T: SessionLookup + Sync> AuthenticateRequest for T {
+impl<T> AuthenticateRequest for T
+where
+    T: SessionLookup + Sync,
+{
     fn authenticate_request(
         &self,
         parts: &Parts,
