@@ -5,8 +5,6 @@
 	import UserBar from '$lib/components/UserBar.svelte';
 	import ChangePassword from '$lib/components/ChangePassword.svelte';
 
-	const CHANGE_PASSWORD_ENABLED = false;
-
 	$effect(() => {
 		if (!user.current) goto(resolve('/login'));
 	});
@@ -18,9 +16,7 @@
 	<UserBar />
 	<div class="profile">
 		<h1>Profile</h1>
-		{#if CHANGE_PASSWORD_ENABLED}
-			<ChangePassword />
-		{/if}
+		<ChangePassword />
 	</div>
 {:else}
 	<p>Redirecting to login…</p>
