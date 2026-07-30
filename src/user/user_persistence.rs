@@ -31,6 +31,17 @@ pub trait UserPersistence {
     ) -> impl Future<Output = anyhow::Result<UserCreateOutcome>> + Send;
 
     fn user_by_id(&self, id: UserId) -> impl Future<Output = anyhow::Result<Option<User>>> + Send;
+
+    fn password_hash_by_id(
+        &self,
+        id: UserId,
+    ) -> impl Future<Output = anyhow::Result<Option<String>>> + Send;
+
+    fn set_password_hash(
+        &self,
+        id: UserId,
+        password_hash: &str,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 impl<P> UserPersistence for P
@@ -66,6 +77,14 @@ where
             })
             .await?;
         Ok(users.pop())
+    }
+
+    async fn password_hash_by_id(&self, id: UserId) -> anyhow::Result<Option<String>> {
+        todo!()
+    }
+
+    async fn set_password_hash(&self, id: UserId, password_hash: &str) -> anyhow::Result<()> {
+        todo!()
     }
 }
 

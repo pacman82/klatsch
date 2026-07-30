@@ -135,6 +135,33 @@ where
             .map_err(|_| UsersError::Internal)?
             .ok_or(UsersError::UnknownUser)
     }
+
+    async fn change_password(
+        &mut self,
+        id: UserId,
+        current_password: String,
+        new_password: String,
+    ) -> Result<(), UsersError> {
+        let hash = self
+            .persistence
+            .password_hash_by_id(id)
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        if let Some(hash) = hash
+            && !password_hash::verify(&current_password, &hash)
+        {
+            return Err(UsersError::Unauthenticated);
+        }
+
+        let new_hash = password_hash::generate(&new_password);
+        self.persistence
+            .set_password_hash(id, &new_hash)
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -148,7 +175,10 @@ pub enum UsersError {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
+    use std::{
+        assert_matches,
+        sync::{Arc, Mutex},
+    };
 
     use anyhow::bail;
 
@@ -440,6 +470,70 @@ mod tests {
         let result = users.user_by_id(UserId::ALICE).await;
 
         assert_matches!(result, Err(UsersError::Internal));
+    }
+
+    #[tokio::test]
+    async fn change_password_rejects_wrong_current_password() {
+        // Given
+        struct AliceStub;
+        impl UserPersistence for AliceStub {
+            async fn password_hash_by_id(&self, _id: UserId) -> anyhow::Result<Option<String>> {
+                Ok(Some(password_hash::generate("secret")))
+            }
+        }
+        let mut users = UserStore::new(AliceStub);
+
+        // When
+        let result = users
+            .change_password(
+                UserId::ALICE,
+                "wrong-secret".to_owned(),
+                "dummy".to_owned(),
+            )
+            .await;
+
+        // Then
+        assert_matches!(result, Err(UsersError::Unauthenticated));
+    }
+
+    #[tokio::test]
+    async fn change_password_stores_hash_of_new_password() {
+        // Given
+        #[derive(Clone, Default)]
+        struct PersistenceSpy {
+            stored_hash: Arc<Mutex<Option<String>>>,
+        }
+        impl UserPersistence for PersistenceSpy {
+            async fn password_hash_by_id(&self, _id: UserId) -> anyhow::Result<Option<String>> {
+                Ok(Some(password_hash::generate("old-secret")))
+            }
+
+            async fn set_password_hash(
+                &self,
+                _id: UserId,
+                password_hash: &str,
+            ) -> anyhow::Result<()> {
+                *self.stored_hash.lock().unwrap() = Some(password_hash.to_owned());
+                Ok(())
+            }
+        }
+        let persistence = PersistenceSpy::default();
+        let mut users = UserStore::new(persistence.clone());
+
+        // When
+        users
+            .change_password(
+                UserId::ALICE,
+                "old-secret".to_owned(),
+                "new-secret".to_owned(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let stored_hash = persistence.stored_hash.lock().unwrap();
+        let stored_hash = stored_hash.as_deref().expect("new password hash must have been stored");
+        assert!(password_hash::verify("new-secret", stored_hash));
     }
 
     /// Fails every persistence operation, to test error mapping to `UsersError::Internal`.
