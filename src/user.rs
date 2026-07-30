@@ -74,9 +74,7 @@ pub trait Users {
         id: UserId,
         current_password: String,
         new_password: String,
-    ) -> impl Future<Output = Result<(), UsersError>> + Send {
-        async { Ok(()) }
-    }
+    ) -> impl Future<Output = Result<(), UsersError>> + Send;
 }
 
 impl<P> Users for UserStore<P>
@@ -485,11 +483,7 @@ mod tests {
 
         // When
         let result = users
-            .change_password(
-                UserId::ALICE,
-                "wrong-secret".to_owned(),
-                "dummy".to_owned(),
-            )
+            .change_password(UserId::ALICE, "wrong-secret".to_owned(), "dummy".to_owned())
             .await;
 
         // Then
@@ -532,7 +526,9 @@ mod tests {
 
         // Then
         let stored_hash = persistence.stored_hash.lock().unwrap();
-        let stored_hash = stored_hash.as_deref().expect("new password hash must have been stored");
+        let stored_hash = stored_hash
+            .as_deref()
+            .expect("new password hash must have been stored");
         assert!(password_hash::verify("new-secret", stored_hash));
     }
 

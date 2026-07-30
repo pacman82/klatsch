@@ -80,11 +80,20 @@ where
     }
 
     async fn password_hash_by_id(&self, id: UserId) -> anyhow::Result<Option<String>> {
-        todo!()
+        let mut hashes = self
+            .rows_vec(
+                "SELECT password_hash FROM users WHERE id = ?1",
+                id,
+                |row| Ok(row.get(0)),
+            )
+            .await?;
+        Ok(hashes.pop().flatten())
     }
 
     async fn set_password_hash(&self, id: UserId, password_hash: &str) -> anyhow::Result<()> {
-        todo!()
+        let password_hash = password_hash.to_owned();
+        self.transaction(move |conn| update_password_hash(conn, id, &password_hash))
+            .await
     }
 }
 
@@ -102,6 +111,16 @@ where
         },
     )
     .map(|mut rows| rows.pop())
+}
+
+fn update_password_hash<C>(conn: &C, id: UserId, password_hash: &str) -> Result<(), C::Error>
+where
+    C: ExecuteSqlSync,
+{
+    conn.execute(
+        "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+        (password_hash, id),
+    )
 }
 
 fn insert_user<C>(
@@ -267,6 +286,50 @@ mod tests {
 
         // Then
         assert_eq!(user, None);
+    }
+
+    #[tokio::test]
+    async fn lookup_password_hash_by_id() {
+        // Given
+        let persistence = persistence_fake().await;
+        let id = UserId::new();
+        persistence.create("Alice", id, Some("hash")).await.unwrap();
+
+        // When
+        let hash = persistence.password_hash_by_id(id).await.unwrap();
+
+        // Then
+        assert_eq!(hash, Some("hash".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn lookup_password_hash_of_unknown_user() {
+        // Given
+        let persistence = persistence_fake().await;
+
+        // When
+        let hash = persistence.password_hash_by_id(UserId::new()).await.unwrap();
+
+        // Then
+        assert_eq!(hash, None);
+    }
+
+    #[tokio::test]
+    async fn set_password_hash_updates_stored_hash() {
+        // Given
+        let persistence = persistence_fake().await;
+        let id = UserId::new();
+        persistence
+            .create("Alice", id, Some("old-hash"))
+            .await
+            .unwrap();
+
+        // When
+        persistence.set_password_hash(id, "new-hash").await.unwrap();
+
+        // Then
+        let hash = persistence.password_hash_by_id(id).await.unwrap();
+        assert_eq!(hash, Some("new-hash".to_owned()));
     }
 
     async fn persistence_fake() -> impl UserPersistence {
