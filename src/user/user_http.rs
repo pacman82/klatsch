@@ -71,7 +71,17 @@ where
     let mut users = state.users;
     users
         .change_password(id, body.current_password, body.new_password)
-        .await?;
+        .await
+        .map_err(|e| match e {
+            // Change the default mapping for [`UsersError::WrongCredentials`] from `UNAUTHORIZED`
+            // to `BAD_REQUEST` so a wrong password is distinguishable from an expired session for
+            // the UI.
+            UsersError::WrongCredentials => HttpError {
+                status_code: StatusCode::BAD_REQUEST,
+                message: "current password is incorrect".into(),
+            },
+            _ => e.into(),
+        })?;
     Ok(())
 }
 
@@ -86,7 +96,7 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::NOT_FOUND,
                 message: "Unknown user".into(),
             },
-            UsersError::Unauthenticated => HttpError {
+            UsersError::WrongCredentials => HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Either user name or password is incorrect".into(),
             },
@@ -230,6 +240,45 @@ mod tests {
                 "new-secret".to_owned()
             )]
         );
+    }
+
+    #[tokio::test]
+    async fn change_password_returns_bad_request_for_wrong_password() {
+        // Given
+
+        // Rejects any current password, simulating a mismatch against the stored hash.
+        #[derive(Clone)]
+        struct WrongPasswordSaboteur;
+        impl Users for WrongPasswordSaboteur {
+            async fn change_password(
+                &mut self,
+                _id: UserId,
+                _current_password: String,
+                _new_password: String,
+            ) -> Result<(), UsersError> {
+                Err(UsersError::WrongCredentials)
+            }
+        }
+        let app = user_routes(WrongPasswordSaboteur, AuthDummy);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/users/me/change_password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"current_password": "wrong-secret", "new_password": "new-secret"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+
+        // Distinct from the 401 an expired/missing session produces, so the frontend can tell
+        // "wrong password" apart from "please log in again".
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[derive(Clone)]

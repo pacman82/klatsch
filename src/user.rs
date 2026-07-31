@@ -101,7 +101,7 @@ where
             && !password_hash::verify(&password, &hash)
         {
             // Password does not match, we can not create a user with this password
-            return Err(UsersError::Unauthenticated);
+            return Err(UsersError::WrongCredentials);
         }
 
         Ok(user_id)
@@ -114,12 +114,12 @@ where
             .await
             .map_err(|_| UsersError::Internal)?;
 
-        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::Unauthenticated)?;
+        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::WrongCredentials)?;
 
         if let Some(hash) = maybe_hash
             && !password_hash::verify(&password, &hash)
         {
-            return Err(UsersError::Unauthenticated);
+            return Err(UsersError::WrongCredentials);
         }
 
         // User existed already, but this is fine.
@@ -149,7 +149,7 @@ where
         if let Some(hash) = hash
             && !password_hash::verify(&current_password, &hash)
         {
-            return Err(UsersError::Unauthenticated);
+            return Err(UsersError::WrongCredentials);
         }
 
         let new_hash = password_hash::generate(&new_password);
@@ -168,7 +168,7 @@ pub enum UsersError {
     /// The user id does not belong to any user.
     UnknownUser,
     /// Either name or password is incorrect.
-    Unauthenticated,
+    WrongCredentials,
 }
 
 #[cfg(test)]
@@ -315,7 +315,7 @@ mod tests {
             .signup("Alice".to_owned(), "new-secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UsersError::Unauthenticated));
+        assert_matches!(result, Err(UsersError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -342,7 +342,7 @@ mod tests {
 
         let result = users.login("Alice".to_owned(), "secret".to_owned()).await;
 
-        assert_matches!(result, Err(UsersError::Unauthenticated));
+        assert_matches!(result, Err(UsersError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -390,7 +390,7 @@ mod tests {
             .login("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UsersError::Unauthenticated));
+        assert_matches!(result, Err(UsersError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -487,7 +487,7 @@ mod tests {
             .await;
 
         // Then
-        assert_matches!(result, Err(UsersError::Unauthenticated));
+        assert_matches!(result, Err(UsersError::WrongCredentials));
     }
 
     #[tokio::test]

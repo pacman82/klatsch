@@ -500,7 +500,7 @@ mod tests {
                 _name: String,
                 _password: String,
             ) -> Result<UserId, UsersError> {
-                Err(UsersError::Unauthenticated)
+                Err(UsersError::WrongCredentials)
             }
         }
         let app = session_routes(UsersSaboteur, Dummy);

@@ -9,6 +9,24 @@ const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 const mock_page = vi.hoisted(() => ({ url: new URL('http://localhost/') }));
 vi.mock('$app/state', () => ({ page: mock_page }));
 
+// Fake tracking just the login state UserBar reads, without the real store's
+// navigation/localStorage side effects.
+const user_double = vi.hoisted(() => {
+	let current: string | null = null;
+	return {
+		get current() {
+			return current;
+		},
+		login(id: string) {
+			current = id;
+		},
+		logout() {
+			current = null;
+		}
+	};
+});
+vi.mock('$lib/user.svelte', () => ({ user: user_double }));
+
 beforeEach(() => {
 	user.login(ALICE_ID);
 	mock_page.url = new URL('http://localhost/');

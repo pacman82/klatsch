@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { api_fetch } from '$lib/api_fetch';
+
 	type ChangePasswordResponse =
 		{ kind: 'success' } | { kind: 'wrong_password' } | { kind: 'server_error' };
 
@@ -14,14 +16,14 @@
 	async function change_password(e: MouseEvent) {
 		e.preventDefault();
 		change_password_result = null;
-		const response = await fetch('/api/v0/users/me/change_password', {
+		const response = await api_fetch('/api/v0/users/me/change_password', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ current_password, new_password })
 		});
 		if (!response.ok) {
 			change_password_result =
-				response.status === 401 ? { kind: 'wrong_password' } : { kind: 'server_error' };
+				response.status === 400 ? { kind: 'wrong_password' } : { kind: 'server_error' };
 			return;
 		}
 		current_password = '';

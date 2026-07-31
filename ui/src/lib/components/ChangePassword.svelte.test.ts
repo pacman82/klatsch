@@ -1,6 +1,13 @@
 import { render } from 'vitest-browser-svelte';
-import { expect, test, vi } from 'vitest';
+import { expect, test, vi, beforeEach } from 'vitest';
 import ChangePassword from './ChangePassword.svelte';
+
+const user_double = vi.hoisted(() => ({ logout: vi.fn() }));
+vi.mock('$lib/user.svelte', () => ({ user: user_double }));
+
+beforeEach(() => {
+	user_double.logout.mockClear();
+});
 
 async function fill_form(
 	screen: Awaited<ReturnType<typeof render>>,
@@ -27,13 +34,23 @@ test('mismatched new password and confirmation shows an error', async () => {
 });
 
 test('wrong current password shows a user-friendly message', async () => {
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })));
 
 	const screen = await render(ChangePassword);
 	await fill_form(screen, 'dummy-wrong-secret', 'new-secret', 'new-secret');
 	await screen.getByRole('button').click();
 
 	await expect.element(screen.getByText('Current password is wrong')).toBeVisible();
+});
+
+test('expired session logs out', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+
+	const screen = await render(ChangePassword);
+	await fill_form(screen, 'old-secret', 'new-secret', 'new-secret');
+	await screen.getByRole('button').click();
+
+	await vi.waitFor(() => expect(user_double.logout).toHaveBeenCalled());
 });
 
 test('server error during change shows a generic message', async () => {

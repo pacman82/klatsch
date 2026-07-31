@@ -1,3 +1,5 @@
+import { api_fetch } from './api_fetch';
+
 export type User = {
 	name: string;
 };
@@ -14,13 +16,15 @@ export function create_user_cache() {
 		fetching.add(id);
 		while (!(id in cache)) {
 			try {
-        const response = await fetch(`/api/v0/users/${id}`);
+				const response = await api_fetch(`/api/v0/users/${id}`);
 				// Querying removed user ids won't happen. Yet we can start a different instace with different
 				// persistence on the same endpoint. Most likely happens during development.
 				if (response.status === 404) {
 					cache[id] = null;
 					break;
 				}
+				// api_fetch already logged us out and redirected; retrying would just hammer a dead session.
+				if (response.status === 401) break;
 				if (!response.ok) throw new Error(`${response.status}`);
 				const data: { name: string } = await response.json();
 				cache[id] = { name: data.name };
