@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { v7 } from 'uuid';
+	import { api_fetch } from '$lib/api_fetch';
 
 	type SendMessage = {
 		id: string;
@@ -27,7 +28,7 @@
 		send_error = null;
 		try {
 			const msg: SendMessage = { id, content };
-			const response = await fetch('/api/v0/add_message', {
+			const response = await api_fetch('/api/v0/add_message', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
