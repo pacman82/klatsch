@@ -185,15 +185,7 @@ async fn second_server_on_same_persistence_directory_is_rejected() {
     let _running = TestServer::new(Some(persistence_dir.path())).await;
 
     // When starting a second server on the same directory
-    let working_dir = tempfile::tempdir().unwrap();
-    let mut cmd = server_command(Some(persistence_dir.path()), working_dir.path());
-    // Should the lock be broken, the second server boots and runs indefinitely. Kill it when the
-    // timeout drops the output future, so it does not outlive the failed test.
-    cmd.kill_on_drop(true);
-    let output = timeout(Duration::from_secs(5), cmd.output())
-        .await
-        .expect("Second server must exit instead of becoming ready")
-        .unwrap();
+    let output = TestServer::spawn_expecting_termination(Some(persistence_dir.path())).await;
 
     // Then it exits with an error identifying the locked directory
     assert!(!output.status.success());
@@ -303,6 +295,19 @@ impl TestServer {
             port,
             client,
         }
+    }
+
+    /// Spawns a server expected to exit before becoming ready, and returns its output.
+    async fn spawn_expecting_termination(db_path: Option<&Path>) -> std::process::Output {
+        let working_dir = tempfile::tempdir().unwrap();
+        let mut cmd = server_command(db_path, working_dir.path());
+        // Should the server become ready and run indefinitely instead, kill it when the timeout
+        // drops the output future, so it does not outlive the failed test.
+        cmd.kill_on_drop(true);
+        timeout(Duration::from_secs(5), cmd.output())
+            .await
+            .expect("Server must exit instead of becoming ready")
+            .unwrap()
     }
 
     async fn health_check(&self) -> reqwest::Response {
