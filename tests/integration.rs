@@ -33,7 +33,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServer::new(None).await;
+    let mut child = TestServer::new(None, false).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -59,7 +59,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServer::new(None).await;
+    let mut child = TestServer::new(None, false).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -79,7 +79,7 @@ async fn server_boots_within_one_sec() {
     let start = Instant::now();
 
     // When measuring the time it takes to boot
-    let _child = TestServer::new(None).await;
+    let _child = TestServer::new(None, false).await;
     let end = Instant::now();
 
     // Then it should have taken less than 1 second to boot up
@@ -92,7 +92,21 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn health_check_returns_200_ok() {
     // Given a running server
-    let server = TestServer::new(None).await;
+    let server = TestServer::new(None, false).await;
+
+    // When requesting the health check endpoint
+    let response = server.health_check().await;
+
+    // Then it should return 200 OK
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "OK");
+}
+
+#[tokio::test]
+#[should_panic] // HTTPS support not implemented yet
+async fn https() {
+    // Given a server configured to use TLS
+    let server = TestServer::new(None, true).await;
 
     // When requesting the health check endpoint
     let response = server.health_check().await;
@@ -105,7 +119,7 @@ async fn health_check_returns_200_ok() {
 #[tokio::test]
 async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
-    let server = TestServer::new(None).await;
+    let server = TestServer::new(None, false).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
@@ -141,7 +155,7 @@ async fn persistence() {
     // Given a server that accepted two messages
     let persistence_dir = tempfile::tempdir().unwrap();
 
-    let mut server = TestServer::new(Some(persistence_dir.path())).await;
+    let mut server = TestServer::new(Some(persistence_dir.path()), false).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
@@ -157,7 +171,7 @@ async fn persistence() {
         .wait_for_termination(Duration::from_secs(5))
         .await
         .unwrap();
-    let server = TestServer::new(Some(persistence_dir.path())).await;
+    let server = TestServer::new(Some(persistence_dir.path()), false).await;
     let alice_session = server.login_alice().await;
 
     // Then the messages are still available
@@ -182,7 +196,7 @@ async fn persistence() {
 async fn second_server_on_same_persistence_directory_is_rejected() {
     // Given a running server on a persistence directory
     let persistence_dir = tempfile::tempdir().unwrap();
-    let _running = TestServer::new(Some(persistence_dir.path())).await;
+    let _running = TestServer::new(Some(persistence_dir.path()), false).await;
 
     // When starting a second server on the same directory
     let output = TestServer::spawn_expecting_termination(Some(persistence_dir.path())).await;
@@ -205,7 +219,7 @@ async fn load_v1_persistence() {
         .unwrap();
 
     // When restarting with the same database
-    let server = TestServer::new(Some(persistence_dir.path())).await;
+    let server = TestServer::new(Some(persistence_dir.path()), false).await;
     let alice_session = server.login_alice().await;
 
     // Then the messages are still available
@@ -232,7 +246,7 @@ async fn load_v1_persistence() {
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServer::new(None).await;
+    let mut child = TestServer::new(None, false).await;
 
     // and a client connected to the events stream
     child.register_alice().await;
@@ -272,13 +286,27 @@ struct TestServer {
     // Empty working directory so the server's dotenv() doesn't pick up the developer's .env file.
     _working_dir: tempfile::TempDir,
     port: u16,
+    tls: bool,
     client: Client,
 }
 
 impl TestServer {
-    async fn new(db_path: Option<&Path>) -> Self {
+    async fn new(db_path: Option<&Path>, tls: bool) -> Self {
         let working_dir = tempfile::tempdir().unwrap();
         let mut cmd = server_command(db_path, working_dir.path());
+        let client = if tls {
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+            cmd.env("TLS_CERT_FILE", fixtures.join("cert.pem"))
+                .env("TLS_KEY_FILE", fixtures.join("key.pem"));
+            // The fixture certificate is self-signed, so it is not in any trust store the client
+            // would otherwise validate against.
+            Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .expect("Failed to build https client")
+        } else {
+            Client::new()
+        };
         let mut child = cmd.spawn().unwrap();
         let stderr = child.stderr.take().unwrap();
         let process = ServerProcess::new(child);
@@ -287,14 +315,19 @@ impl TestServer {
             .await
             .expect("Server did not become ready within 5 seconds");
         let port = log_observer.port().await;
-        let client = Client::new();
         Self {
             process,
             _log_observer: log_observer,
             _working_dir: working_dir,
             port,
+            tls,
             client,
         }
+    }
+
+    fn base_url(&self) -> String {
+        let scheme = if self.tls { "https" } else { "http" };
+        format!("{scheme}://localhost:{}", self.port)
     }
 
     /// Spawns a server expected to exit before becoming ready, and returns its output.
@@ -312,7 +345,7 @@ impl TestServer {
 
     async fn health_check(&self) -> reqwest::Response {
         self.client
-            .get(format!("http://localhost:{}/health", self.port))
+            .get(format!("{}/health", self.base_url()))
             .send()
             .await
             .expect("Failed to send health check request")
@@ -320,7 +353,7 @@ impl TestServer {
 
     async fn request_event_stream(&self, session: &str) -> reqwest::Response {
         self.client
-            .get(format!("http://localhost:{}/api/v0/events", self.port))
+            .get(format!("{}/api/v0/events", self.base_url()))
             .header("cookie", format!("session={session}"))
             .send()
             .await
@@ -337,10 +370,7 @@ impl TestServer {
 
     async fn user(&self, id: Uuid, session: &str) -> serde_json::Value {
         self.client
-            .get(format!(
-                "http://localhost:{}/api/v0/users/{}",
-                self.port, id
-            ))
+            .get(format!("{}/api/v0/users/{}", self.base_url(), id))
             .header("cookie", format!("session={session}"))
             .send()
             .await
@@ -354,7 +384,7 @@ impl TestServer {
 
     async fn register_user(&self, name: &str, password: &str) -> Uuid {
         self.client
-            .post(format!("http://localhost:{}/api/v0/signup", self.port))
+            .post(format!("{}/api/v0/signup", self.base_url()))
             .json(&json!({ "name": name, "password": password }))
             .send()
             .await
@@ -385,7 +415,7 @@ impl TestServer {
     async fn login(&self, name: &str, password: &str) -> String {
         let response = self
             .client
-            .post(format!("http://localhost:{}/api/v0/login", self.port))
+            .post(format!("{}/api/v0/login", self.base_url()))
             .json(&json!({ "name": name, "password": password }))
             .send()
             .await
@@ -400,7 +430,7 @@ impl TestServer {
 
     async fn send_message(&self, message: serde_json::Value, session: &str) {
         self.client
-            .post(format!("http://localhost:{}/api/v0/add_message", self.port))
+            .post(format!("{}/api/v0/add_message", self.base_url()))
             .header("cookie", format!("session={session}"))
             .json(&message)
             .send()
