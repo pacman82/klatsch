@@ -30,8 +30,7 @@ impl Klatsch {
         )?;
 
         // Answer incoming HTTP requests
-        let server =
-            Server::new(cfg.socket_addr(), chat.client(), users, sessions.client()).await?;
+        let server = Server::new(cfg.server(), chat.client(), users, sessions.client()).await?;
 
         Ok(Self {
             chat,

@@ -2,7 +2,7 @@ mod api;
 mod session_cookie;
 mod ui;
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use axum::{
     Router,
@@ -10,17 +10,28 @@ use axum::{
     routing::get,
 };
 
-use tokio::{
-    net::{TcpListener, ToSocketAddrs},
-    sync::watch,
-    task::JoinHandle,
-};
+use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{chat::Chat, http::AuthenticateRequest, sessions::SessionLifecycle, user::Users};
 
 use self::{api::api_router, ui::ui_router};
+
+/// Configuration for the HTTP server interface.
+pub struct ServerConfiguration {
+    pub host: String,
+    pub port: u16,
+    pub tls: Option<TlsConfig>,
+}
+
+/// Paths to a certificate and private key file, to serve HTTPS directly without a reverse proxy
+/// in front of Klatsch.
+#[derive(Clone)]
+pub struct TlsConfig {
+    pub cert_file: PathBuf,
+    pub key_file: PathBuf,
+}
 
 pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams
@@ -33,12 +44,12 @@ impl Server {
     /// Starts the HTTP server providing both the API and UI to clients. While the server runs in
     /// its own thread, the TCP socket is already opened and listened to once this function returns.
     pub async fn new(
-        socket_address: impl ToSocketAddrs,
+        config: ServerConfiguration,
         chat: impl Chat + Send + Sync + Clone + 'static,
         users: impl Users + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
-        let listener = TcpListener::bind(socket_address).await?;
+        let listener = TcpListener::bind((config.host.as_str(), config.port)).await?;
 
         // The "Listening" in the event log would indicate to operators that we can do accept
         // incoming connections. Before creating the listener they would have been refused with a
