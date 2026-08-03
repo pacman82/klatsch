@@ -47,20 +47,35 @@ where
     }
 }
 
-pub fn session_routes<U, S>(users: U, sessions: S) -> Router
+/// State for the routes that create a session cookie. `encrypted` reflects whether the connection
+/// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
+/// of it, and controls the cookie's `Secure` attribute.
+#[derive(Clone)]
+struct SessionState<U, S> {
+    users: U,
+    sessions: S,
+    encrypted: bool,
+}
+
+pub fn session_routes<U, S>(users: U, sessions: S, encrypted: bool) -> Router
 where
     U: Users + Send + Sync + Clone + 'static,
     S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
+    let state = SessionState {
+        users,
+        sessions: sessions.clone(),
+        encrypted,
+    };
     Router::new()
         .route("/api/v0/signup", post(signup::<U, S>))
         .route("/api/v0/login", post(login::<U, S>))
-        .with_state((users, sessions.clone()))
+        .with_state(state)
         .route("/api/v0/logout", post(logout::<S>))
         .with_state(sessions)
 }
 
-fn session_cookie(session_id: SessionId) -> Cookie<'static> {
+fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
     Cookie::build(("session", session_id.to_string()))
         // Http only prevents JavaScript from interacting with the session cookie. Hardening against
         // Cross site scripting attacks
@@ -68,9 +83,8 @@ fn session_cookie(session_id: SessionId) -> Cookie<'static> {
         // Hardening against cross site request forgery. Prevents other sites from abusing the trust
         // we put in the users browser.
         .same_site(SameSite::Strict)
-        // Secure `true` would prevent this cookie to be transported via http instead of https. This
-        // is great, **but**, we currently do not support https. So this stays `false` for now.
-        .secure(false)
+        // Secure `true` would prevent this cookie from being transported via http instead of https.
+        .secure(encrypted)
         .build()
 }
 
@@ -100,7 +114,11 @@ struct LoginBody {
 
 async fn signup<U, S>(
     jar: CookieJar,
-    State((mut users, mut sessions)): State<(U, S)>,
+    State(SessionState {
+        mut users,
+        mut sessions,
+        encrypted,
+    }): State<SessionState<U, S>>,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
@@ -109,12 +127,16 @@ where
 {
     let user_id = users.signup(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
-    Ok((jar.add(session_cookie(session_id)), Json(user_id)))
+    Ok((jar.add(session_cookie(session_id, encrypted)), Json(user_id)))
 }
 
 async fn login<U, S>(
     jar: CookieJar,
-    State((mut users, mut sessions)): State<(U, S)>,
+    State(SessionState {
+        mut users,
+        mut sessions,
+        encrypted,
+    }): State<SessionState<U, S>>,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
@@ -123,7 +145,7 @@ where
 {
     let user_id = users.login(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
-    Ok((jar.add(session_cookie(session_id)), Json(user_id)))
+    Ok((jar.add(session_cookie(session_id, encrypted)), Json(user_id)))
 }
 
 #[cfg(test)]
@@ -248,7 +270,7 @@ mod tests {
     async fn signup_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), Dummy);
+        let app = session_routes(spy.clone(), Dummy, true);
 
         // When
         let response = app
@@ -283,7 +305,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, Dummy);
+        let app = session_routes(UsersStub, Dummy, true);
 
         // When
         let response = app
@@ -312,7 +334,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub);
+        let app = session_routes(Dummy, SessionsStub, true);
 
         // When
         let response = app
@@ -338,6 +360,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn login_marks_cookie_secure_when_connection_is_encrypted() {
+        // Given
+        #[derive(Clone)]
+        struct SessionsStub;
+        impl SessionLifecycle for SessionsStub {
+            async fn create(&mut self, _user_id: UserId) -> SessionId {
+                SOME_SESSION_ID
+            }
+        }
+        let app = session_routes(Dummy, SessionsStub, true);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains("Secure"));
+    }
+
+    #[tokio::test]
+    async fn login_omits_secure_flag_when_connection_is_not_encrypted() {
+        // Given
+        #[derive(Clone)]
+        struct SessionsStub;
+        impl SessionLifecycle for SessionsStub {
+            async fn create(&mut self, _user_id: UserId) -> SessionId {
+                SOME_SESSION_ID
+            }
+        }
+        let app = session_routes(Dummy, SessionsStub, false);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "dummy", "password": "dummy"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(!cookie.contains("Secure"));
+    }
+
+    #[tokio::test]
     async fn signup_sets_session_cookie() {
         // Given
         #[derive(Clone)]
@@ -347,7 +435,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub);
+        let app = session_routes(Dummy, SessionsStub, true);
 
         // When
         let response = app
@@ -375,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn logout_clears_session_cookie() {
         // Given
-        let app = session_routes(Dummy, Dummy);
+        let app = session_routes(Dummy, Dummy, true);
 
         // When
         let response = app
@@ -415,7 +503,7 @@ mod tests {
             }
         }
         let spy = SessionsSpy::default();
-        let app = session_routes(Dummy, spy.clone());
+        let app = session_routes(Dummy, spy.clone(), true);
 
         // When
         app.oneshot(
@@ -435,7 +523,7 @@ mod tests {
     async fn login_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), Dummy);
+        let app = session_routes(spy.clone(), Dummy, true);
 
         // When
         let response = app
@@ -470,7 +558,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, Dummy);
+        let app = session_routes(UsersStub, Dummy, true);
 
         // When
         let response = app
@@ -503,7 +591,7 @@ mod tests {
                 Err(UsersError::WrongCredentials)
             }
         }
-        let app = session_routes(UsersSaboteur, Dummy);
+        let app = session_routes(UsersSaboteur, Dummy, true);
 
         // When
         let response = app
