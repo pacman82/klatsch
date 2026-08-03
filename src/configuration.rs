@@ -25,10 +25,8 @@ pub struct Configuration {
     port: u16,
     /// Host name or IP address to bind to.
     host: String,
-    /// Certificate file to serve HTTPS. Requires `key_file` to also be set.
-    cert_file: Option<PathBuf>,
-    /// Private key file to serve HTTPS. Requires `cert_file` to also be set.
-    key_file: Option<PathBuf>,
+    /// How TLS is handled.
+    tls: TlsConfig,
     /// Directory for persistent storage. If not set, the database is in-memory only.
     persistence_dir: Option<PathBuf>,
     /// When sessions expire.
@@ -40,8 +38,10 @@ impl Configuration {
     pub fn from_env() -> anyhow::Result<Self> {
         let host = extract_env_var("HOST")?.unwrap_or_else(|| "0.0.0.0".to_owned());
         let port = extract_env_var("PORT")?.unwrap_or(3000);
+        let tls_mode = extract_env_var::<String>("TLS")?;
         let cert_file = extract_env_var::<PathBuf>("TLS_CERT_FILE")?;
         let key_file = extract_env_var::<PathBuf>("TLS_KEY_FILE")?;
+        let tls = parse_tls(tls_mode, cert_file, key_file)?;
         let persistence = extract_bool_env_var("PERSISTENCE")?.unwrap_or(true);
         let persistence_dir = if persistence {
             Some(extract_env_var("PERSISTENCE_DIRECTORY")?.unwrap_or_else(|| "data".into()))
@@ -59,8 +59,7 @@ impl Configuration {
         let cfg = Configuration {
             host,
             port,
-            cert_file,
-            key_file,
+            tls,
             persistence_dir,
             session_expiry,
         };
@@ -69,18 +68,10 @@ impl Configuration {
 
     /// Configuration for the HTTP server interface.
     pub fn server(&self) -> ServerConfiguration {
-        let tls = if let (Some(cert_file), Some(key_file)) = (&self.cert_file, &self.key_file) {
-            Some(TlsConfig {
-                cert_file: cert_file.clone(),
-                key_file: key_file.clone(),
-            })
-        } else {
-            None
-        };
         ServerConfiguration {
             host: self.host.clone(),
             port: self.port,
-            tls,
+            tls: self.tls.clone(),
         }
     }
 
@@ -129,6 +120,27 @@ fn parse_duration_from_env_result(
             })
         })
         .transpose()
+}
+
+fn parse_tls(
+    mode: Option<String>,
+    cert_file: Option<PathBuf>,
+    key_file: Option<PathBuf>,
+) -> anyhow::Result<TlsConfig> {
+    let mode = mode.unwrap_or_else(|| "off".to_owned());
+    match mode.to_lowercase().as_str() {
+        "off" => Ok(TlsConfig::Off),
+        "proxy" => Ok(TlsConfig::Proxy),
+        "static" => Ok(TlsConfig::Static {
+            cert_file: cert_file
+                .ok_or_else(|| anyhow!("TLS_CERT_FILE must be set when TLS=static"))?,
+            key_file: key_file
+                .ok_or_else(|| anyhow!("TLS_KEY_FILE must be set when TLS=static"))?,
+        }),
+        _ => Err(anyhow!(
+            "TLS must be 'off', 'proxy' or 'static' (case insensitive), got '{mode}'"
+        )),
+    }
 }
 
 fn extract_bool_env_var(var_name: &str) -> anyhow::Result<Option<bool>> {

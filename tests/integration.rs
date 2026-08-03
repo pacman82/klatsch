@@ -295,7 +295,8 @@ impl TestServer {
         let mut cmd = server_command(db_path, working_dir.path());
         let client = if tls {
             let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-            cmd.env("TLS_CERT_FILE", fixtures.join("cert.pem"))
+            cmd.env("TLS", "static")
+                .env("TLS_CERT_FILE", fixtures.join("cert.pem"))
                 .env("TLS_KEY_FILE", fixtures.join("key.pem"));
             // The fixture certificate is self-signed, so it is not in any trust store the client
             // would otherwise validate against.

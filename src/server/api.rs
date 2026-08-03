@@ -13,6 +13,7 @@ pub fn api_router<C, U, S>(
     users: U,
     sessions: S,
     shutting_down: watch::Receiver<bool>,
+    encrypted: bool,
 ) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
@@ -21,6 +22,6 @@ where
 {
     Router::new()
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
-        .merge(session_routes(users.clone(), sessions.clone()))
+        .merge(session_routes(users.clone(), sessions.clone(), encrypted))
         .merge(user_routes(users, sessions))
 }

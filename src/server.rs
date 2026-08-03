@@ -10,7 +10,10 @@ use axum::{
     http::{HeaderMap, Request, Response},
     routing::get,
 };
-use axum_server::{Handle, tls_rustls::RustlsConfig};
+use axum_server::{
+    Handle,
+    tls_rustls::{RustlsAcceptor, RustlsConfig},
+};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
@@ -23,28 +26,47 @@ use self::{api::api_router, ui::ui_router};
 pub struct ServerConfiguration {
     pub host: String,
     pub port: u16,
-    pub tls: Option<TlsConfig>,
+    pub tls: TlsConfig,
 }
 
-/// Paths to a certificate and private key file, to serve HTTPS directly without a reverse proxy
-/// in front of Klatsch.
+/// How Klatsch handles TLS termination.
 #[derive(Clone)]
-pub struct TlsConfig {
-    pub cert_file: PathBuf,
-    pub key_file: PathBuf,
+pub enum TlsConfig {
+    /// No encryption. Suitable for local development only.
+    Off,
+    /// Encryption is used, but a reverse proxy terminates TLS, not Klatsch itself.
+    Proxy,
+    /// Klatsch terminates TLS itself, using the given certificate and private key.
+    Static { cert_file: PathBuf, key_file: PathBuf },
 }
 
 impl TlsConfig {
-    async fn to_rustls(&self) -> anyhow::Result<RustlsConfig> {
-        RustlsConfig::from_pem_file(&self.cert_file, &self.key_file)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load TLS certificate ({}) or key ({})",
-                    self.cert_file.display(),
-                    self.key_file.display()
-                )
-            })
+    async fn to_rustls(&self) -> anyhow::Result<Option<RustlsConfig>> {
+        match self {
+            TlsConfig::Static {
+                cert_file,
+                key_file,
+            } => RustlsConfig::from_pem_file(cert_file, key_file)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to load TLS certificate ({}) or key ({})",
+                        cert_file.display(),
+                        key_file.display()
+                    )
+                })
+                .map(Some),
+            TlsConfig::Off | TlsConfig::Proxy => Ok(None),
+        }
+    }
+
+    /// Whether the connection between client and Klatsch is encrypted, be it terminated by
+    /// Klatsch itself or by a reverse proxy in front of it.
+    fn is_encrypted(&self) -> bool {
+        match self {
+            TlsConfig::Off => false,
+            TlsConfig::Proxy | TlsConfig::Static { .. } => true,
+        }
     }
 }
 
@@ -70,12 +92,8 @@ impl Server {
 
         let listener = TcpListener::bind((host.as_str(), port)).await?;
         // Fail early in case tls configuration is invalid
-        let maybe_rustls_config = if let Some(tls) = tls {
-            let rustls = tls.to_rustls().await?;
-            Some(rustls)
-        } else {
-            None
-        };
+        let encrypted = tls.is_encrypted();
+        let maybe_rustls_config = tls.to_rustls().await?;
 
         // The "Listening" in the event log would indicate to operators that we can do accept
         // incoming connections. Before creating the listener they would have been refused with a
@@ -93,29 +111,22 @@ impl Server {
                 .port(),
             "Listening"
         );
-        let listener = listener.into_std()?;
 
         let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
         let server_handle = Handle::new();
         let join_handle = tokio::spawn({
             let server_handle = server_handle.clone();
             async move {
-                let router = router(chat, users, sessions, shutting_down_receiver);
+                let router = router(chat, users, sessions, shutting_down_receiver, encrypted);
+                let server = axum_server::Server::from_listener(listener).handle(server_handle);
                 let result = match maybe_rustls_config {
                     Some(rustls_config) => {
-                        axum_server::from_tcp_rustls(listener, rustls_config)
-                            .expect("Listener must be convertible to a tokio listener")
-                            .handle(server_handle)
+                        server
+                            .acceptor(RustlsAcceptor::new(rustls_config))
                             .serve(router.into_make_service())
                             .await
                     }
-                    None => {
-                        axum_server::from_tcp(listener)
-                            .expect("Listener must be convertible to a tokio listener")
-                            .handle(server_handle)
-                            .serve(router.into_make_service())
-                            .await
-                    }
+                    None => server.serve(router.into_make_service()).await,
                 };
                 result.expect("axum-server must not return an error");
             }
@@ -135,7 +146,13 @@ impl Server {
     }
 }
 
-fn router<C, U, S>(chat: C, users: U, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
+fn router<C, U, S>(
+    chat: C,
+    users: U,
+    sessions: S,
+    shutting_down: watch::Receiver<bool>,
+    encrypted: bool,
+) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
     U: Users + Send + Sync + Clone + 'static,
@@ -143,7 +160,7 @@ where
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(chat, users, sessions, shutting_down))
+        .merge(api_router(chat, users, sessions, shutting_down, encrypted))
         .merge(ui_router());
 
     add_tracing_layer(router)
