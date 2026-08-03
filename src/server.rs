@@ -2,14 +2,14 @@ mod api;
 mod session_cookie;
 mod ui;
 
-use std::{path::PathBuf, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use axum::{
     Router,
     http::{HeaderMap, Request, Response},
     routing::get,
 };
-
+use axum_server::Handle;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
@@ -37,6 +37,8 @@ pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams
     /// watch this in order to short circut and allow the the graceful shutdown to complete faster.
     shutting_down: watch::Sender<bool>,
+    /// Handle to the axum-server instance, used to trigger its graceful shutdown.
+    server_handle: Handle<SocketAddr>,
     join_handle: JoinHandle<()>,
 }
 
@@ -49,6 +51,7 @@ impl Server {
         users: impl Users + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
+        // TLS is not wired up yet; config.tls is ignored for now.
         let listener = TcpListener::bind((config.host.as_str(), config.port)).await?;
 
         // The "Listening" in the event log would indicate to operators that we can do accept
@@ -67,21 +70,25 @@ impl Server {
                 .port(),
             "Listening"
         );
-        let (shutting_down_sender, mut shutting_down_receiver) = watch::channel(false);
-        let join_handle = tokio::spawn(async move {
-            let router = router(chat, users, sessions, shutting_down_receiver.clone());
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
-                    shutting_down_receiver
-                        .wait_for(|&is_shutting_down| is_shutting_down)
-                        .await
-                        .expect("Sender for shutdown sender must not be dropped before used.");
-                })
-                .await
-                .expect("axum::serve must not return an error");
+        let listener = listener.into_std()?;
+
+        let (shutting_down_sender, shutting_down_receiver) = watch::channel(false);
+        let server_handle = Handle::new();
+        let join_handle = tokio::spawn({
+            let server_handle = server_handle.clone();
+            async move {
+                let router = router(chat, users, sessions, shutting_down_receiver);
+                axum_server::from_tcp(listener)
+                    .expect("Listener must be convertible to a tokio listener")
+                    .handle(server_handle)
+                    .serve(router.into_make_service())
+                    .await
+                    .expect("axum-server must not return an error");
+            }
         });
         let server = Server {
             shutting_down: shutting_down_sender,
+            server_handle,
             join_handle,
         };
         Ok(server)
@@ -89,6 +96,7 @@ impl Server {
 
     pub async fn shutdown(self) {
         self.shutting_down.send(true).expect("Receiver must exist");
+        self.server_handle.graceful_shutdown(None);
         self.join_handle.await.unwrap();
     }
 }
