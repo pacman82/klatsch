@@ -4,12 +4,13 @@ mod ui;
 
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
+use anyhow::Context;
 use axum::{
     Router,
     http::{HeaderMap, Request, Response},
     routing::get,
 };
-use axum_server::Handle;
+use axum_server::{Handle, tls_rustls::RustlsConfig};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
@@ -33,6 +34,20 @@ pub struct TlsConfig {
     pub key_file: PathBuf,
 }
 
+impl TlsConfig {
+    async fn to_rustls(&self) -> anyhow::Result<RustlsConfig> {
+        RustlsConfig::from_pem_file(&self.cert_file, &self.key_file)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to load TLS certificate ({}) or key ({})",
+                    self.cert_file.display(),
+                    self.key_file.display()
+                )
+            })
+    }
+}
+
 pub struct Server {
     /// Indicates whether the server is about to shut down. Long-lived requests like event streams
     /// watch this in order to short circut and allow the the graceful shutdown to complete faster.
@@ -51,8 +66,16 @@ impl Server {
         users: impl Users + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
-        // TLS is not wired up yet; config.tls is ignored for now.
-        let listener = TcpListener::bind((config.host.as_str(), config.port)).await?;
+        let ServerConfiguration { host, port, tls } = config;
+
+        let listener = TcpListener::bind((host.as_str(), port)).await?;
+        // Fail early in case tls configuration is invalid
+        let maybe_rustls_config = if let Some(tls) = tls {
+            let rustls = tls.to_rustls().await?;
+            Some(rustls)
+        } else {
+            None
+        };
 
         // The "Listening" in the event log would indicate to operators that we can do accept
         // incoming connections. Before creating the listener they would have been refused with a
@@ -78,12 +101,23 @@ impl Server {
             let server_handle = server_handle.clone();
             async move {
                 let router = router(chat, users, sessions, shutting_down_receiver);
-                axum_server::from_tcp(listener)
-                    .expect("Listener must be convertible to a tokio listener")
-                    .handle(server_handle)
-                    .serve(router.into_make_service())
-                    .await
-                    .expect("axum-server must not return an error");
+                let result = match maybe_rustls_config {
+                    Some(rustls_config) => {
+                        axum_server::from_tcp_rustls(listener, rustls_config)
+                            .expect("Listener must be convertible to a tokio listener")
+                            .handle(server_handle)
+                            .serve(router.into_make_service())
+                            .await
+                    }
+                    None => {
+                        axum_server::from_tcp(listener)
+                            .expect("Listener must be convertible to a tokio listener")
+                            .handle(server_handle)
+                            .serve(router.into_make_service())
+                            .await
+                    }
+                };
+                result.expect("axum-server must not return an error");
             }
         });
         let server = Server {
