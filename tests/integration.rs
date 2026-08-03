@@ -103,7 +103,6 @@ async fn health_check_returns_200_ok() {
 }
 
 #[tokio::test]
-#[should_panic] // HTTPS support not implemented yet
 async fn https() {
     // Given a server configured to use TLS
     let server = TestServer::new(None, true).await;
