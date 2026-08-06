@@ -33,7 +33,7 @@ use nix::{
 #[tokio::test]
 async fn server_shuts_down_within_1_sec() {
     // Given a running server
-    let mut child = TestServer::new(None, false).await;
+    let mut child = TestEnv::new(None, false).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -59,7 +59,7 @@ async fn server_shuts_down_within_1_sec() {
 #[tokio::test]
 async fn server_finished_with_success_status_code_after_terminate() {
     // Given a runninng server process
-    let mut child = TestServer::new(None, false).await;
+    let mut child = TestEnv::new(None, false).await;
 
     // When sending SIGTERM to the server process
     child.send_sigterm();
@@ -79,7 +79,7 @@ async fn server_boots_within_one_sec() {
     let start = Instant::now();
 
     // When measuring the time it takes to boot
-    let _child = TestServer::new(None, false).await;
+    let _child = TestEnv::new(None, false).await;
     let end = Instant::now();
 
     // Then it should have taken less than 1 second to boot up
@@ -92,7 +92,7 @@ async fn server_boots_within_one_sec() {
 #[tokio::test]
 async fn health_check_returns_200_ok() {
     // Given a running server
-    let server = TestServer::new(None, false).await;
+    let server = TestEnv::new(None, false).await;
 
     // When requesting the health check endpoint
     let response = server.health_check().await;
@@ -105,7 +105,7 @@ async fn health_check_returns_200_ok() {
 #[tokio::test]
 async fn https() {
     // Given a server configured to use TLS
-    let server = TestServer::new(None, true).await;
+    let server = TestEnv::new(None, true).await;
 
     // When requesting the health check endpoint
     let response = server.health_check().await;
@@ -118,7 +118,7 @@ async fn https() {
 #[tokio::test]
 async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
-    let server = TestServer::new(None, false).await;
+    let server = TestEnv::new(None, false).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
@@ -154,7 +154,7 @@ async fn persistence() {
     // Given a server that accepted two messages
     let persistence_dir = tempfile::tempdir().unwrap();
 
-    let mut server = TestServer::new(Some(persistence_dir.path()), false).await;
+    let mut server = TestEnv::new(Some(persistence_dir.path()), false).await;
     let alice_id = server.register_alice().await;
     let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
@@ -170,7 +170,7 @@ async fn persistence() {
         .wait_for_termination(Duration::from_secs(5))
         .await
         .unwrap();
-    let server = TestServer::new(Some(persistence_dir.path()), false).await;
+    let server = TestEnv::new(Some(persistence_dir.path()), false).await;
     let alice_session = server.login_alice().await;
 
     // Then the messages are still available
@@ -195,14 +195,12 @@ async fn persistence() {
 async fn second_server_on_same_persistence_directory_is_rejected() {
     // Given a running server on a persistence directory
     let persistence_dir = tempfile::tempdir().unwrap();
-    let _running = TestServer::new(Some(persistence_dir.path()), false).await;
+    let _running = TestEnv::new(Some(persistence_dir.path()), false).await;
 
     // When starting a second server on the same directory
-    let output = TestServer::spawn_expecting_termination(Some(persistence_dir.path())).await;
+    let stderr = TestEnv::spawn_expecting_termination(Some(persistence_dir.path())).await;
 
     // Then it exits with an error identifying the locked directory
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Another instance is already using the same persistence directory"),
         "unexpected stderr: {stderr}"
@@ -218,7 +216,7 @@ async fn load_v1_persistence() {
         .unwrap();
 
     // When restarting with the same database
-    let server = TestServer::new(Some(persistence_dir.path()), false).await;
+    let server = TestEnv::new(Some(persistence_dir.path()), false).await;
     let alice_session = server.login_alice().await;
 
     // Then the messages are still available
@@ -245,7 +243,7 @@ async fn load_v1_persistence() {
 #[tokio::test]
 async fn shutdown_within_1_sec_with_active_events_stream_client() {
     // Given a running server
-    let mut child = TestServer::new(None, false).await;
+    let mut child = TestEnv::new(None, false).await;
 
     // and a client connected to the events stream
     child.register_alice().await;
@@ -276,28 +274,20 @@ async fn shutdown_within_1_sec_with_active_events_stream_client() {
 }
 
 /// Allows to interact with a Klatsch Server Running in its own process.
-struct TestServer {
-    // Process member is currently unused in windows. This might change if we can have test helpers
-    // for graceful shutdown on windows as well.
-    #[cfg_attr(windows, allow(dead_code))]
-    process: ServerProcess,
-    _log_observer: LogObserver,
+struct TestEnv {
+    process: TestServer,
     // Empty working directory so the server's dotenv() doesn't pick up the developer's .env file.
     _working_dir: tempfile::TempDir,
-    port: u16,
-    tls: bool,
     client: Client,
 }
 
-impl TestServer {
+impl TestEnv {
     async fn new(db_path: Option<&Path>, tls: bool) -> Self {
         let working_dir = tempfile::tempdir().unwrap();
-        let mut cmd = server_command(db_path, working_dir.path());
+        let process = TestServer::new(working_dir.path(), db_path, tls)
+            .await
+            .unwrap();
         let client = if tls {
-            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-            cmd.env("TLS", "static")
-                .env("TLS_CERT_FILE", fixtures.join("cert.pem"))
-                .env("TLS_KEY_FILE", fixtures.join("key.pem"));
             // The fixture certificate is self-signed, so it is not in any trust store the client
             // would otherwise validate against.
             Client::builder()
@@ -307,45 +297,25 @@ impl TestServer {
         } else {
             Client::new()
         };
-        let mut child = cmd.spawn().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let process = ServerProcess::new(child);
-        let mut log_observer = LogObserver::new(stderr);
-        timeout(Duration::from_secs(5), log_observer.wait_for_ready())
-            .await
-            .expect("Server did not become ready within 5 seconds");
-        let port = log_observer.port().await;
         Self {
             process,
-            _log_observer: log_observer,
             _working_dir: working_dir,
-            port,
-            tls,
             client,
         }
     }
 
-    fn base_url(&self) -> String {
-        let scheme = if self.tls { "https" } else { "http" };
-        format!("{scheme}://localhost:{}", self.port)
-    }
-
-    /// Spawns a server expected to exit before becoming ready, and returns its output.
-    async fn spawn_expecting_termination(db_path: Option<&Path>) -> std::process::Output {
+    /// Spawns a server expected to exit before becoming ready, and returns its stderr.
+    async fn spawn_expecting_termination(db_path: Option<&Path>) -> String {
         let working_dir = tempfile::tempdir().unwrap();
-        let mut cmd = server_command(db_path, working_dir.path());
-        // Should the server become ready and run indefinitely instead, kill it when the timeout
-        // drops the output future, so it does not outlive the failed test.
-        cmd.kill_on_drop(true);
-        timeout(Duration::from_secs(5), cmd.output())
+        TestServer::new(working_dir.path(), db_path, false)
             .await
-            .expect("Server must exit instead of becoming ready")
-            .unwrap()
+            .err()
+            .expect("server became ready, but had been expected to not start up")
     }
 
     async fn health_check(&self) -> reqwest::Response {
         self.client
-            .get(format!("{}/health", self.base_url()))
+            .get(format!("{}/health", self.process.base_url()))
             .send()
             .await
             .expect("Failed to send health check request")
@@ -353,7 +323,7 @@ impl TestServer {
 
     async fn request_event_stream(&self, session: &str) -> reqwest::Response {
         self.client
-            .get(format!("{}/api/v0/events", self.base_url()))
+            .get(format!("{}/api/v0/events", self.process.base_url()))
             .header("cookie", format!("session={session}"))
             .send()
             .await
@@ -370,7 +340,7 @@ impl TestServer {
 
     async fn user(&self, id: Uuid, session: &str) -> serde_json::Value {
         self.client
-            .get(format!("{}/api/v0/users/{}", self.base_url(), id))
+            .get(format!("{}/api/v0/users/{}", self.process.base_url(), id))
             .header("cookie", format!("session={session}"))
             .send()
             .await
@@ -384,7 +354,7 @@ impl TestServer {
 
     async fn register_user(&self, name: &str, password: &str) -> Uuid {
         self.client
-            .post(format!("{}/api/v0/signup", self.base_url()))
+            .post(format!("{}/api/v0/signup", self.process.base_url()))
             .json(&json!({ "name": name, "password": password }))
             .send()
             .await
@@ -415,7 +385,7 @@ impl TestServer {
     async fn login(&self, name: &str, password: &str) -> String {
         let response = self
             .client
-            .post(format!("{}/api/v0/login", self.base_url()))
+            .post(format!("{}/api/v0/login", self.process.base_url()))
             .json(&json!({ "name": name, "password": password }))
             .send()
             .await
@@ -430,7 +400,7 @@ impl TestServer {
 
     async fn send_message(&self, message: serde_json::Value, session: &str) {
         self.client
-            .post(format!("{}/api/v0/add_message", self.base_url()))
+            .post(format!("{}/api/v0/add_message", self.process.base_url()))
             .header("cookie", format!("session={session}"))
             .json(&message)
             .send()
@@ -477,62 +447,47 @@ fn server_command(db_path: Option<&Path>, working_dir: &Path) -> Command {
     cmd
 }
 
-/// Observes the server's log output on stderr and communicates observations (like "Ready" and the
-/// listening port) back via watch channels.
-struct LogObserver {
-    _task: JoinHandle<()>,
-    ready: watch::Receiver<bool>,
-    port: watch::Receiver<Option<u16>>,
-}
-
-impl LogObserver {
-    fn new(stderr: tokio::process::ChildStderr) -> Self {
-        let (ready_tx, ready) = watch::channel(false);
-        let (port_tx, port) = watch::channel(None);
-        let _task = tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(port) = parse_port(&line) {
-                    let _ = port_tx.send(Some(port));
-                }
-                if line.contains("Ready") {
-                    let _ = ready_tx.send(true);
-                }
-                // Continue reading even after all observations have been made, so the pipe
-                // buffer does not fill up and block the server process.
-            }
-        });
-        Self { _task, ready, port }
-    }
-
-    /// Waits for the server process to emit "Ready" to standard error. This indicates that the
-    /// server has been successfully booted and is ready to receive requests.
-    async fn wait_for_ready(&mut self) {
-        self.ready
-            .wait_for(|&ready| ready)
-            .await
-            .expect("Server process exited before becoming ready");
-    }
-
-    /// Waits for the server to log the port it is listening on.
-    async fn port(&mut self) -> u16 {
-        self.port
-            .wait_for(|port| port.is_some())
-            .await
-            .expect("Server process exited before logging its port")
-            .unwrap()
-    }
-}
-
-/// RAII wrapper around child process. Takes care of killing the process once the helper goes out of
-/// scope.
-struct ServerProcess {
+/// A klatsch server process ready to receive requests
+struct TestServer {
+    _log_observer: LogObserver,
+    port: u16,
     child: Child,
+    tls: bool,
 }
 
-impl ServerProcess {
-    fn new(child: Child) -> Self {
-        Self { child }
+impl TestServer {
+    async fn new(working_dir: &Path, db_path: Option<&Path>, tls: bool) -> Result<Self, String> {
+        let mut cmd = server_command(db_path, working_dir);
+        let cmd = cmd.kill_on_drop(true);
+        if tls {
+            let tests_folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+            cmd.env("TLS", "static")
+                .env("TLS_CERT_FILE", tests_folder.join("cert.pem"))
+                .env("TLS_KEY_FILE", tests_folder.join("key.pem"));
+        }
+        let mut child = cmd.spawn().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let mut log_observer = LogObserver::new(stderr);
+        let success = timeout(Duration::from_secs(5), log_observer.wait_for_ready())
+            .await
+            .expect("Server process did not become ready, nor did it fail fast");
+
+        if !success {
+            return Err(log_observer.wait_for_eof().await);
+        }
+
+        let port = log_observer.port().await;
+        Ok(Self {
+            _log_observer: log_observer,
+            port,
+            child,
+            tls,
+        })
+    }
+
+    fn base_url(&self) -> String {
+        let scheme = if self.tls { "https" } else { "http" };
+        format!("{scheme}://localhost:{}", self.port)
     }
 
     #[cfg(unix)]
@@ -550,15 +505,64 @@ impl ServerProcess {
     }
 }
 
+/// Observes the server's log output on stderr and communicates observations (like "Ready" and the
+/// listening port) back via watch channels.
+struct LogObserver {
+    task: JoinHandle<String>,
+    ready: watch::Receiver<bool>,
+    port: watch::Receiver<Option<u16>>,
+}
+
+impl LogObserver {
+    fn new(stderr: tokio::process::ChildStderr) -> Self {
+        let (ready_tx, ready) = watch::channel(false);
+        let (port_tx, port) = watch::channel(None);
+        let task = tokio::spawn(async move {
+            let mut stderr_complete = String::new();
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                stderr_complete.push_str(&line);
+                stderr_complete.push('\n');
+                if let Some(port) = parse_port(&line) {
+                    let _ = port_tx.send(Some(port));
+                }
+                if line.contains("Ready") {
+                    let _ = ready_tx.send(true);
+                }
+                // Continue reading even after all observations have been made, so the pipe
+                // buffer does not fill up and block the server process.
+            }
+            stderr_complete
+        });
+        Self { task, ready, port }
+    }
+
+    /// Waits for the server process to emit "Ready" to standard error. This indicates that the
+    /// server has been successfully booted and is ready to receive requests.
+    ///
+    /// Returns `true` if the server is ready, `false` if it terminated before becoming ready
+    async fn wait_for_ready(&mut self) -> bool {
+        self.ready.wait_for(|&ready| ready).await.is_ok()
+    }
+
+    /// Waits for the server to log the port it is listening on.
+    async fn port(&mut self) -> u16 {
+        self.port
+            .wait_for(|port| port.is_some())
+            .await
+            .expect("Server process exited before logging its port")
+            .unwrap()
+    }
+
+    async fn wait_for_eof(self) -> String {
+        self.task
+            .await
+            .expect("Thread observing server logs must be joinable")
+    }
+}
+
 /// Extracts the port number from a log line like `... Listening port=3000`.
 fn parse_port(line: &str) -> Option<u16> {
     let suffix = line.split("port=").nth(1)?;
     suffix.split_whitespace().next()?.parse().ok()
-}
-
-// Try to make sure, none of the processes we spawn are left after finishing the tests.
-impl Drop for ServerProcess {
-    fn drop(&mut self) {
-        let _ = self.child.start_kill();
-    }
 }
