@@ -108,6 +108,23 @@ test('calls logout endpoint then clears local session', async () => {
 	await vi.waitFor(() => expect(user.current).toBeNull());
 });
 
+test('copy invite link', async () => {
+	const fetchMock = vi
+		.fn()
+		.mockResolvedValue(new Response(JSON.stringify('some-token'), { status: 200 }));
+	vi.stubGlobal('fetch', fetchMock);
+	const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(UserBar);
+	await screen.getByRole('button', { name: 'Copy invite link' }).click();
+
+	expect(fetchMock).toHaveBeenCalledWith('/api/v0/invites', { method: 'POST' });
+	await vi.waitFor(() =>
+		expect(writeText).toHaveBeenCalledWith(`${location.origin}/invite/some-token`)
+	);
+});
+
 test('logs out when the current user is unknown to the server', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import { api_fetch } from '$lib/api_fetch';
 	import { user } from '$lib/user.svelte';
 	import { user_cache } from '$lib/user_cache.svelte';
 
@@ -16,12 +17,19 @@
 		await fetch('/api/v0/logout', { method: 'POST' });
 		user.logout();
 	}
+
+	async function copy_invite_link() {
+		const response = await api_fetch('/api/v0/invites', { method: 'POST' });
+		const token: string = await response.json();
+		await navigator.clipboard.writeText(`${location.origin}/invite/${token}`);
+	}
 </script>
 
 <div class="user-bar">
 	{#if show_back_to_chat}
 		<a href={resolve('/')} class="back">← Back to chat</a>
 	{/if}
+	<button onclick={copy_invite_link}>Copy invite link</button>
 	<div class="account">
 		{#if user_info}
 			<span>Logged in as <a href={resolve('/profile')}><strong>{user_info.name}</strong></a></span>
