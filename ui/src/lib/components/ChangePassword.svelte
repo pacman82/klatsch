@@ -88,13 +88,4 @@
 		text-align: center;
 		margin: 0;
 	}
-	button:hover:not(:disabled) {
-		background: var(--color-primary-hover);
-	}
-	button:disabled {
-		background: #a5b4fc; /* lighter indigo */
-		color: #eef2ff; /* soft white */
-		cursor: not-allowed;
-		opacity: 0.7;
-	}
 </style>
