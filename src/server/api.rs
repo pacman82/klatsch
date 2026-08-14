@@ -2,6 +2,7 @@ use super::session_cookie::session_routes;
 use crate::{
     chat::{Chat, chat_routes},
     http::AuthenticateRequest,
+    invites::invite_routes,
     sessions::SessionLifecycle,
     user::{Users, user_routes},
 };
@@ -24,4 +25,5 @@ where
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
         .merge(session_routes(users.clone(), sessions.clone(), encrypted))
         .merge(user_routes(users, sessions))
+        .merge(invite_routes())
 }
