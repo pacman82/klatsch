@@ -1,13 +1,22 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { user } from '$lib/user.svelte';
 	import SignUp from '$lib/components/SignUp.svelte';
+
+	$effect(() => {
+		if (user.current) goto(resolve('/'));
+	});
 </script>
 
 <svelte:head><title>Sign up · Klatsch</title></svelte:head>
 
-<div class="signup-page">
-	<h1>Sign up</h1>
-	<SignUp />
-</div>
+{#if !user.current}
+	<div class="signup-page">
+		<h1>Sign up</h1>
+		<SignUp />
+	</div>
+{/if}
 
 <style>
 	.signup-page {
