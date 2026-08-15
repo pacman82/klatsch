@@ -125,6 +125,54 @@ test('copy invite link', async () => {
 	);
 });
 
+test('copy invite link shows a "Copied!" tooltip', async () => {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify('some-token'), { status: 200 }))
+	);
+	vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(TopBar);
+	await screen.getByRole('button', { name: 'Copy invite link' }).click();
+
+	await expect.element(screen.getByText('Copied!')).toBeVisible();
+});
+
+test('"Copied!" tooltip clears once the mouse leaves the button', async () => {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify('some-token'), { status: 200 }))
+	);
+	vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(TopBar);
+	await screen.getByRole('button', { name: 'Copy invite link' }).click();
+
+	// Hovering anywhere else on the page triggers the button's mouseout.
+	await screen.getByText('Logged in as Alice').hover();
+
+	await expect.element(screen.getByText('Copied!')).not.toBeInTheDocument();
+});
+
+test('"Copied!" tooltip clears when the button loses focus without the mouse moving', async () => {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn().mockResolvedValue(new Response(JSON.stringify('some-token'), { status: 200 }))
+	);
+	vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
+
+	const screen = await render(TopBar);
+	await screen.getByRole('button', { name: 'Copy invite link' }).click();
+
+	// Programmatic focus change; the mouse pointer never moves, so this only exercises blur.
+	screen.getByRole('button', { name: 'Log out' }).element().focus();
+
+	await expect.element(screen.getByText('Copied!')).not.toBeInTheDocument();
+});
+
 test('logs out when the current user is unknown to the server', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
 
