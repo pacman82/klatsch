@@ -18,6 +18,8 @@
 		user.logout();
 	}
 
+	let copied = $state(false);
+
 	async function copy_invite_link() {
 		const response = await api_fetch('/api/v0/invites', { method: 'POST' });
 		const token: string = await response.json();
@@ -29,7 +31,21 @@
 	{#if show_back_to_chat}
 		<a href={resolve('/')} class="back">← Back to chat</a>
 	{/if}
-	<button onclick={copy_invite_link}>Copy invite link</button>
+	<div class="copy-invite">
+		<button
+			onclick={async () => {
+				await copy_invite_link();
+				copied = true;
+			}}
+			onmouseleave={() => (copied = false)}
+			onblur={() => (copied = false)}
+		>
+			Copy invite link
+		</button>
+		{#if copied}
+			<span class="tooltip">Copied!</span>
+		{/if}
+	</div>
 	<div class="account">
 		{#if user_info}
 			<span>Logged in as <a href={resolve('/profile')}><strong>{user_info.name}</strong></a></span>
@@ -57,6 +73,21 @@
 	}
 	.back {
 		margin-right: auto;
+	}
+	.copy-invite {
+		position: relative;
+	}
+	.tooltip {
+		position: absolute;
+		top: calc(100% + 0.3rem);
+		left: 50%;
+		transform: translateX(-50%);
+		background: #333;
+		color: #fff;
+		font-size: 0.75rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		white-space: nowrap;
 	}
 	button {
 		padding: 0.3rem 0.6rem;
