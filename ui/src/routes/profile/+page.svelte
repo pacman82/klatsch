@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { user } from '$lib/user.svelte';
-	import UserBar from '$lib/components/UserBar.svelte';
+	import TopBar from '$lib/components/TopBar.svelte';
 	import ChangePassword from '$lib/components/ChangePassword.svelte';
 
 	$effect(() => {
@@ -13,7 +13,7 @@
 <svelte:head><title>Profile · Klatsch</title></svelte:head>
 
 {#if user.current}
-	<UserBar />
+	<TopBar />
 	<div class="profile">
 		<h1>Profile</h1>
 		<ChangePassword />

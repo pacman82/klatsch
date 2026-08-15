@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { user } from '$lib/user.svelte';
-	import UserBar from '$lib/components/UserBar.svelte';
+	import TopBar from '$lib/components/TopBar.svelte';
 	import ChatMessages from '$lib/components/ChatMessages.svelte';
 	import SendMessage from '$lib/components/SendMessage.svelte';
 
@@ -14,7 +14,7 @@
 <svelte:head><title>Klatsch</title></svelte:head>
 
 {#if user.current}
-	<UserBar />
+	<TopBar />
 	<ChatMessages />
 	<SendMessage />
 {:else}
