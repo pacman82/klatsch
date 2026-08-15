@@ -12,5 +12,24 @@
 <svelte:head><title>Log in · Klatsch</title></svelte:head>
 
 {#if !user.current}
-	<Login />
+	<div class="login-page">
+		<h1>Klatsch</h1>
+		<Login />
+	</div>
 {/if}
+
+<style>
+	.login-page {
+		max-width: 400px;
+		margin: 20vh auto;
+		padding: 2rem;
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	h1 {
+		margin: 0;
+		font-size: 2rem;
+	}
+</style>

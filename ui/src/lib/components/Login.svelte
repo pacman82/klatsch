@@ -49,7 +49,6 @@
 </script>
 
 <form class="login">
-	<h1>Klatsch</h1>
 	<label for="name">Enter your name to join</label>
 	<input
 		id="name"
@@ -81,17 +80,9 @@
 
 <style>
 	.login {
-		max-width: 400px;
-		margin: 20vh auto;
-		padding: 2rem;
-		text-align: center;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-	}
-	h1 {
-		margin: 0;
-		font-size: 2rem;
 	}
 	label {
 		color: #666;
