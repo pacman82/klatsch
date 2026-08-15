@@ -1,6 +1,6 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi, beforeEach } from 'vitest';
-import UserBar from './UserBar.svelte';
+import TopBar from './TopBar.svelte';
 import { user } from '$lib/user.svelte';
 import { user_cache } from '$lib/user_cache.svelte';
 
@@ -9,7 +9,7 @@ const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 const mock_page = vi.hoisted(() => ({ url: new URL('http://localhost/') }));
 vi.mock('$app/state', () => ({ page: mock_page }));
 
-// Fake tracking just the login state UserBar reads, without the real store's
+// Fake tracking just the login state TopBar reads, without the real store's
 // navigation/localStorage side effects.
 const user_double = vi.hoisted(() => {
 	let current: string | null = null;
@@ -40,7 +40,7 @@ test('retries fetching the user name every 5 seconds after a failure', async () 
 		.mockResolvedValueOnce(new Response(JSON.stringify({ name: 'Alice' }), { status: 200 }));
 	vi.stubGlobal('fetch', fetchStub);
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await vi.advanceTimersByTimeAsync(5000);
 
@@ -51,7 +51,7 @@ test('retries fetching the user name every 5 seconds after a failure', async () 
 test('displays the user name', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await expect.element(screen.getByText('Logged in as Alice')).toBeVisible();
 });
@@ -59,7 +59,7 @@ test('displays the user name', async () => {
 test('links the user name to the profile page', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await expect
 		.element(screen.getByRole('link', { name: 'Alice' }))
@@ -70,7 +70,7 @@ test('hides the back-to-chat link on the chat page', async () => {
 	mock_page.url = new URL('http://localhost/');
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await expect
 		.element(screen.getByRole('link', { name: '← Back to chat' }))
@@ -81,7 +81,7 @@ test('shows a back-to-chat link when not on the chat page', async () => {
 	mock_page.url = new URL('http://localhost/profile');
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await expect
 		.element(screen.getByRole('link', { name: '← Back to chat' }))
@@ -91,7 +91,7 @@ test('shows a back-to-chat link when not on the chat page', async () => {
 test('displays fetching user info while name is loading', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(undefined);
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 
 	await expect.element(screen.getByText('Fetching user info...')).toBeVisible();
 });
@@ -101,7 +101,7 @@ test('calls logout endpoint then clears local session', async () => {
 	vi.stubGlobal('fetch', fetchMock);
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 	await screen.getByRole('button', { name: 'Log out' }).click();
 
 	expect(fetchMock).toHaveBeenCalledWith('/api/v0/logout', { method: 'POST' });
@@ -116,7 +116,7 @@ test('copy invite link', async () => {
 	const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
 	vi.spyOn(user_cache, 'resolve').mockReturnValue({ name: 'Alice' });
 
-	const screen = await render(UserBar);
+	const screen = await render(TopBar);
 	await screen.getByRole('button', { name: 'Copy invite link' }).click();
 
 	expect(fetchMock).toHaveBeenCalledWith('/api/v0/invites', { method: 'POST' });
@@ -128,7 +128,7 @@ test('copy invite link', async () => {
 test('logs out when the current user is unknown to the server', async () => {
 	vi.spyOn(user_cache, 'resolve').mockReturnValue(null);
 
-	await render(UserBar);
+	await render(TopBar);
 
 	await vi.waitFor(() => expect(user.current).toBeNull());
 });

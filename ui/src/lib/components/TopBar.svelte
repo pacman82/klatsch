@@ -25,7 +25,7 @@
 	}
 </script>
 
-<div class="user-bar">
+<div class="top-bar">
 	{#if show_back_to_chat}
 		<a href={resolve('/')} class="back">← Back to chat</a>
 	{/if}
@@ -41,7 +41,7 @@
 </div>
 
 <style>
-	.user-bar {
+	.top-bar {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
