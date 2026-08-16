@@ -19,16 +19,16 @@ test('server error during signup', async () => {
 	await expect.element(screen.getByText('Something went wrong, please try again')).toBeVisible();
 });
 
-test('wrong credentials show a user-friendly message', async () => {
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+test('Creating an already existing user shows a user friendly error', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })));
 
 	const screen = await render(SignUp);
 	await screen.getByPlaceholder('Your name').fill('Alice');
-	await screen.getByPlaceholder('Password', { exact: true }).fill('wrong');
-	await screen.getByPlaceholder('Confirm password').fill('wrong');
+	await screen.getByPlaceholder('Password', { exact: true }).fill('secret');
+	await screen.getByPlaceholder('Confirm password').fill('secret');
 	await screen.getByRole('button', { name: 'Sign up' }).click();
 
-	await expect.element(screen.getByText('User name or password is wrong')).toBeVisible();
+	await expect.element(screen.getByText('Username is already taken')).toBeVisible();
 });
 
 test('mismatched password and confirmation shows an error and blocks submission', async () => {

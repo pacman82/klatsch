@@ -6,12 +6,8 @@ use super::{User, UserId};
 pub enum UserCreateOutcome {
     /// No user of that name existed yet. It has been created with the id passed to `create`.
     Created,
-    /// A user of that name already existed. Its id and password hash (if any) are returned so the
-    /// caller can authenticate against it.
-    Found {
-        id: UserId,
-        password_hash: Option<String>,
-    },
+    /// A user of that name already existed.
+    Found,
 }
 
 /// Persistence operations required by the `users` domain
@@ -171,9 +167,7 @@ where
     }
 
     // Someone else won the race for this name. Report it as found instead.
-    let (id, password_hash) = fetch_id_and_hash(conn, name)?
-        .expect("row must exist, we just failed to insert due to its unique constraint");
-    Ok(UserCreateOutcome::Found { id, password_hash })
+    Ok(UserCreateOutcome::Found)
 }
 
 fn create_schema_from_scratch<C>(conn: &C) -> Result<(), C::Error>
@@ -236,11 +230,9 @@ mod tests {
             .unwrap();
 
         // Then
-        let UserCreateOutcome::Found { id, password_hash } = outcome else {
+        let UserCreateOutcome::Found = outcome else {
             panic!("Expected an already existing user to be found, not created");
         };
-        assert_eq!(id, UserId::ALICE);
-        assert_eq!(password_hash.as_deref(), Some("alice-hash"));
     }
 
     #[tokio::test]

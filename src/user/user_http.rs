@@ -114,6 +114,10 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Either user name or password is incorrect".into(),
             },
+            UsersError::NameTaken => HttpError {
+                status_code: StatusCode::BAD_REQUEST,
+                message: "Username is already taken".into(),
+            },
         }
     }
 }

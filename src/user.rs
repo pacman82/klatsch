@@ -93,21 +93,13 @@ where
             .await
             .map_err(|_| UsersError::Internal)?;
 
-        let (user_id, maybe_hash) = match outcome {
-            // New user created, nothing more to do, but to return.
-            UserCreateOutcome::Created => return Ok(new_id),
-            UserCreateOutcome::Found { id, password_hash } => (id, password_hash),
-        };
-
-        // Existing user found, do the passwords match?
-        if let Some(hash) = maybe_hash
-            && !password_hash::verify(&password, &hash)
-        {
-            // Password does not match, we can not create a user with this password
-            return Err(UsersError::WrongCredentials);
+        match outcome {
+            UserCreateOutcome::Created => Ok(new_id),
+            // Unlike login, signup never falls back to verifying a password against an existing
+            // account — the name is simply unavailable, regardless of whether the given password
+            // would have matched.
+            UserCreateOutcome::Found { .. } => Err(UsersError::NameTaken),
         }
-
-        Ok(user_id)
     }
 
     async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
@@ -179,6 +171,8 @@ pub enum UsersError {
     UnknownUser,
     /// Either name or password is incorrect.
     WrongCredentials,
+    /// A user with this name already exists.
+    NameTaken,
 }
 
 #[cfg(test)]
@@ -245,36 +239,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signup_returns_id_when_found_user_is_passwordless() {
-        struct AliceWithoutPasswordStub;
-        impl UserPersistence for AliceWithoutPasswordStub {
-            async fn create(
-                &self,
-                _name: &str,
-                _new_id: UserId,
-                _password_hash: Option<&str>,
-            ) -> anyhow::Result<UserCreateOutcome> {
-                Ok(UserCreateOutcome::Found {
-                    id: UserId::ALICE,
-                    password_hash: None,
-                })
-            }
-        }
-        let mut users = UserStore::new(AliceWithoutPasswordStub);
-
-        let id = users
-            .signup("Alice".to_owned(), "anything".to_owned())
-            .await
-            .unwrap();
-
-        assert_eq!(id, UserId::ALICE);
-    }
-
-    #[tokio::test]
-    async fn signup_is_idempotent() {
+    async fn signup_rejects_taken_name_even_when_password_would_match() {
         // Given
 
-        // User persistence containing the user Alice
+        // A user "Alice" already exists, with a password that happens to match what the caller
+        // is about to supply. Signup must still reject this — unlike login, it must never
+        // silently authenticate into an existing account.
         struct AliceStub;
         impl UserPersistence for AliceStub {
             async fn create(
@@ -283,49 +253,17 @@ mod tests {
                 _new_id: UserId,
                 _password_hash: Option<&str>,
             ) -> anyhow::Result<UserCreateOutcome> {
-                Ok(UserCreateOutcome::Found {
-                    id: UserId::ALICE,
-                    password_hash: Some(password_hash::generate("secret")),
-                })
+                Ok(UserCreateOutcome::Found)
             }
         }
+
+        let mut users = UserStore::new(AliceStub);
 
         // When
-        let mut users = UserStore::new(AliceStub);
-
-        let id = users
-            .signup("Alice".to_owned(), "secret".to_owned())
-            .await
-            .unwrap();
+        let result = users.signup("Alice".to_owned(), "secret".to_owned()).await;
 
         // Then
-        assert_eq!(id, UserId::ALICE);
-    }
-
-    #[tokio::test]
-    async fn signup_must_not_create_same_user_with_different_password() {
-        struct AliceStub;
-        impl UserPersistence for AliceStub {
-            async fn create(
-                &self,
-                _name: &str,
-                _new_id: UserId,
-                _password_hash: Option<&str>,
-            ) -> anyhow::Result<UserCreateOutcome> {
-                Ok(UserCreateOutcome::Found {
-                    id: UserId::ALICE,
-                    password_hash: Some(password_hash::generate("original-secret")),
-                })
-            }
-        }
-
-        let mut users = UserStore::new(AliceStub);
-
-        let result = users
-            .signup("Alice".to_owned(), "new-secret".to_owned())
-            .await;
-
-        assert_matches!(result, Err(UsersError::WrongCredentials));
+        assert_matches!(result, Err(UsersError::NameTaken));
     }
 
     #[tokio::test]
