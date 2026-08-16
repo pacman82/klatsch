@@ -22,6 +22,13 @@ where
             post(change_password::<U, S>),
         )
         .with_state(UserState { users, sessions })
+        .route("/api/v0/users/is_empty", get(is_empty))
+}
+
+async fn is_empty() -> Json<bool> {
+    // Hardcoded to the safe default (not empty, so nothing redirects to signup) for now — real
+    // bootstrap detection is a later increment.
+    Json(false)
 }
 
 #[derive(Clone)]
@@ -159,6 +166,32 @@ mod tests {
         let body: Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(json!({"name": "Alice"}), body)
+    }
+
+    #[tokio::test]
+    async fn is_empty_returns_hardcoded_false() {
+        // Given
+        #[derive(Clone)]
+        struct UsersStub;
+        impl Users for UsersStub {}
+        let app = user_routes(UsersStub, AuthDummy);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/users/is_empty")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let is_empty: bool = serde_json::from_slice(&body).unwrap();
+        assert!(!is_empty);
     }
 
     #[tokio::test]
