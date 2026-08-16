@@ -1,12 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { redirect_to_signup_if_no_users } from '$lib/bootstrap';
 	import { user } from '$lib/user.svelte';
 	import Login from '$lib/components/Login.svelte';
 
 	$effect(() => {
 		if (user.current) goto(resolve('/'));
 	});
+
+	onMount(redirect_to_signup_if_no_users);
 </script>
 
 <svelte:head><title>Log in · Klatsch</title></svelte:head>
