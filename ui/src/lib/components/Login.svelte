@@ -27,25 +27,6 @@
 		const id: string = await response.json();
 		user.login(id);
 	}
-
-	async function sign_up(e: MouseEvent) {
-		e.preventDefault();
-		const trimmed = name.trim();
-		if (!trimmed) return;
-		login_error = null;
-		const response = await fetch('/api/v0/signup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: trimmed, password })
-		});
-		if (!response.ok) {
-			login_error =
-				response.status === 401 ? { kind: 'wrong_credentials' } : { kind: 'server_error' };
-			return;
-		}
-		const id: string = await response.json();
-		user.login(id);
-	}
 </script>
 
 <form class="login">
@@ -66,7 +47,6 @@
 		autocomplete="off"
 	/>
 	<button type="submit" class="btn-primary" onclick={log_in}>Log in</button>
-	<button type="submit" class="btn-primary" onclick={sign_up}>Sign up</button>
 	{#if login_error}
 		<p class="error">
 			{#if login_error.kind === 'wrong_credentials'}
