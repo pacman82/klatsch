@@ -42,6 +42,10 @@ pub trait UserPersistence {
         id: UserId,
         password_hash: &str,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
+
+    /// Used to check if the system is new and does not have any users setup yet. This is useful for
+    /// figuring out if we need to bootstrap the first user of the system.
+    fn is_empty(&self) -> impl Future<Output = anyhow::Result<bool>> + Send;
 }
 
 impl<P> UserPersistence for P
@@ -81,11 +85,9 @@ where
 
     async fn password_hash_by_id(&self, id: UserId) -> anyhow::Result<Option<String>> {
         let mut hashes = self
-            .rows_vec(
-                "SELECT password_hash FROM users WHERE id = ?1",
-                id,
-                |row| Ok(row.get(0)),
-            )
+            .rows_vec("SELECT password_hash FROM users WHERE id = ?1", id, |row| {
+                Ok(row.get(0))
+            })
             .await?;
         Ok(hashes.pop().flatten())
     }
@@ -94,6 +96,18 @@ where
         let password_hash = password_hash.to_owned();
         self.transaction(move |conn| update_password_hash(conn, id, &password_hash))
             .await
+    }
+
+    async fn is_empty(&self) -> anyhow::Result<bool> {
+        // EXISTS lets SQLite stop at the first row instead of scanning the whole table, unlike
+        // COUNT(*).
+        let mut rows = self
+            .rows_vec("SELECT EXISTS(SELECT 1 FROM users)", (), |row| {
+                let any_user: i64 = row.get(0);
+                Ok(any_user)
+            })
+            .await?;
+        Ok(rows.pop() != Some(1))
     }
 }
 
@@ -308,7 +322,10 @@ mod tests {
         let persistence = persistence_fake().await;
 
         // When
-        let hash = persistence.password_hash_by_id(UserId::new()).await.unwrap();
+        let hash = persistence
+            .password_hash_by_id(UserId::new())
+            .await
+            .unwrap();
 
         // Then
         assert_eq!(hash, None);
@@ -330,6 +347,34 @@ mod tests {
         // Then
         let hash = persistence.password_hash_by_id(id).await.unwrap();
         assert_eq!(hash, Some("new-hash".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn is_empty_reports_true_when_no_users_exist() {
+        // Given
+        let persistence = persistence_fake().await;
+
+        // When
+        let is_empty = persistence.is_empty().await.unwrap();
+
+        // Then
+        assert!(is_empty);
+    }
+
+    #[tokio::test]
+    async fn is_empty_reports_false_once_a_user_exists() {
+        // Given
+        let persistence = persistence_fake().await;
+        persistence
+            .create("Alice", UserId::ALICE, None)
+            .await
+            .unwrap();
+
+        // When
+        let is_empty = persistence.is_empty().await.unwrap();
+
+        // Then
+        assert!(!is_empty);
     }
 
     async fn persistence_fake() -> impl UserPersistence {

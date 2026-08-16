@@ -75,6 +75,9 @@ pub trait Users {
         current_password: String,
         new_password: String,
     ) -> impl Future<Output = Result<(), UsersError>> + Send;
+
+    /// Whether the system has no users at all yet.
+    fn is_empty(&mut self) -> impl Future<Output = Result<bool, UsersError>> + Send;
 }
 
 impl<P> Users for UserStore<P>
@@ -159,6 +162,13 @@ where
             .map_err(|_| UsersError::Internal)?;
 
         Ok(())
+    }
+
+    async fn is_empty(&mut self) -> Result<bool, UsersError> {
+        self.persistence
+            .is_empty()
+            .await
+            .map_err(|_| UsersError::Internal)
     }
 }
 
@@ -532,6 +542,33 @@ mod tests {
         assert!(password_hash::verify("new-secret", stored_hash));
     }
 
+    #[tokio::test]
+    async fn is_empty_forwards_persistence_result() {
+        // Given
+        struct EmptyStub;
+        impl UserPersistence for EmptyStub {
+            async fn is_empty(&self) -> anyhow::Result<bool> {
+                Ok(true)
+            }
+        }
+        let mut users = UserStore::new(EmptyStub);
+
+        // When
+        let is_empty = users.is_empty().await.unwrap();
+
+        // Then
+        assert!(is_empty);
+    }
+
+    #[tokio::test]
+    async fn is_empty_maps_persistence_error_to_internal() {
+        let mut users = UserStore::new(Saboteur);
+
+        let result = users.is_empty().await;
+
+        assert_matches!(result, Err(UsersError::Internal));
+    }
+
     /// Fails every persistence operation, to test error mapping to `UsersError::Internal`.
     struct Saboteur;
     impl UserPersistence for Saboteur {
@@ -552,6 +589,10 @@ mod tests {
         }
 
         async fn user_by_id(&self, _id: UserId) -> anyhow::Result<Option<User>> {
+            bail!("Simulated persistence failure")
+        }
+
+        async fn is_empty(&self) -> anyhow::Result<bool> {
             bail!("Simulated persistence failure")
         }
     }
