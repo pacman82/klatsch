@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { user } from '$lib/user.svelte';
 
-	type SignUpError = { kind: 'wrong_credentials' } | { kind: 'server_error' };
+	type SignUpError = { kind: 'name_taken' } | { kind: 'server_error' };
 
 	let name = $state('');
 	let password = $state('');
@@ -23,8 +23,7 @@
 			body: JSON.stringify({ name: trimmed, password })
 		});
 		if (!response.ok) {
-			signup_error =
-				response.status === 401 ? { kind: 'wrong_credentials' } : { kind: 'server_error' };
+			signup_error = response.status === 400 ? { kind: 'name_taken' } : { kind: 'server_error' };
 			return;
 		}
 		const id: string = await response.json();
@@ -64,8 +63,8 @@
 	>
 	{#if signup_error}
 		<p class="error">
-			{#if signup_error.kind === 'wrong_credentials'}
-				User name or password is wrong
+			{#if signup_error.kind === 'name_taken'}
+				Username is already taken
 			{:else}
 				Something went wrong, please try again
 			{/if}
