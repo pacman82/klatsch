@@ -21,14 +21,21 @@ where
             "/api/v0/users/me/change_password",
             post(change_password::<U, S>),
         )
+        .route("/api/v0/users/is_empty", get(is_empty::<U, S>))
         .with_state(UserState { users, sessions })
-        .route("/api/v0/users/is_empty", get(is_empty))
 }
 
-async fn is_empty() -> Json<bool> {
-    // Hardcoded to the safe default (not empty, so nothing redirects to signup) for now — real
-    // bootstrap detection is a later increment.
-    Json(false)
+/// Used to check if the system is new and does not have any users setup yet. This is useful for
+/// bootstrapping the first user of the system. This route does not require authentication. If there
+/// would be an authenticated user, this would imply the answer to be `true`.
+async fn is_empty<U, S>(State(state): State<UserState<U, S>>) -> Result<Json<bool>, HttpError>
+where
+    U: Users + Send + Sync,
+    S: AuthenticateRequest + Send + Sync,
+{
+    let mut users = state.users;
+    let is_empty = users.is_empty().await?;
+    Ok(Json(is_empty))
 }
 
 #[derive(Clone)]
@@ -169,11 +176,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn is_empty_returns_hardcoded_false() {
+    async fn is_empty_route_forwards_to_users() {
         // Given
         #[derive(Clone)]
         struct UsersStub;
-        impl Users for UsersStub {}
+        impl Users for UsersStub {
+            async fn is_empty(&mut self) -> Result<bool, UsersError> {
+                Ok(true)
+            }
+        }
         let app = user_routes(UsersStub, AuthDummy);
 
         // When
@@ -191,7 +202,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let is_empty: bool = serde_json::from_slice(&body).unwrap();
-        assert!(!is_empty);
+        assert!(is_empty);
     }
 
     #[tokio::test]
