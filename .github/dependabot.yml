@@ -15,6 +15,11 @@ updates:
     groups:
       all:
         patterns: ["*"]
+    ignore:
+      # Ignore next major typescript for now. It failed because there was no es-lint version
+      # supporting it yet. We remove this once `7` is better supported by the ecosystem.
+      - dependency-name: "typescript"
+        versions: ["7.x"]
 
   - package-ecosystem: github-actions
     directory: /
