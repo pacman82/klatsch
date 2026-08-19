@@ -13,8 +13,31 @@ use serde::Deserialize;
 use crate::{
     http::{AuthenticateRequest, HttpError},
     sessions::{AuthenticateSession, SessionId, SessionLifecycle},
-    user::{AuthenticateUser, UserId, Users},
+    user::{AuthenticateUser, UserId, Users, UsersError},
 };
+
+/// Signup users, log them in and out.
+#[derive(Clone)]
+struct AuthService<U, S> {
+    users: U,
+    sessions: S,
+}
+
+impl<U, S> AuthService<U, S>
+where
+    U: AuthenticateUser,
+    S: SessionLifecycle,
+{
+    async fn login(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> Result<(SessionId, UserId), UsersError> {
+        let user_id = self.users.authenticate(name, password).await?;
+        let session_id = self.sessions.create(user_id).await;
+        Ok((session_id, user_id))
+    }
+}
 
 impl<T> AuthenticateRequest for T
 where
@@ -52,8 +75,7 @@ where
 /// of it, and controls the cookie's `Secure` attribute.
 #[derive(Clone)]
 struct SessionState<U, S> {
-    users: U,
-    sessions: S,
+    auth_service: AuthService<U, S>,
     encrypted: bool,
 }
 
@@ -72,9 +94,12 @@ where
     U: AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
-    let state = SessionState {
+    let auth_service = AuthService {
         users,
         sessions: sessions.clone(),
+    };
+    let state = SessionState {
+        auth_service,
         encrypted,
     };
     Router::new()
@@ -89,9 +114,12 @@ where
     U: Users + Send + Sync + Clone + 'static,
     S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
-    let state = SessionState {
+    let auth_service = AuthService {
         users,
         sessions: sessions.clone(),
+    };
+    let state = SessionState {
+        auth_service,
         encrypted,
     };
     Router::new()
@@ -139,8 +167,7 @@ struct LoginBody {
 async fn signup<U, S>(
     jar: CookieJar,
     State(SessionState {
-        mut users,
-        mut sessions,
+        mut auth_service,
         encrypted,
     }): State<SessionState<U, S>>,
     Json(body): Json<LoginBody>,
@@ -149,8 +176,8 @@ where
     U: Users,
     S: SessionLifecycle,
 {
-    let user_id = users.signup(body.name, body.password).await?;
-    let session_id = sessions.create(user_id).await;
+    let user_id = auth_service.users.signup(body.name, body.password).await?;
+    let session_id = auth_service.sessions.create(user_id).await;
     Ok((
         jar.add(session_cookie(session_id, encrypted)),
         Json(user_id),
@@ -160,8 +187,7 @@ where
 async fn login<U, S>(
     jar: CookieJar,
     State(SessionState {
-        mut users,
-        mut sessions,
+        mut auth_service,
         encrypted,
     }): State<SessionState<U, S>>,
     Json(body): Json<LoginBody>,
@@ -170,8 +196,7 @@ where
     U: AuthenticateUser,
     S: SessionLifecycle,
 {
-    let user_id = users.authenticate(body.name, body.password).await?;
-    let session_id = sessions.create(user_id).await;
+    let (session_id, user_id) = auth_service.login(body.name, body.password).await?;
     Ok((
         jar.add(session_cookie(session_id, encrypted)),
         Json(user_id),
