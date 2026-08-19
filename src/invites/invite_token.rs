@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -10,21 +10,18 @@ use uuid::Uuid;
 pub struct InviteToken(Uuid);
 
 impl InviteToken {
-    pub(crate) fn from_uuid(uuid: Uuid) -> Self {
+    pub const fn from_uuid(uuid: Uuid) -> Self {
         Self(uuid)
+    }
+
+    #[cfg(test)]
+    pub const fn nil() -> Self {
+        Self::from_uuid(Uuid::nil())
     }
 }
 
 impl fmt::Display for InviteToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-impl FromStr for InviteToken {
-    type Err = uuid::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(InviteToken)
     }
 }
