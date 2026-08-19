@@ -22,14 +22,14 @@ impl<P> UserStore<P> {
 #[cfg_attr(test, double_trait::dummies)]
 pub trait AuthenticateUser {
     #[cfg(not(test))]
-    fn login(
+    fn authenticate(
         &mut self,
         name: String,
         password: String,
     ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
 
     #[cfg(test)]
-    fn login(
+    fn authenticate(
         &mut self,
         _name: String,
         _password: String,
@@ -77,7 +77,7 @@ impl<P> AuthenticateUser for UserStore<P>
 where
     P: UserPersistence + Send,
 {
-    async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
+    async fn authenticate(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
         let maybe_user = self
             .persistence
             .id_and_hash_by_name(&name)
@@ -286,7 +286,9 @@ mod tests {
         }
         let mut users = UserStore::new(UnknownUserStub);
 
-        let result = users.login("Alice".to_owned(), "secret".to_owned()).await;
+        let result = users
+            .authenticate("Alice".to_owned(), "secret".to_owned())
+            .await;
 
         assert_matches!(result, Err(UsersError::WrongCredentials));
     }
@@ -309,7 +311,7 @@ mod tests {
         let mut users = UserStore::new(AliceStub);
 
         let id = users
-            .login("Alice".to_owned(), "secret".to_owned())
+            .authenticate("Alice".to_owned(), "secret".to_owned())
             .await
             .unwrap();
 
@@ -333,7 +335,7 @@ mod tests {
         let mut users = UserStore::new(AliceStub);
 
         let result = users
-            .login("Alice".to_owned(), "wrong-secret".to_owned())
+            .authenticate("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
         assert_matches!(result, Err(UsersError::WrongCredentials));
@@ -353,7 +355,7 @@ mod tests {
         let mut users = UserStore::new(AliceStub);
 
         let id = users
-            .login("Alice".to_owned(), "anything".to_owned())
+            .authenticate("Alice".to_owned(), "anything".to_owned())
             .await
             .unwrap();
 
@@ -364,7 +366,9 @@ mod tests {
     async fn login_maps_persistence_error_to_internal() {
         let mut users = UserStore::new(Saboteur);
 
-        let result = users.login("Alice".to_owned(), "secret".to_owned()).await;
+        let result = users
+            .authenticate("Alice".to_owned(), "secret".to_owned())
+            .await;
 
         assert_matches!(result, Err(UsersError::Internal));
     }
