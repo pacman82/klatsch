@@ -37,7 +37,10 @@ pub enum TlsConfig {
     /// Encryption is used, but a reverse proxy terminates TLS, not Klatsch itself.
     Proxy,
     /// Klatsch terminates TLS itself, using the given certificate and private key.
-    Static { cert_file: PathBuf, key_file: PathBuf },
+    Static {
+        cert_file: PathBuf,
+        key_file: PathBuf,
+    },
 }
 
 impl TlsConfig {
