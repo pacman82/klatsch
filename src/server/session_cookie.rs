@@ -127,7 +127,10 @@ where
 {
     let user_id = users.signup(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
-    Ok((jar.add(session_cookie(session_id, encrypted)), Json(user_id)))
+    Ok((
+        jar.add(session_cookie(session_id, encrypted)),
+        Json(user_id),
+    ))
 }
 
 async fn login<U, S>(
@@ -145,7 +148,10 @@ where
 {
     let user_id = users.login(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
-    Ok((jar.add(session_cookie(session_id, encrypted)), Json(user_id)))
+    Ok((
+        jar.add(session_cookie(session_id, encrypted)),
+        Json(user_id),
+    ))
 }
 
 #[cfg(test)]
