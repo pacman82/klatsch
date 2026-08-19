@@ -18,7 +18,12 @@ use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{chat::Chat, http::AuthenticateRequest, sessions::SessionLifecycle, user::Users};
+use crate::{
+    chat::Chat,
+    http::AuthenticateRequest,
+    sessions::SessionLifecycle,
+    user::{AuthenticateUser, Users},
+};
 
 use self::{api::api_router, ui::ui_router};
 
@@ -88,7 +93,7 @@ impl Server {
     pub async fn new(
         config: ServerConfiguration,
         chat: impl Chat + Send + Sync + Clone + 'static,
-        users: impl Users + Send + Sync + Clone + 'static,
+        users: impl Users + AuthenticateUser + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let ServerConfiguration { host, port, tls } = config;
@@ -158,7 +163,7 @@ fn router<C, U, S>(
 ) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
-    U: Users + Send + Sync + Clone + 'static,
+    U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     let router = Router::new()

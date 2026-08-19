@@ -18,6 +18,26 @@ impl<P> UserStore<P> {
     }
 }
 
+/// Verifies credentials belong to a known user
+#[cfg_attr(test, double_trait::dummies)]
+pub trait AuthenticateUser {
+    #[cfg(not(test))]
+    fn login(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
+
+    #[cfg(test)]
+    fn login(
+        &mut self,
+        _name: String,
+        _password: String,
+    ) -> impl Future<Output = Result<UserId, UsersError>> + Send {
+        async { Ok(UserId::nil()) }
+    }
+}
+
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Users {
     #[cfg(not(test))]
@@ -29,22 +49,6 @@ pub trait Users {
 
     #[cfg(test)]
     fn signup(
-        &mut self,
-        _name: String,
-        _password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send {
-        async { Ok(UserId::nil()) }
-    }
-
-    #[cfg(not(test))]
-    fn login(
-        &mut self,
-        name: String,
-        password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
-
-    #[cfg(test)]
-    fn login(
         &mut self,
         _name: String,
         _password: String,
@@ -69,6 +73,30 @@ pub trait Users {
     fn is_empty(&mut self) -> impl Future<Output = Result<bool, UsersError>> + Send;
 }
 
+impl<P> AuthenticateUser for UserStore<P>
+where
+    P: UserPersistence + Send,
+{
+    async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
+        let maybe_user = self
+            .persistence
+            .id_and_hash_by_name(&name)
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::WrongCredentials)?;
+
+        if let Some(hash) = maybe_hash
+            && !password_hash::verify(&password, &hash)
+        {
+            return Err(UsersError::WrongCredentials);
+        }
+
+        // User existed already, but this is fine.
+        Ok(user_id)
+    }
+}
+
 impl<P> Users for UserStore<P>
 where
     P: UserPersistence + Send,
@@ -89,25 +117,6 @@ where
             // would have matched.
             UserCreateOutcome::Found { .. } => Err(UsersError::NameTaken),
         }
-    }
-
-    async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
-        let maybe_user = self
-            .persistence
-            .id_and_hash_by_name(&name)
-            .await
-            .map_err(|_| UsersError::Internal)?;
-
-        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::WrongCredentials)?;
-
-        if let Some(hash) = maybe_hash
-            && !password_hash::verify(&password, &hash)
-        {
-            return Err(UsersError::WrongCredentials);
-        }
-
-        // User existed already, but this is fine.
-        Ok(user_id)
     }
 
     async fn user_by_id(&mut self, id: UserId) -> Result<User, UsersError> {
@@ -175,7 +184,7 @@ mod tests {
 
     use crate::user::{UserCreateOutcome, UserId, UserPersistence, UserStore, Users, UsersError};
 
-    use super::{User, password_hash};
+    use super::{AuthenticateUser, User, password_hash};
 
     #[tokio::test]
     async fn create_new_user() {
