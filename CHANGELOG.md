@@ -3,6 +3,75 @@
 `Klatsch` adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.2.0](https://github.com/pacman82/klatsch/compare/0.1.1...0.2.0) - 2026-08-19
+
+### 🚀 Features
+
+- Remove signup from login page
+- Signup page is shown if no user is present
+- *(UI)* UI forwards to signup, if backend indicates no users are in
+- *(ui)* Users are notified that the invite link is in the clipboard
+- Forward to chat after successful signup
+- Forward invites to signup page
+- *(ui)* Signup page added
+- Add copy invite link button to top bar
+- TLS environment variable configures TLS mode explicitly
+- Support tls
+- *(ui)* Bring user back to login screen then session expires
+- Change password in self service
+- *(api)* Introduce change password route
+
+  Currently not functional
+
+- Empty profile page introduced
+- Only store hashes of sesion ids
+- Persistet sessions
+- 3 day sliding sessions expiration and 30 day max session duration
+- Session max lifetime and idle timeout are configurable
+- Sessions expire after 90 days at the latest
+- Authentication required for users/{id} route
+- Events route is authenticated
+- [**breaking**] Sessions are invalidated after 30 days of inactivity
+- Session are now truly revokable
+- Remove session cookie on logout
+- Remove sender from add_message body. Author is now identified via
+- Add dummy session cookie after signup and login
+- Separate user and sign up flow
+- Add login http endpoint
+- Show better error messages if logins fail
+- *(ui)* Login button now always called Join, even if previous attempt
+- Use password for authentication
+- *(ui)* Log out automatically if current user is unknown
+- *(ui)* Display 'Fetching user info ...' in UserBar if info not yet
+- Registering user returns UUID
+- Introduce route POST /api/v0/users
+- Fetching User information with unknown id now yields 404.
+- Route GET /users/<id>
+
+
+### 🐛 Bug Fixes
+
+- Signal handlers are registerd before emitting "ready"
+
+
+### 🚜 Refactor
+
+- [**breaking**] Remove sender (name) from messages in event stream
+- [**breaking**] Messages in Events now return sender_id
+
+
+### 📚 Documentation
+
+- Compare links in changelog
+
+
+### ⚡ Performance
+
+- Read and write tables concurrently if using file backed
+- Start chat and session runtime simultaniously
+- Reduce the number of full scans on all sessions
+- Shutdown sessions store and chat simultaniously
+
 
 ## [0.1.1](https://github.com/pacman82/klatsch/compare/v0.1.0...v0.1.1) - 2026-04-23
 
