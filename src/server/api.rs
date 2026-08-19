@@ -3,6 +3,7 @@ use crate::{
     chat::{Chat, chat_routes},
     http::AuthenticateRequest,
     invites::invite_routes,
+    login::AuthService,
     sessions::SessionLifecycle,
     user::{AuthenticateUser, Users, user_routes},
 };
@@ -21,9 +22,11 @@ where
     U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
+    let auth_service = AuthService::new(users.clone(), sessions.clone());
+
     Router::new()
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
-        .merge(session_routes(users.clone(), sessions.clone(), encrypted))
+        .merge(session_routes(auth_service, encrypted))
         .merge(user_routes(users, sessions))
         .merge(invite_routes())
 }
