@@ -2,8 +2,8 @@ mod chat;
 mod configuration;
 mod http;
 mod invites;
-
 mod klatsch;
+mod login;
 mod persistence;
 mod server;
 mod sessions;
