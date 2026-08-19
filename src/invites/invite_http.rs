@@ -28,8 +28,8 @@ async fn claim_invite(Path(_token): Path<InviteToken>) -> impl IntoResponse {
 mod tests {
     use axum::{body::Body, http::Request};
     use http_body_util::BodyExt as _;
+    use reqwest::StatusCode;
     use tower::ServiceExt as _;
-    use uuid::Uuid;
 
     use super::{InviteToken, invite_routes};
 
@@ -48,13 +48,13 @@ mod tests {
         // Then
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let token: InviteToken = serde_json::from_slice(&body).unwrap();
-        assert_eq!(token, InviteToken::from_uuid(Uuid::nil()));
+        assert_eq!(token, InviteToken::nil());
     }
 
     #[tokio::test]
     async fn claiming_invite_redirects_to_signup() {
         // Given
-        let token = InviteToken::from_uuid(Uuid::nil());
+        let token = InviteToken::nil();
 
         // When
         let response = invite_routes()
@@ -67,7 +67,7 @@ mod tests {
             .unwrap();
 
         // Then
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(response.headers().get("location").unwrap(), "/signup");
     }
 }
