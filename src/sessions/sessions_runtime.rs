@@ -16,9 +16,11 @@ use crate::{sessions::session_store::Session, user::UserId};
 
 use super::{SessionHash, SessionId, SessionPersistence, SessionStore};
 
+/// Authenticate users using session ids.
 #[cfg_attr(test, double_trait::dummies)]
-pub trait SessionLookup {
-    fn lookup(&self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
+pub trait AuthenticateSession {
+    /// Id of the associated user if the session is valid, otherwise `None`.
+    fn authenticate(&self, session_id: SessionId) -> impl Future<Output = Option<UserId>> + Send;
 }
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -73,8 +75,8 @@ pub struct SessionsClient {
     sender: mpsc::Sender<SessionMsg>,
 }
 
-impl SessionLookup for SessionsClient {
-    async fn lookup(&self, session_id: SessionId) -> Option<UserId> {
+impl AuthenticateSession for SessionsClient {
+    async fn authenticate(&self, session_id: SessionId) -> Option<UserId> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(SessionMsg::Lookup { session_id, reply })
@@ -257,7 +259,7 @@ mod tests {
     };
 
     use super::{
-        SessionHash, SessionId, SessionLifecycle as _, SessionLookup as _, SessionStore,
+        AuthenticateSession as _, SessionHash, SessionId, SessionLifecycle as _, SessionStore,
         SessionsRuntime,
     };
 
@@ -332,7 +334,7 @@ mod tests {
 
         // When
         let before = SystemTime::now();
-        let returned = client.lookup(SessionId::ALICE).await;
+        let returned = client.authenticate(SessionId::ALICE).await;
         let after = SystemTime::now();
 
         // Then
@@ -628,7 +630,7 @@ mod tests {
             .unwrap();
 
         // When the session is looked up
-        runtime.client().lookup(SessionId::ALICE).await;
+        runtime.client().authenticate(SessionId::ALICE).await;
 
         // Then its timestamp is updated
         let record = persistence.take_updated_record();

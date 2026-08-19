@@ -12,13 +12,13 @@ use serde::Deserialize;
 
 use crate::{
     http::{AuthenticateRequest, HttpError},
-    sessions::{SessionId, SessionLifecycle, SessionLookup},
+    sessions::{AuthenticateSession, SessionId, SessionLifecycle},
     user::{AuthenticateUser, UserId, Users},
 };
 
 impl<T> AuthenticateRequest for T
 where
-    T: SessionLookup + Sync,
+    T: AuthenticateSession + Sync,
 {
     fn authenticate_request(
         &self,
@@ -39,7 +39,7 @@ where
             });
         async move {
             let session_id = session_id?;
-            self.lookup(session_id).await.ok_or(HttpError {
+            self.authenticate(session_id).await.ok_or(HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Unknown session".into(),
             })
@@ -195,14 +195,14 @@ mod tests {
     use crate::{
         http::AuthenticatedUser,
         server::session_cookie::{login_routes, signup_route},
-        sessions::{SessionId, SessionLifecycle, SessionLookup},
+        sessions::{AuthenticateSession, SessionId, SessionLifecycle},
         user::{AuthenticateUser, UserId, Users, UsersError},
     };
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
     fn authenticated_user_app(
-        sessions: impl SessionLookup + Clone + Send + Sync + 'static,
+        sessions: impl AuthenticateSession + Clone + Send + Sync + 'static,
     ) -> Router {
         Router::new()
             .route(
@@ -232,8 +232,8 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct EmptySessionsStub;
-        impl SessionLookup for EmptySessionsStub {
-            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
+        impl AuthenticateSession for EmptySessionsStub {
+            async fn authenticate(&self, _session_id: SessionId) -> Option<UserId> {
                 None
             }
         }
@@ -259,8 +259,8 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct SessionsStub;
-        impl SessionLookup for SessionsStub {
-            async fn lookup(&self, _session_id: SessionId) -> Option<UserId> {
+        impl AuthenticateSession for SessionsStub {
+            async fn authenticate(&self, _session_id: SessionId) -> Option<UserId> {
                 Some(UserId::ALICE)
             }
         }
