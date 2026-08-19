@@ -23,7 +23,7 @@ use crate::{
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Register shutdown signal handler
-    let shutdown = shutdown_signal().await;
+    let shutdown = shutdown_signal();
 
     // Source environment from .env file and load configuration. Errors during sourcing the .env
     // file are ignored. In case of it not existing we intend to use the plain environment.
