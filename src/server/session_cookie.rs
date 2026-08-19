@@ -170,7 +170,7 @@ where
     U: AuthenticateUser,
     S: SessionLifecycle,
 {
-    let user_id = users.login(body.name, body.password).await?;
+    let user_id = users.authenticate(body.name, body.password).await?;
     let session_id = sessions.create(user_id).await;
     Ok((
         jar.add(session_cookie(session_id, encrypted)),
@@ -575,7 +575,7 @@ mod tests {
         #[derive(Clone)]
         struct AuthenticateUserStub;
         impl AuthenticateUser for AuthenticateUserStub {
-            async fn login(
+            async fn authenticate(
                 &mut self,
                 _name: String,
                 _password: String,
@@ -608,7 +608,7 @@ mod tests {
         #[derive(Clone)]
         struct UsersSaboteur;
         impl AuthenticateUser for UsersSaboteur {
-            async fn login(
+            async fn authenticate(
                 &mut self,
                 _name: String,
                 _password: String,
@@ -657,7 +657,11 @@ mod tests {
     }
 
     impl AuthenticateUser for UsersSpy {
-        async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
+        async fn authenticate(
+            &mut self,
+            name: String,
+            password: String,
+        ) -> Result<UserId, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok(UserId::nil())
         }
