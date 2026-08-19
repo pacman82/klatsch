@@ -37,6 +37,10 @@ where
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
     }
+
+    async fn logout(&mut self, session_id: SessionId) {
+        self.sessions.revoke(session_id).await;
+    }
 }
 
 impl<T> AuthenticateRequest for T
@@ -94,19 +98,16 @@ where
     U: AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
-    let auth_service = AuthService {
-        users,
-        sessions: sessions.clone(),
-    };
+    let auth_service = AuthService { users, sessions };
     let state = SessionState {
-        auth_service,
+        auth_service: auth_service.clone(),
         encrypted,
     };
     Router::new()
         .route("/api/v0/login", post(login::<U, S>))
         .with_state(state)
-        .route("/api/v0/logout", post(logout::<S>))
-        .with_state(sessions)
+        .route("/api/v0/logout", post(logout::<U, S>))
+        .with_state(auth_service)
 }
 
 pub fn signup_route<U, S>(users: U, sessions: S, encrypted: bool) -> Router
@@ -140,15 +141,19 @@ fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
         .build()
 }
 
-async fn logout<S>(jar: CookieJar, State(mut sessions): State<S>) -> CookieJar
+async fn logout<U, S>(
+    jar: CookieJar,
+    State(mut auth_service): State<AuthService<U, S>>,
+) -> CookieJar
 where
     S: SessionLifecycle,
+    U: AuthenticateUser,
 {
     if let Some(session_id) = jar
         .get("session")
         .and_then(|c| c.value().parse::<SessionId>().ok())
     {
-        sessions.revoke(session_id).await;
+        auth_service.logout(session_id).await;
     }
     jar.remove(
         Cookie::build("session")
