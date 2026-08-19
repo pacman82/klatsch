@@ -1,4 +1,7 @@
-use crate::http::{AuthenticateRequest, AuthenticatedUser, HttpError};
+use crate::{
+    http::{AuthenticateRequest, AuthenticatedUser, HttpError},
+    user::AuthenticationError,
+};
 
 use super::{User, UserId, Users, UsersError};
 
@@ -85,17 +88,7 @@ where
     let mut users = state.users;
     users
         .change_password(id, body.current_password, body.new_password)
-        .await
-        .map_err(|e| match e {
-            // Change the default mapping for [`UsersError::WrongCredentials`] from `UNAUTHORIZED`
-            // to `BAD_REQUEST` so a wrong password is distinguishable from an expired session for
-            // the UI.
-            UsersError::WrongCredentials => HttpError {
-                status_code: StatusCode::BAD_REQUEST,
-                message: "current password is incorrect".into(),
-            },
-            _ => e.into(),
-        })?;
+        .await?;
     Ok(())
 }
 
@@ -110,13 +103,28 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::NOT_FOUND,
                 message: "Unknown user".into(),
             },
-            UsersError::WrongCredentials => HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Either user name or password is incorrect".into(),
+            UsersError::WrongCurrentPassword => HttpError {
+                status_code: StatusCode::BAD_REQUEST,
+                message: "Current password is incorrect".into(),
             },
             UsersError::NameTaken => HttpError {
                 status_code: StatusCode::BAD_REQUEST,
                 message: "Username is already taken".into(),
+            },
+        }
+    }
+}
+
+impl From<AuthenticationError> for HttpError {
+    fn from(err: AuthenticationError) -> Self {
+        match err {
+            AuthenticationError::Internal => HttpError {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".into(),
+            },
+            AuthenticationError::WrongCredentials => HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Either user name or password is incorrect".into(),
             },
         }
     }
@@ -304,7 +312,7 @@ mod tests {
                 _current_password: String,
                 _new_password: String,
             ) -> Result<(), UsersError> {
-                Err(UsersError::WrongCredentials)
+                Err(UsersError::WrongCurrentPassword)
             }
         }
         let app = user_routes(WrongPasswordSaboteur, AuthDummy);

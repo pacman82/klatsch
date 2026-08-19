@@ -18,6 +18,15 @@ impl<P> UserStore<P> {
     }
 }
 
+#[derive(Debug)]
+pub enum AuthenticationError {
+    /// User name or password is incorrect
+    WrongCredentials,
+    /// An error attributed to the runtime. User did nothing wrong. No need for further information,
+    /// cause is logged at the source.
+    Internal,
+}
+
 /// Verifies credentials belong to a known user
 #[cfg_attr(test, double_trait::dummies)]
 pub trait AuthenticateUser {
@@ -26,14 +35,14 @@ pub trait AuthenticateUser {
         &mut self,
         name: String,
         password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
+    ) -> impl Future<Output = Result<UserId, AuthenticationError>> + Send;
 
     #[cfg(test)]
     fn authenticate(
         &mut self,
         _name: String,
         _password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send {
+    ) -> impl Future<Output = Result<UserId, AuthenticationError>> + Send {
         async { Ok(UserId::nil()) }
     }
 }
@@ -77,19 +86,23 @@ impl<P> AuthenticateUser for UserStore<P>
 where
     P: UserPersistence + Send,
 {
-    async fn authenticate(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
+    async fn authenticate(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> Result<UserId, AuthenticationError> {
         let maybe_user = self
             .persistence
             .id_and_hash_by_name(&name)
             .await
-            .map_err(|_| UsersError::Internal)?;
+            .map_err(|_| AuthenticationError::Internal)?;
 
-        let (user_id, maybe_hash) = maybe_user.ok_or(UsersError::WrongCredentials)?;
+        let (user_id, maybe_hash) = maybe_user.ok_or(AuthenticationError::WrongCredentials)?;
 
         if let Some(hash) = maybe_hash
             && !password_hash::verify(&password, &hash)
         {
-            return Err(UsersError::WrongCredentials);
+            return Err(AuthenticationError::WrongCredentials);
         }
 
         // User existed already, but this is fine.
@@ -115,7 +128,7 @@ where
             // Unlike login, signup never falls back to verifying a password against an existing
             // account — the name is simply unavailable, regardless of whether the given password
             // would have matched.
-            UserCreateOutcome::Found { .. } => Err(UsersError::NameTaken),
+            UserCreateOutcome::Found => Err(UsersError::NameTaken),
         }
     }
 
@@ -142,7 +155,7 @@ where
         if let Some(hash) = hash
             && !password_hash::verify(&current_password, &hash)
         {
-            return Err(UsersError::WrongCredentials);
+            return Err(UsersError::WrongCurrentPassword);
         }
 
         let new_hash = password_hash::generate(&new_password);
@@ -167,8 +180,8 @@ pub enum UsersError {
     Internal,
     /// The user id does not belong to any user.
     UnknownUser,
-    /// Either name or password is incorrect.
-    WrongCredentials,
+    /// Then changeing the password, the old password provided has been incorrect.
+    WrongCurrentPassword,
     /// A user with this name already exists.
     NameTaken,
 }
@@ -182,7 +195,10 @@ mod tests {
 
     use anyhow::bail;
 
-    use crate::user::{UserCreateOutcome, UserId, UserPersistence, UserStore, Users, UsersError};
+    use crate::user::{
+        AuthenticationError, UserCreateOutcome, UserId, UserPersistence, UserStore, Users,
+        UsersError,
+    };
 
     use super::{AuthenticateUser, User, password_hash};
 
@@ -290,7 +306,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UsersError::WrongCredentials));
+        assert_matches!(result, Err(AuthenticationError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -338,7 +354,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UsersError::WrongCredentials));
+        assert_matches!(result, Err(AuthenticationError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -370,7 +386,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(UsersError::Internal));
+        assert_matches!(result, Err(AuthenticationError::Internal));
     }
 
     #[tokio::test]
@@ -437,7 +453,7 @@ mod tests {
             .await;
 
         // Then
-        assert_matches!(result, Err(UsersError::WrongCredentials));
+        assert_matches!(result, Err(UsersError::WrongCurrentPassword));
     }
 
     #[tokio::test]

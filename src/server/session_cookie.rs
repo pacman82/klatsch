@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::{
     http::{AuthenticateRequest, HttpError},
     sessions::{AuthenticateSession, SessionId, SessionLifecycle},
-    user::{AuthenticateUser, UserId, Users, UsersError},
+    user::{AuthenticateUser, AuthenticationError, UserId, Users},
 };
 
 /// Signup users, log them in and out.
@@ -32,7 +32,7 @@ where
         &mut self,
         name: String,
         password: String,
-    ) -> Result<(SessionId, UserId), UsersError> {
+    ) -> Result<(SessionId, UserId), AuthenticationError> {
         let user_id = self.users.authenticate(name, password).await?;
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
@@ -221,7 +221,7 @@ mod tests {
         http::AuthenticatedUser,
         server::session_cookie::{login_routes, signup_route},
         sessions::{AuthenticateSession, SessionId, SessionLifecycle},
-        user::{AuthenticateUser, UserId, Users, UsersError},
+        user::{AuthenticateUser, AuthenticationError, UserId, Users, UsersError},
     };
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
@@ -604,7 +604,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<UserId, UsersError> {
+            ) -> Result<UserId, AuthenticationError> {
                 Ok(UserId::ALICE)
             }
         }
@@ -637,8 +637,8 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<UserId, UsersError> {
-                Err(UsersError::WrongCredentials)
+            ) -> Result<UserId, AuthenticationError> {
+                Err(AuthenticationError::WrongCredentials)
             }
         }
         let app = login_routes(UsersSaboteur, Dummy, true);
@@ -686,7 +686,7 @@ mod tests {
             &mut self,
             name: String,
             password: String,
-        ) -> Result<UserId, UsersError> {
+        ) -> Result<UserId, AuthenticationError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok(UserId::nil())
         }
