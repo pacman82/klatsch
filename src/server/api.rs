@@ -4,7 +4,7 @@ use crate::{
     http::AuthenticateRequest,
     invites::invite_routes,
     sessions::SessionLifecycle,
-    user::{Users, user_routes},
+    user::{AuthenticateUser, Users, user_routes},
 };
 use axum::Router;
 use tokio::sync::watch;
@@ -18,7 +18,7 @@ pub fn api_router<C, U, S>(
 ) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
-    U: Users + Send + Sync + Clone + 'static,
+    U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     Router::new()

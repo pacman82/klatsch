@@ -8,7 +8,7 @@ pub use self::{
     user_http::user_routes,
     user_id::UserId,
     user_persistence::{UserPersistence, migrate_users_persistence},
-    user_store::{User, UserStore, Users, UsersError},
+    user_store::{AuthenticateUser, User, UserStore, Users, UsersError},
 };
 
 use self::user_persistence::UserCreateOutcome;

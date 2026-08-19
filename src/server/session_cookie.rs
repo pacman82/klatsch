@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::{
     http::{AuthenticateRequest, HttpError},
     sessions::{SessionId, SessionLifecycle, SessionLookup},
-    user::{UserId, Users},
+    user::{AuthenticateUser, UserId, Users},
 };
 
 impl<T> AuthenticateRequest for T
@@ -59,6 +59,33 @@ struct SessionState<U, S> {
 
 pub fn session_routes<U, S>(users: U, sessions: S, encrypted: bool) -> Router
 where
+    U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
+    S: SessionLifecycle + Send + Sync + Clone + 'static,
+{
+    Router::new()
+        .merge(login_routes(users.clone(), sessions.clone(), encrypted))
+        .merge(signup_route(users, sessions, encrypted))
+}
+
+pub fn login_routes<U, S>(users: U, sessions: S, encrypted: bool) -> Router
+where
+    U: AuthenticateUser + Send + Sync + Clone + 'static,
+    S: SessionLifecycle + Send + Sync + Clone + 'static,
+{
+    let state = SessionState {
+        users,
+        sessions: sessions.clone(),
+        encrypted,
+    };
+    Router::new()
+        .route("/api/v0/login", post(login::<U, S>))
+        .with_state(state)
+        .route("/api/v0/logout", post(logout::<S>))
+        .with_state(sessions)
+}
+
+pub fn signup_route<U, S>(users: U, sessions: S, encrypted: bool) -> Router
+where
     U: Users + Send + Sync + Clone + 'static,
     S: SessionLifecycle + Send + Sync + Clone + 'static,
 {
@@ -69,10 +96,7 @@ where
     };
     Router::new()
         .route("/api/v0/signup", post(signup::<U, S>))
-        .route("/api/v0/login", post(login::<U, S>))
         .with_state(state)
-        .route("/api/v0/logout", post(logout::<S>))
-        .with_state(sessions)
 }
 
 fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
@@ -143,7 +167,7 @@ async fn login<U, S>(
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
-    U: Users,
+    U: AuthenticateUser,
     S: SessionLifecycle,
 {
     let user_id = users.login(body.name, body.password).await?;
@@ -170,15 +194,12 @@ mod tests {
 
     use crate::{
         http::AuthenticatedUser,
+        server::session_cookie::{login_routes, signup_route},
         sessions::{SessionId, SessionLifecycle, SessionLookup},
-        user::{UserId, Users, UsersError},
+        user::{AuthenticateUser, UserId, Users, UsersError},
     };
 
-    use super::session_routes;
-
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
-
-    // --- AuthenticateRequest tests ---
 
     fn authenticated_user_app(
         sessions: impl SessionLookup + Clone + Send + Sync + 'static,
@@ -270,13 +291,11 @@ mod tests {
         assert_eq!(body, UserId::ALICE.to_string().as_bytes());
     }
 
-    // --- session_cookie_routes tests ---
-
     #[tokio::test]
     async fn signup_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), Dummy, true);
+        let app = signup_route(spy.clone(), Dummy, true);
 
         // When
         let response = app
@@ -301,8 +320,8 @@ mod tests {
     async fn signup_returns_user_id() {
         // Given
         #[derive(Clone)]
-        struct UsersStub;
-        impl Users for UsersStub {
+        struct SignupStub;
+        impl Users for SignupStub {
             async fn signup(
                 &mut self,
                 _name: String,
@@ -311,7 +330,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, Dummy, true);
+        let app = signup_route(SignupStub, Dummy, true);
 
         // When
         let response = app
@@ -340,7 +359,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub, true);
+        let app = login_routes(Dummy, SessionsStub, true);
 
         // When
         let response = app
@@ -375,7 +394,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub, true);
+        let app = login_routes(Dummy, SessionsStub, true);
 
         // When
         let response = app
@@ -408,7 +427,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub, false);
+        let app = login_routes(Dummy, SessionsStub, false);
 
         // When
         let response = app
@@ -441,7 +460,7 @@ mod tests {
                 SOME_SESSION_ID
             }
         }
-        let app = session_routes(Dummy, SessionsStub, true);
+        let app = signup_route(Dummy, SessionsStub, true);
 
         // When
         let response = app
@@ -469,7 +488,7 @@ mod tests {
     #[tokio::test]
     async fn logout_clears_session_cookie() {
         // Given
-        let app = session_routes(Dummy, Dummy, true);
+        let app = login_routes(Dummy, Dummy, true);
 
         // When
         let response = app
@@ -509,7 +528,7 @@ mod tests {
             }
         }
         let spy = SessionsSpy::default();
-        let app = session_routes(Dummy, spy.clone(), true);
+        let app = login_routes(Dummy, spy.clone(), true);
 
         // When
         app.oneshot(
@@ -529,7 +548,7 @@ mod tests {
     async fn login_forwards_to_users() {
         // Given
         let spy = UsersSpy::default();
-        let app = session_routes(spy.clone(), Dummy, true);
+        let app = login_routes(spy.clone(), Dummy, true);
 
         // When
         let response = app
@@ -554,8 +573,8 @@ mod tests {
     async fn logging_in_returns_user_id() {
         // Given
         #[derive(Clone)]
-        struct UsersStub;
-        impl Users for UsersStub {
+        struct AuthenticateUserStub;
+        impl AuthenticateUser for AuthenticateUserStub {
             async fn login(
                 &mut self,
                 _name: String,
@@ -564,7 +583,7 @@ mod tests {
                 Ok(UserId::ALICE)
             }
         }
-        let app = session_routes(UsersStub, Dummy, true);
+        let app = login_routes(AuthenticateUserStub, Dummy, true);
 
         // When
         let response = app
@@ -588,7 +607,7 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct UsersSaboteur;
-        impl Users for UsersSaboteur {
+        impl AuthenticateUser for UsersSaboteur {
             async fn login(
                 &mut self,
                 _name: String,
@@ -597,7 +616,7 @@ mod tests {
                 Err(UsersError::WrongCredentials)
             }
         }
-        let app = session_routes(UsersSaboteur, Dummy, true);
+        let app = login_routes(UsersSaboteur, Dummy, true);
 
         // When
         let response = app
@@ -635,7 +654,9 @@ mod tests {
             self.signup_record.lock().unwrap().push((name, password));
             Ok(UserId::nil())
         }
+    }
 
+    impl AuthenticateUser for UsersSpy {
         async fn login(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok(UserId::nil())
