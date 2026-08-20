@@ -49,21 +49,11 @@ pub trait AuthenticateUser {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Users {
-    #[cfg(not(test))]
     fn signup(
         &mut self,
         name: String,
         password: String,
     ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
-
-    #[cfg(test)]
-    fn signup(
-        &mut self,
-        _name: String,
-        _password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send {
-        async { Ok(UserId::nil()) }
-    }
 
     fn user_by_id(&mut self, id: UserId) -> impl Future<Output = Result<User, UsersError>> + Send;
 
