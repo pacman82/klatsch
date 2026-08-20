@@ -14,8 +14,9 @@ use tokio::sync::watch;
 use axum::http::request::Parts;
 
 use crate::{
+    authentication::{AuthenticateRequest, AuthenticatedUser},
     chat::terminate_if::terminate_if,
-    http::{AuthenticateRequest, AuthenticatedUser, HttpError, LastEventId},
+    http::{HttpError, LastEventId},
     user::UserId,
 };
 
@@ -227,7 +228,7 @@ async fn set_sabotage(
 
 #[cfg(test)]
 mod tests {
-    use crate::http::AuthenticateRequest;
+    use crate::authentication::AuthenticateRequest;
     use axum::http::request::Parts;
 
     use super::{Chat, ChatError, Event, EventId, Message, MessageId, UserId, chat_routes};

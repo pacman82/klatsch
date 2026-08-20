@@ -6,7 +6,9 @@ use crate::{
 /// Signup users, log them in and out.
 #[derive(Clone)]
 pub struct AuthService<U, S> {
+    /// Used to validatate credentials and create new users during signup
     users: U,
+    /// Creates and revokes session during login and logout
     sessions: S,
 }
 
@@ -18,14 +20,17 @@ impl<U, S> AuthService<U, S> {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait Login {
+    /// Creates a session if credentials are correct
     fn login(
         &mut self,
         name: String,
         password: String,
     ) -> impl Future<Output = Result<(SessionId, UserId), AuthenticationError>> + Send;
 
+    /// Revokes a session
     fn logout(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 
+    /// Creates a user and a session
     fn signup(
         &mut self,
         name: String,
