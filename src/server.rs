@@ -95,7 +95,7 @@ impl Server {
     pub async fn new(
         config: ServerConfiguration,
         chat: impl Routes + Send + 'static,
-        users: impl Users + AuthenticateUser + Send + Sync + Clone + 'static,
+        users: impl Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let ServerConfiguration { host, port, tls } = config;
@@ -165,7 +165,7 @@ fn router<C, U, S>(
 ) -> Router
 where
     C: Routes + 'static,
-    U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
+    U: Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     let router = Router::new()

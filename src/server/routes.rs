@@ -13,7 +13,7 @@ pub trait Routes {
     /// * `encrypted`: Whether https is used or not. Used to decide how to handle confidential
     ///   information in cookies.
     fn routes(
-        &self,
+        self,
         auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
         shutting_down: watch::Receiver<bool>,
         encrypted: bool,
