@@ -8,19 +8,17 @@ mod terminate_if;
 
 use crate::persistence::ExecuteSqlAsync;
 
-pub use self::{
-    chat_http::chat_routes,
-    chat_persistence::migrate_chat_persistence,
-    chat_runtime::{Chat, ChatRuntime},
-    chat_store::ChatError,
-    event::{Event, EventId},
-    message::{Message, MessageId},
-};
+pub use self::{chat_persistence::migrate_chat_persistence, chat_runtime::ChatRuntime};
 
 // Integrate chat store with chat runtime. We do it here, because we want the submodules to be
 // independent from each other. Yet, the decision still belongs to the chat module.
 
-use self::chat_store::PersistentChat;
+use self::{
+    chat_runtime::Chat,
+    chat_store::{ChatError, PersistentChat},
+    event::{Event, EventId},
+    message::{Message, MessageId},
+};
 
 impl ChatRuntime {
     pub async fn new(
