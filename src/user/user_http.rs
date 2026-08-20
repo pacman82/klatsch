@@ -1,5 +1,6 @@
 use crate::{
-    http::{AuthenticateRequest, AuthenticatedUser, HttpError},
+    authentication::{AuthenticateRequest, AuthenticatedUser},
+    http::HttpError,
     user::AuthenticationError,
 };
 

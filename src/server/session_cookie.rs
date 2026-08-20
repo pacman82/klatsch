@@ -1,52 +1,11 @@
-use axum::{
-    Json, Router,
-    extract::State,
-    http::{StatusCode, request::Parts},
-    routing::post,
-};
+use axum::{Json, Router, extract::State, routing::post};
 use axum_extra::extract::{
     CookieJar,
     cookie::{Cookie, SameSite},
 };
 use serde::Deserialize;
 
-use crate::{
-    http::{AuthenticateRequest, HttpError},
-    login::Login,
-    sessions::{AuthenticateSession, SessionId},
-    user::UserId,
-};
-
-impl<T> AuthenticateRequest for T
-where
-    T: AuthenticateSession + Sync,
-{
-    fn authenticate_request(
-        &self,
-        parts: &Parts,
-    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
-        let jar = CookieJar::from_headers(&parts.headers);
-        let session_id = jar
-            .get("session")
-            .ok_or(HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Missing session".into(),
-            })
-            .and_then(|c| {
-                c.value().parse::<SessionId>().map_err(|_| HttpError {
-                    status_code: StatusCode::UNAUTHORIZED,
-                    message: "Invalid session".into(),
-                })
-            });
-        async move {
-            let session_id = session_id?;
-            self.authenticate(session_id).await.ok_or(HttpError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "Unknown session".into(),
-            })
-        }
-    }
-}
+use crate::{authentication::Login, http::HttpError, sessions::SessionId, user::UserId};
 
 /// State for the routes that create a session cookie. `encrypted` reflects whether the connection
 /// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
@@ -57,7 +16,7 @@ struct SessionState<L> {
     encrypted: bool,
 }
 
-pub fn session_routes<L>(auth_service: L, encrypted: bool) -> Router
+pub fn login_routes<L>(auth_service: L, encrypted: bool) -> Router
 where
     L: Login + Send + Sync + Clone + 'static,
 {
@@ -166,9 +125,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        http::AuthenticatedUser,
-        login::Login,
-        server::session_cookie::session_routes,
+        authentication::{AuthenticatedUser, Login},
+        server::session_cookie::login_routes,
         sessions::{AuthenticateSession, SessionId},
         user::{AuthenticationError, UserId, UsersError},
     };
@@ -269,7 +227,7 @@ mod tests {
     async fn signup_forwards_credentials() {
         // Given
         let spy = LoginSpy::default();
-        let app = session_routes(spy.clone(), true);
+        let app = login_routes(spy.clone(), true);
 
         // When
         let response = app
@@ -304,7 +262,7 @@ mod tests {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
-        let app = session_routes(SignupStub, true);
+        let app = login_routes(SignupStub, true);
 
         // When
         let response = app
@@ -347,7 +305,7 @@ mod tests {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
-        let app = session_routes(LoginStub, true);
+        let app = login_routes(LoginStub, true);
 
         // When
         let response = app
@@ -385,7 +343,7 @@ mod tests {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
-        let app = session_routes(LoginStub, false);
+        let app = login_routes(LoginStub, false);
 
         // When
         let response = app
@@ -411,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn logout_clears_session_cookie() {
         // Given
-        let app = session_routes(Dummy, true);
+        let app = login_routes(Dummy, true);
 
         // When
         let response = app
@@ -451,7 +409,7 @@ mod tests {
             }
         }
         let spy = LogoutSpy::default();
-        let app = session_routes(spy.clone(), true);
+        let app = login_routes(spy.clone(), true);
 
         // When
         app.oneshot(
@@ -471,7 +429,7 @@ mod tests {
     async fn login_forwards_credentials() {
         // Given
         let spy = LoginSpy::default();
-        let app = session_routes(spy.clone(), true);
+        let app = login_routes(spy.clone(), true);
 
         // When
         let response = app
@@ -506,7 +464,7 @@ mod tests {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
-        let app = session_routes(AuthenticateUserStub, true);
+        let app = login_routes(AuthenticateUserStub, true);
 
         // When she successfully logs in
         let response = app
@@ -549,7 +507,7 @@ mod tests {
                 Err(AuthenticationError::WrongCredentials)
             }
         }
-        let app = session_routes(UsersSaboteur, true);
+        let app = login_routes(UsersSaboteur, true);
 
         // When
         let response = app
