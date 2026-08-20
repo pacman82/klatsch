@@ -1,8 +1,8 @@
 use super::session_cookie::login_routes;
 use crate::{
     authentication::{AuthService, AuthenticateRequest},
-    chat::{Chat, chat_routes},
     invites::invite_routes,
+    server::Routes,
     sessions::SessionLifecycle,
     user::{AuthenticateUser, Users, user_routes},
 };
@@ -17,14 +17,14 @@ pub fn api_router<C, U, S>(
     encrypted: bool,
 ) -> Router
 where
-    C: Chat + Send + Sync + Clone + 'static,
+    C: Routes,
     U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     let auth_service = AuthService::new(users.clone(), sessions.clone());
 
     Router::new()
-        .merge(chat_routes(chat, sessions.clone(), shutting_down))
+        .merge(chat.routes(sessions.clone(), shutting_down, encrypted))
         .merge(login_routes(auth_service, encrypted))
         .merge(user_routes(users, sessions))
         .merge(invite_routes())

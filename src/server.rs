@@ -1,4 +1,5 @@
 mod api;
+mod routes;
 mod session_cookie;
 mod ui;
 
@@ -20,12 +21,13 @@ use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{
     authentication::AuthenticateRequest,
-    chat::Chat,
     sessions::SessionLifecycle,
     user::{AuthenticateUser, Users},
 };
 
 use self::{api::api_router, ui::ui_router};
+
+pub use self::routes::Routes;
 
 /// Configuration for the HTTP server interface.
 pub struct ServerConfiguration {
@@ -92,7 +94,7 @@ impl Server {
     /// its own thread, the TCP socket is already opened and listened to once this function returns.
     pub async fn new(
         config: ServerConfiguration,
-        chat: impl Chat + Send + Sync + Clone + 'static,
+        chat: impl Routes + Send + 'static,
         users: impl Users + AuthenticateUser + Send + Sync + Clone + 'static,
         sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
@@ -162,7 +164,7 @@ fn router<C, U, S>(
     encrypted: bool,
 ) -> Router
 where
-    C: Chat + Send + Sync + Clone + 'static,
+    C: Routes + 'static,
     U: Users + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {

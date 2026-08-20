@@ -17,6 +17,7 @@ use crate::{
     authentication::{AuthenticateRequest, AuthenticatedUser},
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
+    server::Routes,
     user::UserId,
 };
 
@@ -28,7 +29,21 @@ use std::{pin::pin, sync::Arc};
 
 use super::{Chat, ChatError, Event, EventId, Message, MessageId};
 
-pub fn chat_routes<C, S>(chat: C, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
+impl<C> Routes for C
+where
+    C: Chat + Send + Sync + Clone + 'static,
+{
+    fn routes(
+        &self,
+        auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
+        shutting_down: watch::Receiver<bool>,
+        _encrypted: bool,
+    ) -> axum::Router<()> {
+        chat_routes(self.clone(), auth, shutting_down)
+    }
+}
+
+fn chat_routes<C, S>(chat: C, sessions: S, shutting_down: watch::Receiver<bool>) -> Router
 where
     C: Chat + Send + Sync + Clone + 'static,
     S: AuthenticateRequest + Send + Sync + Clone + 'static,
