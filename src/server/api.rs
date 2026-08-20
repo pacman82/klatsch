@@ -1,9 +1,8 @@
-use super::session_cookie::session_routes;
+use super::session_cookie::login_routes;
 use crate::{
+    authentication::{AuthService, AuthenticateRequest},
     chat::{Chat, chat_routes},
-    http::AuthenticateRequest,
     invites::invite_routes,
-    login::AuthService,
     sessions::SessionLifecycle,
     user::{AuthenticateUser, Users, user_routes},
 };
@@ -26,7 +25,7 @@ where
 
     Router::new()
         .merge(chat_routes(chat, sessions.clone(), shutting_down))
-        .merge(session_routes(auth_service, encrypted))
+        .merge(login_routes(auth_service, encrypted))
         .merge(user_routes(users, sessions))
         .merge(invite_routes())
 }
