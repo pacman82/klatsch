@@ -126,10 +126,11 @@ mod tests {
 
     use crate::{
         authentication::{AuthenticatedUser, Login},
-        server::session_cookie::login_routes,
         sessions::{AuthenticateSession, SessionId},
         user::{AuthenticationError, UserId, UsersError},
     };
+
+    use super::login_routes;
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 
