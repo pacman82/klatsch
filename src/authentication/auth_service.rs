@@ -1,4 +1,8 @@
+use axum::http::request;
+
 use crate::{
+    authentication::AuthenticateRequest,
+    http::HttpError,
     sessions::{SessionId, SessionLifecycle},
     user::{AuthenticateUser, AuthenticationError, UserId, Users, UsersError},
 };
@@ -65,5 +69,17 @@ where
         let user_id = self.users.signup(name, password).await?;
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
+    }
+}
+
+impl<U, S> AuthenticateRequest for AuthService<U, S>
+where
+    S: AuthenticateRequest,
+{
+    fn authenticate_request(
+        &self,
+        parts: &request::Parts,
+    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
+        self.sessions.authenticate_request(parts)
     }
 }
