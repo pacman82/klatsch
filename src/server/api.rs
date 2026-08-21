@@ -1,4 +1,3 @@
-use super::session_cookie::login_routes;
 use crate::{
     authentication::{AuthService, AuthenticateRequest},
     invites::invite_routes,
@@ -24,8 +23,12 @@ where
     let auth_service = AuthService::new(users.clone(), sessions.clone());
 
     Router::new()
+        .merge(
+            auth_service
+                .clone()
+                .routes(auth_service.clone(), shutting_down.clone(), encrypted),
+        )
         .merge(chat.routes(auth_service.clone(), shutting_down.clone(), encrypted))
-        .merge(login_routes(auth_service.clone(), encrypted))
         .merge(users.routes(auth_service, shutting_down, encrypted))
         .merge(invite_routes())
 }

@@ -1,6 +1,5 @@
 mod api;
 mod routes;
-mod session_cookie;
 mod ui;
 
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
