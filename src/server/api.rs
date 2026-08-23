@@ -1,31 +1,21 @@
-use crate::{
-    invites::invite_routes,
-    server::Routes,
-    user::{AuthenticateUser, Users},
-    users::AuthenticateRequest,
-};
+use crate::{invites::invite_routes, server::Routes, users::AuthenticateRequest};
 use axum::Router;
 use tokio::sync::watch;
 
-pub fn api_router<C, U, A>(
+pub fn api_router<C, U>(
     chat: C,
     users: U,
-    auth_service: A,
     shutting_down: watch::Receiver<bool>,
     encrypted: bool,
 ) -> Router
 where
     C: Routes,
-    U: Users + AuthenticateUser + Routes + Send + Sync + Clone + 'static,
-    A: AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
+    U: AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
 {
+    let auth = users.clone();
+
     Router::new()
-        .merge(
-            auth_service
-                .clone()
-                .routes(auth_service.clone(), shutting_down.clone(), encrypted),
-        )
-        .merge(chat.routes(auth_service.clone(), shutting_down.clone(), encrypted))
-        .merge(users.routes(auth_service, shutting_down, encrypted))
+        .merge(chat.routes(auth.clone(), shutting_down.clone(), encrypted))
+        .merge(users.routes(auth, shutting_down, encrypted))
         .merge(invite_routes())
 }

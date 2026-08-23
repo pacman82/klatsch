@@ -1,16 +1,21 @@
 use axum::http::request;
+use tokio::sync::watch;
 
 use crate::{
     http::HttpError,
     persistence::ExecuteSqlAsync,
-    sessions::{SessionExpiry, SessionId, SessionLifecycle, SessionsClient, SessionsRuntime},
+    server::Routes,
+    sessions::{
+        AuthenticateSession, SessionExpiry, SessionId, SessionLifecycle, SessionsClient,
+        SessionsRuntime,
+    },
     user::{AuthenticateUser, AuthenticationError, UserId, UserStore, Users, UsersError},
 };
 
-use super::AuthenticateRequest;
+use super::{AuthenticateRequest, login_routes};
 
 pub struct UsersRuntime<P> {
-    pub store: UserStore<P>,
+    store: UserStore<P>,
     sessions: SessionsRuntime,
 }
 
@@ -23,10 +28,13 @@ impl<P> UsersRuntime<P> {
         F: Future<Output = anyhow::Result<P>>,
         P: ExecuteSqlAsync + Send + Sync + 'static,
     {
-        // users and history share the same persistence backend. This makes life easier for the
-        // operators.
-        let store = UserStore::new(open_connection().await?);
-        let sessions = SessionsRuntime::new(session_expiry, open_connection().await?).await?;
+        let (store, sessions) = tokio::try_join!(
+            async {
+                let conn = open_connection().await?;
+                Ok(UserStore::new(conn))
+            },
+            async { SessionsRuntime::new(session_expiry, open_connection().await?).await },
+        )?;
         Ok(Self { store, sessions })
     }
 
@@ -116,5 +124,24 @@ where
         parts: &request::Parts,
     ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
         self.sessions.authenticate_request(parts)
+    }
+}
+
+impl<U, S> Routes for UsersClient<U, S>
+where
+    U: Send + Sync + Clone + AuthenticateUser + Users + Routes + 'static,
+    S: Send + Sync + Clone + SessionLifecycle + AuthenticateSession + 'static,
+{
+    fn routes(
+        self,
+        _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
+        shutting_down: watch::Receiver<bool>,
+        encrypted: bool,
+    ) -> axum::Router<()> {
+        login_routes(self.clone(), encrypted).merge(self.users.routes(
+            self.sessions,
+            shutting_down,
+            encrypted,
+        ))
     }
 }
