@@ -1,4 +1,5 @@
 use crate::{
+    authentication::AuthService,
     chat::ChatRuntime,
     configuration::Configuration,
     persistence::{SqlitePersistence, migrate},
@@ -29,8 +30,11 @@ impl Klatsch {
             async { SessionsRuntime::new(cfg.session_expiry(), persistence.client().await?).await },
         )?;
 
+        let authentication = AuthService::new(users.clone(), sessions.client());
+
         // Answer incoming HTTP requests
-        let server = Server::new(cfg.server(), chat.client(), users, sessions.client()).await?;
+        let server =
+            Server::new(cfg.server(), chat.client(), users, authentication.clone()).await?;
 
         Ok(Self {
             chat,
