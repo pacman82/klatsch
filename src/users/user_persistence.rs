@@ -199,9 +199,7 @@ where
 mod tests {
     use async_sqlite::ClientBuilder;
 
-    use crate::user::{User, UserId};
-
-    use super::{UserCreateOutcome, UserPersistence, migrate_users_persistence};
+    use super::{User, UserCreateOutcome, UserId, UserPersistence, migrate_users_persistence};
 
     #[tokio::test]
     async fn create_new_user() {

@@ -131,7 +131,7 @@ mod tests {
 
     use async_sqlite::ClientBuilder;
 
-    use crate::{sessions::SessionId, user::UserId};
+    use crate::{sessions::SessionId, users::UserId};
 
     use super::{Session, SessionHash, SessionPersistence, migrate_session_persistence};
 

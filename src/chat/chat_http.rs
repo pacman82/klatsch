@@ -16,8 +16,7 @@ use axum::http::request::Parts;
 use crate::{
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
-    user::UserId,
-    users::{AuthenticateRequest, AuthenticatedUser},
+    users::{AuthenticateRequest, AuthenticatedUser, UserId},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds

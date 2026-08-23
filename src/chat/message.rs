@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     persistence::{Argument, AsArgument, FromField, GetFieldNative},
-    user::UserId,
+    users::UserId,
 };
 
 /// Sender generated unique identifier for the message. It is used to recover from errors

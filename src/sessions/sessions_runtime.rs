@@ -12,7 +12,7 @@ use tokio::{
     time::{Instant, Sleep, sleep_until},
 };
 
-use crate::{sessions::session_store::Session, user::UserId};
+use crate::{sessions::session_store::Session, users::UserId};
 
 use super::{SessionHash, SessionId, SessionPersistence, SessionStore};
 
@@ -255,7 +255,7 @@ mod tests {
 
     use crate::{
         sessions::{session_persistence::SessionPersistence, session_store::Session},
-        user::UserId,
+        users::UserId,
     };
 
     use super::{
