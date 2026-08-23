@@ -1,6 +1,6 @@
-mod auth_service;
 mod authenticate_request;
-mod session_cookie;
+mod login_routes;
+mod users_runtime;
 
 use tokio::sync::watch;
 
@@ -10,14 +10,14 @@ use crate::{
     user::{AuthenticateUser, Users},
 };
 
-use self::{auth_service::Login, session_cookie::login_routes};
+use self::{login_routes::login_routes, users_runtime::Login};
 
 pub use self::{
-    auth_service::AuthService,
     authenticate_request::{AuthenticateRequest, AuthenticatedUser},
+    users_runtime::{UsersClient, UsersRuntime},
 };
 
-impl<U, S> Routes for AuthService<U, S>
+impl<U, S> Routes for UsersClient<U, S>
 where
     U: Send + Sync + Clone + AuthenticateUser + Users + 'static,
     S: Send + Sync + Clone + SessionLifecycle + 'static,

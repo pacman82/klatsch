@@ -8,23 +8,20 @@ mod terminate_if;
 
 use tokio::sync::watch;
 
-use crate::{
-    authentication::AuthenticateRequest, chat::chat_runtime::ChatClient,
-    persistence::ExecuteSqlAsync, server::Routes,
+use crate::{persistence::ExecuteSqlAsync, server::Routes, users::AuthenticateRequest};
+
+use self::{
+    chat_http::chat_routes,
+    chat_runtime::{Chat, ChatClient},
+    chat_store::{ChatError, PersistentChat},
+    event::{Event, EventId},
+    message::{Message, MessageId},
 };
 
 pub use self::{chat_persistence::migrate_chat_persistence, chat_runtime::ChatRuntime};
 
 // Integrate chat store with chat runtime. We do it here, because we want the submodules to be
 // independent from each other. Yet, the decision still belongs to the chat module.
-
-use self::{
-    chat_http::chat_routes,
-    chat_runtime::Chat,
-    chat_store::{ChatError, PersistentChat},
-    event::{Event, EventId},
-    message::{Message, MessageId},
-};
 
 impl ChatRuntime {
     pub async fn new(

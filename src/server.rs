@@ -19,8 +19,8 @@ use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{
-    authentication::AuthenticateRequest,
     user::{AuthenticateUser, Users},
+    users::AuthenticateRequest,
 };
 
 use self::{api::api_router, ui::ui_router};

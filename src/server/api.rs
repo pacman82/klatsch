@@ -1,8 +1,8 @@
 use crate::{
-    authentication::AuthenticateRequest,
     invites::invite_routes,
     server::Routes,
     user::{AuthenticateUser, Users},
+    users::AuthenticateRequest,
 };
 use axum::Router;
 use tokio::sync::watch;

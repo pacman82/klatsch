@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 
-use crate::authentication::AuthenticateRequest;
+use crate::users::AuthenticateRequest;
 
 /// Provide routes for the HTTP API
 pub trait Routes {

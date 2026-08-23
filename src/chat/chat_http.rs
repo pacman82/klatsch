@@ -14,10 +14,10 @@ use tokio::sync::watch;
 use axum::http::request::Parts;
 
 use crate::{
-    authentication::{AuthenticateRequest, AuthenticatedUser},
     chat::terminate_if::terminate_if,
     http::{HttpError, LastEventId},
     user::UserId,
+    users::{AuthenticateRequest, AuthenticatedUser},
 };
 
 // Additional imports needed for sabatoge mode, which is only available in debug builds
@@ -228,7 +228,7 @@ async fn set_sabotage(
 
 #[cfg(test)]
 mod tests {
-    use crate::authentication::AuthenticateRequest;
+    use crate::users::AuthenticateRequest;
     use axum::http::request::Parts;
 
     use super::{Chat, ChatError, Event, EventId, Message, MessageId, UserId, chat_routes};

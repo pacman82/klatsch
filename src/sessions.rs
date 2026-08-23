@@ -9,7 +9,7 @@ pub use self::{
     session_id::SessionId,
     session_persistence::migrate_session_persistence,
     session_store::SessionExpiry,
-    sessions_runtime::{AuthenticateSession, SessionLifecycle, SessionsRuntime},
+    sessions_runtime::{AuthenticateSession, SessionLifecycle, SessionsClient, SessionsRuntime},
 };
 
 use self::{

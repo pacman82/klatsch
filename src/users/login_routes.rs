@@ -5,7 +5,9 @@ use axum_extra::extract::{
 };
 use serde::Deserialize;
 
-use crate::{authentication::Login, http::HttpError, sessions::SessionId, user::UserId};
+use crate::{http::HttpError, sessions::SessionId, user::UserId};
+
+use super::Login;
 
 /// State for the routes that create a session cookie. `encrypted` reflects whether the connection
 /// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
@@ -125,12 +127,11 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        authentication::{AuthenticatedUser, Login},
         sessions::{AuthenticateSession, SessionId},
         user::{AuthenticationError, UserId, UsersError},
     };
 
-    use super::login_routes;
+    use super::{super::AuthenticatedUser, Login, login_routes};
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 

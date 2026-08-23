@@ -1,7 +1,7 @@
 use crate::{
-    authentication::{AuthenticateRequest, AuthenticatedUser},
     http::HttpError,
     user::AuthenticationError,
+    users::{AuthenticateRequest, AuthenticatedUser},
 };
 
 use super::{User, UserId, Users, UsersError};
