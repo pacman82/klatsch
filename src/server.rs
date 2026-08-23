@@ -18,10 +18,7 @@ use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
-use crate::{
-    user::{AuthenticateUser, Users},
-    users::AuthenticateRequest,
-};
+use crate::users::AuthenticateRequest;
 
 use self::{api::api_router, ui::ui_router};
 
@@ -93,8 +90,7 @@ impl Server {
     pub async fn new(
         config: ServerConfiguration,
         chat: impl Routes + Send + 'static,
-        users: impl Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
-        authentication: impl AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
+        users: impl AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let ServerConfiguration { host, port, tls } = config;
 
@@ -125,13 +121,7 @@ impl Server {
         let join_handle = tokio::spawn({
             let server_handle = server_handle.clone();
             async move {
-                let router = router(
-                    chat,
-                    users,
-                    authentication,
-                    shutting_down_receiver,
-                    encrypted,
-                );
+                let router = router(chat, users, shutting_down_receiver, encrypted);
                 let server = axum_server::Server::from_listener(listener).handle(server_handle);
                 let result = match maybe_rustls_config {
                     Some(rustls_config) => {
@@ -160,27 +150,14 @@ impl Server {
     }
 }
 
-fn router<C, U, A>(
-    chat: C,
-    users: U,
-    authentication: A,
-    shutting_down: watch::Receiver<bool>,
-    encrypted: bool,
-) -> Router
+fn router<C, U>(chat: C, users: U, shutting_down: watch::Receiver<bool>, encrypted: bool) -> Router
 where
     C: Routes + 'static,
-    U: Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
-    A: AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
+    U: AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
 {
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(
-            chat,
-            users,
-            authentication,
-            shutting_down,
-            encrypted,
-        ))
+        .merge(api_router(chat, users, shutting_down, encrypted))
         .merge(ui_router());
 
     add_tracing_layer(router)

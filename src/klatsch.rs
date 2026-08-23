@@ -28,13 +28,7 @@ impl Klatsch {
         )?;
 
         // Answer incoming HTTP requests
-        let server = Server::new(
-            cfg.server(),
-            chat.client(),
-            users.store.clone(),
-            users.client(),
-        )
-        .await?;
+        let server = Server::new(cfg.server(), chat.client(), users.client()).await?;
 
         Ok(Self {
             chat,
