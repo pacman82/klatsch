@@ -126,7 +126,14 @@ impl Server {
         let join_handle = tokio::spawn({
             let server_handle = server_handle.clone();
             async move {
-                let router = router(chat, users, sessions, shutting_down_receiver, encrypted);
+                let authentication = AuthService::new(users.clone(), sessions.clone());
+                let router = router(
+                    chat,
+                    users,
+                    authentication,
+                    shutting_down_receiver,
+                    encrypted,
+                );
                 let server = axum_server::Server::from_listener(listener).handle(server_handle);
                 let result = match maybe_rustls_config {
                     Some(rustls_config) => {
@@ -155,26 +162,24 @@ impl Server {
     }
 }
 
-fn router<C, U, S>(
+fn router<C, U, A>(
     chat: C,
     users: U,
-    sessions: S,
+    authentication: A,
     shutting_down: watch::Receiver<bool>,
     encrypted: bool,
 ) -> Router
 where
     C: Routes + 'static,
     U: Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
-    S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
+    A: AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
 {
-    let auth_service = AuthService::new(users.clone(), sessions.clone());
-
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
         .merge(api_router(
             chat,
             users,
-            auth_service,
+            authentication,
             shutting_down,
             encrypted,
         ))
