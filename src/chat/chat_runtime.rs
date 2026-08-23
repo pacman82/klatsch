@@ -221,7 +221,7 @@ mod tests {
     use crate::chat::{event::EventId, message::MessageId};
 
     use super::*;
-    use crate::user::UserId;
+    use crate::users::UserId;
     use anyhow::bail;
     use double_trait::Dummy;
     use futures_util::{StreamExt, TryStreamExt};

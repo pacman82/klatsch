@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     persistence::{ExecuteSqlAsync, ExecuteSqlSync, GetField as _, PersistenceError as _},
-    user::UserId,
+    users::UserId,
 };
 use uuid::Uuid;
 
@@ -211,7 +211,7 @@ mod tests {
 
     use crate::{
         chat::{Event, EventId, Message, MessageId},
-        user::UserId,
+        users::UserId,
     };
 
     use super::{ChatPersistence, InsertOutcome, migrate_chat_persistence};

@@ -5,9 +5,9 @@ use axum_extra::extract::{
 };
 use serde::Deserialize;
 
-use crate::{http::HttpError, sessions::SessionId, user::UserId};
+use crate::{http::HttpError, sessions::SessionId};
 
-use super::Login;
+use super::{Login, UserId};
 
 /// State for the routes that create a session cookie. `encrypted` reflects whether the connection
 /// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
@@ -126,12 +126,12 @@ mod tests {
     use tower::ServiceExt as _;
     use uuid::Uuid;
 
-    use crate::{
-        sessions::{AuthenticateSession, SessionId},
-        user::{AuthenticationError, UserId, UsersError},
-    };
+    use crate::sessions::{AuthenticateSession, SessionId};
 
-    use super::{super::AuthenticatedUser, Login, login_routes};
+    use super::{
+        super::{AuthenticatedUser, AuthenticationError, UsersError},
+        Login, UserId, login_routes,
+    };
 
     const SOME_SESSION_ID: SessionId = SessionId::from_uuid(Uuid::from_u128(1));
 

@@ -185,7 +185,7 @@ mod tests {
 
     use anyhow::bail;
 
-    use crate::user::{
+    use super::{
         AuthenticationError, UserCreateOutcome, UserId, UserPersistence, UserStore, Users,
         UsersError,
     };

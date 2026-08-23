@@ -88,7 +88,7 @@ mod tests {
     use super::{ChatPersistence, ChatStore as _, Event, InsertOutcome, PersistentChat};
     use crate::{
         chat::{ChatError, EventId, Message, MessageId},
-        user::UserId,
+        users::UserId,
     };
 
     #[tokio::test]

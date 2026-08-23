@@ -9,10 +9,12 @@ use crate::{
         AuthenticateSession, SessionExpiry, SessionId, SessionLifecycle, SessionsClient,
         SessionsRuntime,
     },
-    user::{AuthenticateUser, AuthenticationError, UserId, UserStore, Users, UsersError},
 };
 
-use super::{AuthenticateRequest, login_routes};
+use super::{
+    AuthenticateRequest, AuthenticateUser, AuthenticationError, UserId, UserStore, Users,
+    UsersError, login_routes, user_routes,
+};
 
 pub struct UsersRuntime<P> {
     store: UserStore<P>,
@@ -129,19 +131,15 @@ where
 
 impl<U, S> Routes for UsersClient<U, S>
 where
-    U: Send + Sync + Clone + AuthenticateUser + Users + Routes + 'static,
+    U: Send + Sync + Clone + AuthenticateUser + Users + 'static,
     S: Send + Sync + Clone + SessionLifecycle + AuthenticateSession + 'static,
 {
     fn routes(
         self,
         _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
-        shutting_down: watch::Receiver<bool>,
+        _shutting_down: watch::Receiver<bool>,
         encrypted: bool,
     ) -> axum::Router<()> {
-        login_routes(self.clone(), encrypted).merge(self.users.routes(
-            self.sessions,
-            shutting_down,
-            encrypted,
-        ))
+        login_routes(self.clone(), encrypted).merge(user_routes(self.users, self.sessions))
     }
 }

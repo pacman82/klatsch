@@ -1,7 +1,7 @@
 use crate::{
     http::HttpError,
     sessions::{AuthenticateSession, SessionId},
-    user::UserId,
+    users::UserId,
 };
 use axum::{
     extract::FromRequestParts,

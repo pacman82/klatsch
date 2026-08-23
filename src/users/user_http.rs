@@ -1,10 +1,8 @@
-use crate::{
-    http::HttpError,
-    user::AuthenticationError,
-    users::{AuthenticateRequest, AuthenticatedUser},
-};
+use crate::http::HttpError;
 
-use super::{User, UserId, Users, UsersError};
+use super::{
+    AuthenticateRequest, AuthenticatedUser, AuthenticationError, User, UserId, Users, UsersError,
+};
 
 use axum::{
     Json, Router,

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::user::UserId;
+use crate::users::UserId;
 
 use super::{SessionHash, SessionId};
 
@@ -205,7 +205,7 @@ impl SessionInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::user::UserId;
+    use crate::users::UserId;
 
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
