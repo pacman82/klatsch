@@ -19,8 +19,7 @@ use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{
-    authentication::{AuthService, AuthenticateRequest},
-    sessions::SessionLifecycle,
+    authentication::AuthenticateRequest,
     user::{AuthenticateUser, Users},
 };
 
@@ -95,7 +94,7 @@ impl Server {
         config: ServerConfiguration,
         chat: impl Routes + Send + 'static,
         users: impl Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
-        sessions: impl SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
+        authentication: impl AuthenticateRequest + Routes + Send + Sync + Clone + 'static,
     ) -> anyhow::Result<Server> {
         let ServerConfiguration { host, port, tls } = config;
 
@@ -126,7 +125,6 @@ impl Server {
         let join_handle = tokio::spawn({
             let server_handle = server_handle.clone();
             async move {
-                let authentication = AuthService::new(users.clone(), sessions.clone());
                 let router = router(
                     chat,
                     users,
