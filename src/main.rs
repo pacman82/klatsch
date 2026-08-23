@@ -1,4 +1,3 @@
-mod authentication;
 mod chat;
 mod configuration;
 mod http;
@@ -10,6 +9,7 @@ mod sessions;
 mod shutdown;
 mod tracing;
 mod user;
+mod users;
 
 use dotenvy::dotenv;
 

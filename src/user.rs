@@ -6,7 +6,7 @@ mod user_store;
 
 use tokio::sync::watch;
 
-use crate::{authentication::AuthenticateRequest, persistence::ExecuteSqlAsync, server::Routes};
+use crate::{persistence::ExecuteSqlAsync, server::Routes, users::AuthenticateRequest};
 
 pub use self::{
     user_id::UserId,
