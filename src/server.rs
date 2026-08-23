@@ -19,7 +19,7 @@ use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::{Span, debug, debug_span, error, info};
 
 use crate::{
-    authentication::AuthenticateRequest,
+    authentication::{AuthService, AuthenticateRequest},
     sessions::SessionLifecycle,
     user::{AuthenticateUser, Users},
 };
@@ -167,9 +167,17 @@ where
     U: Users + Routes + AuthenticateUser + Send + Sync + Clone + 'static,
     S: SessionLifecycle + AuthenticateRequest + Send + Sync + Clone + 'static,
 {
+    let auth_service = AuthService::new(users.clone(), sessions.clone());
+
     let router = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .merge(api_router(chat, users, sessions, shutting_down, encrypted))
+        .merge(api_router(
+            chat,
+            users,
+            auth_service,
+            shutting_down,
+            encrypted,
+        ))
         .merge(ui_router());
 
     add_tracing_layer(router)

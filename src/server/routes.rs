@@ -2,7 +2,7 @@ use tokio::sync::watch;
 
 use crate::authentication::AuthenticateRequest;
 
-/// Registers routes
+/// Provide routes for the HTTP API
 pub trait Routes {
     /// Used to register routes in the HTTP API
     ///
