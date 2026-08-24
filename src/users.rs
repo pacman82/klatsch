@@ -10,7 +10,7 @@ mod users_runtime;
 use self::{
     login_routes::login_routes,
     user_persistence::{UserCreateOutcome, UserPersistence},
-    user_store::{AuthenticationError, UsersError},
+    user_store::{UsersError, VerifyCredentialsError},
     users_runtime::Login,
 };
 
@@ -19,6 +19,6 @@ pub use self::{
     user_http::user_routes,
     user_id::UserId,
     user_persistence::migrate_users_persistence,
-    user_store::{AuthenticateUser, ChangeUsers, User, UserStore},
+    user_store::{ChangeUsers, User, UserStore, VerifyCredentials},
     users_runtime::UsersRuntime,
 };

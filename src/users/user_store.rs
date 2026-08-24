@@ -19,7 +19,7 @@ impl<P> UserStore<P> {
 }
 
 #[derive(Debug)]
-pub enum AuthenticationError {
+pub enum VerifyCredentialsError {
     /// User name or password is incorrect
     WrongCredentials,
     /// An error attributed to the runtime. User did nothing wrong. No need for further information,
@@ -29,12 +29,12 @@ pub enum AuthenticationError {
 
 /// Verifies credentials belong to a known user
 #[cfg_attr(test, double_trait::dummies)]
-pub trait AuthenticateUser {
+pub trait VerifyCredentials {
     fn authenticate(
         &mut self,
         name: String,
         password: String,
-    ) -> impl Future<Output = Result<UserId, AuthenticationError>> + Send;
+    ) -> impl Future<Output = Result<UserId, VerifyCredentialsError>> + Send;
 }
 
 #[cfg_attr(test, double_trait::dummies)]
@@ -62,7 +62,7 @@ pub trait ChangeUsers {
     fn is_empty(&mut self) -> impl Future<Output = Result<bool, UsersError>> + Send;
 }
 
-impl<P> AuthenticateUser for UserStore<P>
+impl<P> VerifyCredentials for UserStore<P>
 where
     P: UserPersistence + Send,
 {
@@ -70,19 +70,19 @@ where
         &mut self,
         name: String,
         password: String,
-    ) -> Result<UserId, AuthenticationError> {
+    ) -> Result<UserId, VerifyCredentialsError> {
         let maybe_user = self
             .persistence
             .id_and_hash_by_name(&name)
             .await
-            .map_err(|_| AuthenticationError::Internal)?;
+            .map_err(|_| VerifyCredentialsError::Internal)?;
 
-        let (user_id, maybe_hash) = maybe_user.ok_or(AuthenticationError::WrongCredentials)?;
+        let (user_id, maybe_hash) = maybe_user.ok_or(VerifyCredentialsError::WrongCredentials)?;
 
         if let Some(hash) = maybe_hash
             && !password_hash::verify(&password, &hash)
         {
-            return Err(AuthenticationError::WrongCredentials);
+            return Err(VerifyCredentialsError::WrongCredentials);
         }
 
         // User existed already, but this is fine.
@@ -176,11 +176,11 @@ mod tests {
     use anyhow::bail;
 
     use super::{
-        AuthenticationError, ChangeUsers, UserCreateOutcome, UserId, UserPersistence, UserStore,
-        UsersError,
+        ChangeUsers, UserCreateOutcome, UserId, UserPersistence, UserStore, UsersError,
+        VerifyCredentialsError,
     };
 
-    use super::{AuthenticateUser, User, password_hash};
+    use super::{User, VerifyCredentials, password_hash};
 
     #[tokio::test]
     async fn create_new_user() {
@@ -286,7 +286,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(AuthenticationError::WrongCredentials));
+        assert_matches!(result, Err(VerifyCredentialsError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -334,7 +334,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "wrong-secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(AuthenticationError::WrongCredentials));
+        assert_matches!(result, Err(VerifyCredentialsError::WrongCredentials));
     }
 
     #[tokio::test]
@@ -366,7 +366,7 @@ mod tests {
             .authenticate("Alice".to_owned(), "secret".to_owned())
             .await;
 
-        assert_matches!(result, Err(AuthenticationError::Internal));
+        assert_matches!(result, Err(VerifyCredentialsError::Internal));
     }
 
     #[tokio::test]
