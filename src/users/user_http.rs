@@ -1,7 +1,8 @@
 use crate::http::HttpError;
 
 use super::{
-    AuthenticateRequest, AuthenticatedUser, AuthenticationError, User, UserId, Users, UsersError,
+    AuthenticateRequest, AuthenticatedUser, AuthenticationError, ChangeUsers, User, UserId,
+    UsersError,
 };
 
 use axum::{
@@ -14,7 +15,7 @@ use serde::Deserialize;
 
 pub fn user_routes<U, S>(users: U, sessions: S) -> Router
 where
-    U: Users + Send + Sync + Clone + 'static,
+    U: ChangeUsers + Send + Sync + Clone + 'static,
     S: AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     Router::new()
@@ -32,7 +33,7 @@ where
 /// would be an authenticated user, this would imply the answer to be `true`.
 async fn is_empty<U, S>(State(state): State<UserState<U, S>>) -> Result<Json<bool>, HttpError>
 where
-    U: Users + Send + Sync,
+    U: ChangeUsers + Send + Sync,
     S: AuthenticateRequest + Send + Sync,
 {
     let mut users = state.users;
@@ -61,7 +62,7 @@ async fn user_info<U, S>(
     Path(id): Path<UserId>,
 ) -> Result<Json<User>, HttpError>
 where
-    U: Users + Send + Sync,
+    U: ChangeUsers + Send + Sync,
     S: AuthenticateRequest + Send + Sync,
 {
     let mut users = state.users;
@@ -81,7 +82,7 @@ async fn change_password<U, S>(
     Json(body): Json<ChangePasswordBody>,
 ) -> Result<(), HttpError>
 where
-    U: Users + Send + Sync,
+    U: ChangeUsers + Send + Sync,
     S: AuthenticateRequest + Send + Sync,
 {
     let mut users = state.users;
@@ -148,7 +149,7 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
 
-        impl Users for UsersStub {
+        impl ChangeUsers for UsersStub {
             async fn user_by_id(&mut self, _: UserId) -> Result<User, UsersError> {
                 Ok(User {
                     name: "Alice".to_owned(),
@@ -191,7 +192,7 @@ mod tests {
         // Given
         #[derive(Clone)]
         struct UsersStub;
-        impl Users for UsersStub {
+        impl ChangeUsers for UsersStub {
             async fn is_empty(&mut self) -> Result<bool, UsersError> {
                 Ok(true)
             }
@@ -222,7 +223,7 @@ mod tests {
         #[derive(Clone)]
         struct UsersStub;
 
-        impl Users for UsersStub {
+        impl ChangeUsers for UsersStub {
             async fn user_by_id(&mut self, _: UserId) -> Result<User, UsersError> {
                 Err(UsersError::UnknownUser)
             }
@@ -255,7 +256,7 @@ mod tests {
         struct UsersSpy {
             calls: Arc<Mutex<Vec<(UserId, String, String)>>>,
         }
-        impl Users for UsersSpy {
+        impl ChangeUsers for UsersSpy {
             async fn change_password(
                 &mut self,
                 id: UserId,
@@ -304,7 +305,7 @@ mod tests {
         // Rejects any current password, simulating a mismatch against the stored hash.
         #[derive(Clone)]
         struct WrongPasswordSaboteur;
-        impl Users for WrongPasswordSaboteur {
+        impl ChangeUsers for WrongPasswordSaboteur {
             async fn change_password(
                 &mut self,
                 _id: UserId,

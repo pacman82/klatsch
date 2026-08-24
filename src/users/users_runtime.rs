@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    AuthenticateRequest, AuthenticateUser, AuthenticationError, UserId, UserStore, Users,
+    AuthenticateRequest, AuthenticateUser, AuthenticationError, UserId, UserStore, ChangeUsers,
     UsersError, login_routes, user_routes,
 };
 
@@ -89,7 +89,7 @@ pub trait Login {
 
 impl<U, S> Login for UsersClient<U, S>
 where
-    U: AuthenticateUser + Users + Send,
+    U: AuthenticateUser + ChangeUsers + Send,
     S: SessionLifecycle + Send,
 {
     async fn login(
@@ -131,7 +131,7 @@ where
 
 impl<U, S> Routes for UsersClient<U, S>
 where
-    U: Send + Sync + Clone + AuthenticateUser + Users + 'static,
+    U: Send + Sync + Clone + AuthenticateUser + ChangeUsers + 'static,
     S: Send + Sync + Clone + SessionLifecycle + AuthenticateSession + 'static,
 {
     fn routes(
