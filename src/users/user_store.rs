@@ -30,21 +30,11 @@ pub enum AuthenticationError {
 /// Verifies credentials belong to a known user
 #[cfg_attr(test, double_trait::dummies)]
 pub trait AuthenticateUser {
-    #[cfg(not(test))]
     fn authenticate(
         &mut self,
         name: String,
         password: String,
     ) -> impl Future<Output = Result<UserId, AuthenticationError>> + Send;
-
-    #[cfg(test)]
-    fn authenticate(
-        &mut self,
-        _name: String,
-        _password: String,
-    ) -> impl Future<Output = Result<UserId, AuthenticationError>> + Send {
-        async { Ok(UserId::nil()) }
-    }
 }
 
 #[cfg_attr(test, double_trait::dummies)]
