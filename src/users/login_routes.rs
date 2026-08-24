@@ -129,7 +129,7 @@ mod tests {
     use crate::sessions::{AuthenticateSession, SessionId};
 
     use super::{
-        super::{AuthenticatedUser, AuthenticationError, UsersError},
+        super::{AuthenticatedUser, UsersError, VerifyCredentialsError},
         Login, UserId, login_routes,
     };
 
@@ -303,7 +303,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<(SessionId, UserId), AuthenticationError> {
+            ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
@@ -341,7 +341,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<(SessionId, UserId), AuthenticationError> {
+            ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
@@ -462,7 +462,7 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<(SessionId, UserId), AuthenticationError> {
+            ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
@@ -505,8 +505,8 @@ mod tests {
                 &mut self,
                 _name: String,
                 _password: String,
-            ) -> Result<(SessionId, UserId), AuthenticationError> {
-                Err(AuthenticationError::WrongCredentials)
+            ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
+                Err(VerifyCredentialsError::WrongCredentials)
             }
         }
         let app = login_routes(UsersSaboteur, true);
@@ -556,7 +556,7 @@ mod tests {
             &mut self,
             name: String,
             password: String,
-        ) -> Result<(SessionId, UserId), AuthenticationError> {
+        ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
             self.login_record.lock().unwrap().push((name, password));
             Ok((SessionId::nil(), UserId::nil()))
         }

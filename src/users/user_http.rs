@@ -1,8 +1,8 @@
 use crate::http::HttpError;
 
 use super::{
-    AuthenticateRequest, AuthenticatedUser, AuthenticationError, ChangeUsers, User, UserId,
-    UsersError,
+    AuthenticateRequest, AuthenticatedUser, ChangeUsers, User, UserId, UsersError,
+    VerifyCredentialsError,
 };
 
 use axum::{
@@ -115,14 +115,14 @@ impl From<UsersError> for HttpError {
     }
 }
 
-impl From<AuthenticationError> for HttpError {
-    fn from(err: AuthenticationError) -> Self {
+impl From<VerifyCredentialsError> for HttpError {
+    fn from(err: VerifyCredentialsError) -> Self {
         match err {
-            AuthenticationError::Internal => HttpError {
+            VerifyCredentialsError::Internal => HttpError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "Internal server error".into(),
             },
-            AuthenticationError::WrongCredentials => HttpError {
+            VerifyCredentialsError::WrongCredentials => HttpError {
                 status_code: StatusCode::UNAUTHORIZED,
                 message: "Either user name or password is incorrect".into(),
             },

@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    AuthenticateRequest, AuthenticateUser, AuthenticationError, UserId, UserStore, ChangeUsers,
-    UsersError, login_routes, user_routes,
+    AuthenticateRequest, VerifyCredentialsError, ChangeUsers, UserId, UserStore, UsersError,
+    VerifyCredentials, login_routes, user_routes,
 };
 
 pub struct UsersRuntime<P> {
@@ -74,7 +74,7 @@ pub trait Login {
         &mut self,
         name: String,
         password: String,
-    ) -> impl Future<Output = Result<(SessionId, UserId), AuthenticationError>> + Send;
+    ) -> impl Future<Output = Result<(SessionId, UserId), VerifyCredentialsError>> + Send;
 
     /// Revokes a session
     fn logout(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
@@ -89,14 +89,14 @@ pub trait Login {
 
 impl<U, S> Login for UsersClient<U, S>
 where
-    U: AuthenticateUser + ChangeUsers + Send,
+    U: VerifyCredentials + ChangeUsers + Send,
     S: SessionLifecycle + Send,
 {
     async fn login(
         &mut self,
         name: String,
         password: String,
-    ) -> Result<(SessionId, UserId), AuthenticationError> {
+    ) -> Result<(SessionId, UserId), VerifyCredentialsError> {
         let user_id = self.users.authenticate(name, password).await?;
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
@@ -131,7 +131,7 @@ where
 
 impl<U, S> Routes for UsersClient<U, S>
 where
-    U: Send + Sync + Clone + AuthenticateUser + ChangeUsers + 'static,
+    U: Send + Sync + Clone + VerifyCredentials + ChangeUsers + 'static,
     S: Send + Sync + Clone + SessionLifecycle + AuthenticateSession + 'static,
 {
     fn routes(
