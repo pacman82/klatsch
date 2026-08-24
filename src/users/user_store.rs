@@ -38,7 +38,7 @@ pub trait AuthenticateUser {
 }
 
 #[cfg_attr(test, double_trait::dummies)]
-pub trait Users {
+pub trait ChangeUsers {
     fn signup(
         &mut self,
         name: String,
@@ -90,7 +90,7 @@ where
     }
 }
 
-impl<P> Users for UserStore<P>
+impl<P> ChangeUsers for UserStore<P>
 where
     P: UserPersistence + Send,
 {
@@ -176,7 +176,7 @@ mod tests {
     use anyhow::bail;
 
     use super::{
-        AuthenticationError, UserCreateOutcome, UserId, UserPersistence, UserStore, Users,
+        AuthenticationError, ChangeUsers, UserCreateOutcome, UserId, UserPersistence, UserStore,
         UsersError,
     };
 

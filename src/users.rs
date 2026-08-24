@@ -19,6 +19,6 @@ pub use self::{
     user_http::user_routes,
     user_id::UserId,
     user_persistence::migrate_users_persistence,
-    user_store::{AuthenticateUser, User, UserStore, Users},
+    user_store::{AuthenticateUser, ChangeUsers, User, UserStore},
     users_runtime::UsersRuntime,
 };
