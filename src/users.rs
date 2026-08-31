@@ -1,4 +1,5 @@
 mod authenticate;
+mod invites;
 mod login_routes;
 mod password_hash;
 mod user_http;
@@ -8,6 +9,7 @@ mod user_store;
 mod users_runtime;
 
 use self::{
+    invites::invite_routes,
     login_routes::login_routes,
     user_persistence::{UserCreateOutcome, UserPersistence},
     user_store::{UsersError, VerifyCredentialsError},
