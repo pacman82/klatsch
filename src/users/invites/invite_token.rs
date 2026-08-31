@@ -18,6 +18,12 @@ impl InviteToken {
     pub const fn nil() -> Self {
         Self::from_uuid(Uuid::nil())
     }
+
+    #[cfg(test)]
+    pub const ALPHA: InviteToken = InviteToken::from_uuid(Uuid::from_bytes([
+        0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+        0xaa,
+    ]));
 }
 
 impl fmt::Display for InviteToken {
