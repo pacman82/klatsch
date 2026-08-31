@@ -13,12 +13,15 @@ use crate::{
 
 use super::{
     AuthenticateRequest, ChangeUsers, UserId, UserStore, UsersError, VerifyCredentials,
-    VerifyCredentialsError, invite_routes, login_routes, user_routes,
+    VerifyCredentialsError,
+    invites::{InviteClient, InviteRuntime},
+    login_routes, user_routes,
 };
 
 pub struct UsersRuntime<P> {
-    store: UserStore<P>,
+    users: UserStore<P>,
     sessions: SessionsRuntime,
+    invites: InviteRuntime,
 }
 
 impl<P> UsersRuntime<P> {
@@ -30,14 +33,19 @@ impl<P> UsersRuntime<P> {
         F: Future<Output = anyhow::Result<P>>,
         P: ExecuteSqlAsync + Send + Sync + 'static,
     {
-        let (store, sessions) = tokio::try_join!(
+        let (users, sessions) = tokio::try_join!(
             async {
                 let conn = open_connection().await?;
                 Ok(UserStore::new(conn))
             },
             async { SessionsRuntime::new(session_expiry, open_connection().await?).await },
         )?;
-        Ok(Self { store, sessions })
+        let invites = InviteRuntime::new();
+        Ok(Self {
+            users,
+            sessions,
+            invites,
+        })
     }
 
     pub async fn shutdown(self) {
@@ -48,7 +56,11 @@ impl<P> UsersRuntime<P> {
     where
         P: Clone,
     {
-        UsersClient::new(self.store.clone(), self.sessions.client())
+        UsersClient::new(
+            self.users.clone(),
+            self.sessions.client(),
+            self.invites.client(),
+        )
     }
 }
 
@@ -59,11 +71,16 @@ pub struct UsersClient<U, S> {
     users: U,
     /// Creates and revokes session during login and logout
     sessions: S,
+    invites: InviteClient,
 }
 
 impl<U, S> UsersClient<U, S> {
-    pub fn new(users: U, sessions: S) -> Self {
-        Self { users, sessions }
+    pub fn new(users: U, sessions: S, invites: InviteClient) -> Self {
+        Self {
+            users,
+            sessions,
+            invites,
+        }
     }
 }
 
@@ -137,11 +154,11 @@ where
     fn routes(
         self,
         _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
-        _shutting_down: watch::Receiver<bool>,
+        shutting_down: watch::Receiver<bool>,
         encrypted: bool,
     ) -> axum::Router<()> {
         login_routes(self.clone(), encrypted)
-            .merge(user_routes(self.users, self.sessions))
-            .merge(invite_routes())
+            .merge(user_routes(self.users, self.sessions.clone()))
+            .merge(self.invites.routes(self.sessions, shutting_down, encrypted))
     }
 }

@@ -1,6 +1,23 @@
 mod invite_http;
+mod invite_runtime;
+mod invite_store;
 mod invite_token;
 
-use self::invite_token::InviteToken;
+use tokio::sync::watch;
 
-pub use self::invite_http::invite_routes;
+use crate::{server::Routes, users::AuthenticateRequest};
+
+use self::{invite_http::invite_routes, invite_store::InviteStore, invite_token::InviteToken};
+
+pub use self::invite_runtime::{InviteClient, InviteRuntime};
+
+impl Routes for InviteClient {
+    fn routes(
+        self,
+        _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
+        _shutting_down: watch::Receiver<bool>,
+        _encrypted: bool,
+    ) -> axum::Router<()> {
+        invite_routes()
+    }
+}
