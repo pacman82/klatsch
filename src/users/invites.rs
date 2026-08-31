@@ -9,7 +9,7 @@ use crate::{server::Routes, users::AuthenticateRequest};
 
 use self::{invite_http::invite_routes, invite_store::InviteStore, invite_token::InviteToken};
 
-pub use self::invite_runtime::{InviteClient, InviteRuntime};
+pub use self::invite_runtime::{Invite, InviteClient, InviteRuntime};
 
 impl Routes for InviteClient {
     fn routes(
@@ -18,6 +18,6 @@ impl Routes for InviteClient {
         _shutting_down: watch::Receiver<bool>,
         _encrypted: bool,
     ) -> axum::Router<()> {
-        invite_routes()
+        invite_routes(self)
     }
 }
