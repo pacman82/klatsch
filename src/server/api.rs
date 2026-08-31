@@ -1,4 +1,4 @@
-use crate::{invites::invite_routes, server::Routes, users::AuthenticateRequest};
+use crate::{server::Routes, users::AuthenticateRequest};
 use axum::Router;
 use tokio::sync::watch;
 
@@ -17,5 +17,4 @@ where
     Router::new()
         .merge(chat.routes(auth.clone(), shutting_down.clone(), encrypted))
         .merge(users.routes(auth, shutting_down, encrypted))
-        .merge(invite_routes())
 }

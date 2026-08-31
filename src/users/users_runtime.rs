@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    AuthenticateRequest, VerifyCredentialsError, ChangeUsers, UserId, UserStore, UsersError,
-    VerifyCredentials, login_routes, user_routes,
+    AuthenticateRequest, ChangeUsers, UserId, UserStore, UsersError, VerifyCredentials,
+    VerifyCredentialsError, invite_routes, login_routes, user_routes,
 };
 
 pub struct UsersRuntime<P> {
@@ -140,6 +140,8 @@ where
         _shutting_down: watch::Receiver<bool>,
         encrypted: bool,
     ) -> axum::Router<()> {
-        login_routes(self.clone(), encrypted).merge(user_routes(self.users, self.sessions))
+        login_routes(self.clone(), encrypted)
+            .merge(user_routes(self.users, self.sessions))
+            .merge(invite_routes())
     }
 }
