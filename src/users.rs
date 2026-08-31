@@ -9,7 +9,7 @@ mod user_store;
 mod users_runtime;
 
 use self::{
-    invites::invite_routes,
+    invites::InviteRuntime,
     login_routes::login_routes,
     user_persistence::{UserCreateOutcome, UserPersistence},
     user_store::{UsersError, VerifyCredentialsError},
