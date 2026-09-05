@@ -1,4 +1,4 @@
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use axum_extra::extract::{
     CookieJar,
     cookie::{Cookie, SameSite},
@@ -7,7 +7,10 @@ use serde::Deserialize;
 
 use crate::{http::HttpError, sessions::SessionId};
 
-use super::{Login, UserId};
+use super::{
+    Login, UserId,
+    invites::{Invite, InviteToken},
+};
 
 /// State for the routes that create a session cookie. `encrypted` reflects whether the connection
 /// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
@@ -18,19 +21,34 @@ struct SessionState<L> {
     encrypted: bool,
 }
 
-pub fn login_routes<L>(auth_service: L, encrypted: bool) -> Router
+/// State for the signup route. Signup additionally requires a valid, claimed invite.
+#[derive(Clone)]
+struct SignupState<L, I> {
+    auth_service: L,
+    invite: I,
+    encrypted: bool,
+}
+
+pub fn login_routes<L, I>(auth_service: L, invite: I, encrypted: bool) -> Router
 where
     L: Login + Send + Sync + Clone + 'static,
+    I: Invite + Send + Sync + Clone + 'static,
 {
-    let state = SessionState {
-        auth_service: auth_service.clone(),
-        encrypted,
-    };
-    Router::new()
+    let login_logout_route = Router::new()
         .route("/api/v0/login", post(login::<L>))
-        .route("/api/v0/signup", post(signup::<L>))
         .route("/api/v0/logout", post(logout::<L>))
-        .with_state(state.clone())
+        .with_state(SessionState {
+            auth_service: auth_service.clone(),
+            encrypted,
+        });
+    let signup_route = Router::new()
+        .route("/api/v0/signup", post(signup::<L, I>))
+        .with_state(SignupState {
+            auth_service,
+            invite,
+            encrypted,
+        });
+    login_logout_route.merge(signup_route)
 }
 
 fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
@@ -76,17 +94,40 @@ struct LoginBody {
     password: String,
 }
 
-async fn signup<L>(
+async fn signup<L, I>(
     jar: CookieJar,
-    State(SessionState {
+    State(SignupState {
         mut auth_service,
+        mut invite,
         encrypted,
-    }): State<SessionState<L>>,
+    }): State<SignupState<L, I>>,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<UserId>), HttpError>
 where
     L: Login,
+    I: Invite,
 {
+    // The very first user bootstraps the system and does not need an invite.
+    if !auth_service.is_empty().await? {
+        let token = jar
+            .get("invite")
+            .and_then(|c| c.value().parse::<InviteToken>().ok())
+            .ok_or(HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Missing invite".into(),
+            })?;
+        let valid = invite.is_valid(token).map_err(|_| HttpError {
+            status_code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Internal Error".into(),
+        })?;
+        if !valid {
+            return Err(HttpError {
+                status_code: StatusCode::FORBIDDEN,
+                message: "Invalid invite".into(),
+            });
+        }
+    }
+
     let (session_id, user_id) = auth_service.signup(body.name, body.password).await?;
     Ok((
         jar.add(session_cookie(session_id, encrypted)),
@@ -129,7 +170,10 @@ mod tests {
     use crate::sessions::{AuthenticateSession, SessionId};
 
     use super::{
-        super::{AuthenticatedUser, UsersError, VerifyCredentialsError},
+        super::{
+            AuthenticatedUser, UsersError, VerifyCredentialsError,
+            invites::{Invite, InviteToken},
+        },
         Login, UserId, login_routes,
     };
 
@@ -226,16 +270,82 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signup_forwards_credentials() {
-        // Given
-        let spy = LoginSpy::default();
-        let app = login_routes(spy.clone(), true);
+    async fn signup_rejects_missing_invite() {
+        // Given no invite cookie on the request
+        let app = login_routes(ExistingUsers, Dummy, true);
 
         // When
         let response = app
             .oneshot(
                 Request::post("/api/v0/signup")
                     .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn signup_rejects_invalid_invite() {
+        // Given
+        #[derive(Clone)]
+        struct InvalidInvite;
+        impl Invite for InvalidInvite {
+            fn is_valid(&mut self, _invitation: InviteToken) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+        }
+        let app = login_routes(ExistingUsers, InvalidInvite, true);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/signup")
+                    .header("content-type", "application/json")
+                    .header("cookie", format!("invite={}", InviteToken::nil()))
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[derive(Clone)]
+    struct ValidInvite;
+    impl Invite for ValidInvite {
+        fn is_valid(&mut self, _invitation: InviteToken) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+    }
+
+    /// A `Login` stub reporting that users already exist, so signup requires an invite.
+    #[derive(Clone)]
+    struct ExistingUsers;
+    impl Login for ExistingUsers {
+        async fn is_empty(&mut self) -> Result<bool, UsersError> {
+            Ok(false)
+        }
+    }
+
+    #[tokio::test]
+    async fn signup_forwards_credentials() {
+        // Given
+        let spy = LoginSpy::default();
+        let app = login_routes(spy.clone(), ValidInvite, true);
+
+        // When
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/signup")
+                    .header("content-type", "application/json")
+                    .header("cookie", format!("invite={}", InviteToken::nil()))
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
@@ -256,6 +366,10 @@ mod tests {
         #[derive(Clone)]
         struct SignupStub;
         impl Login for SignupStub {
+            async fn is_empty(&mut self) -> Result<bool, UsersError> {
+                Ok(false)
+            }
+
             async fn signup(
                 &mut self,
                 _name: String,
@@ -264,13 +378,14 @@ mod tests {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
-        let app = login_routes(SignupStub, true);
+        let app = login_routes(SignupStub, ValidInvite, true);
 
         // When
         let response = app
             .oneshot(
                 Request::post("/api/v0/signup")
                     .header("content-type", "application/json")
+                    .header("cookie", format!("invite={}", InviteToken::nil()))
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
             )
@@ -294,6 +409,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn signup_does_not_require_invite_when_users_are_empty() {
+        // Given no users exist yet
+        #[derive(Clone)]
+        struct BootstrapStub;
+        impl Login for BootstrapStub {
+            async fn is_empty(&mut self) -> Result<bool, UsersError> {
+                Ok(true)
+            }
+
+            async fn signup(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<(SessionId, UserId), UsersError> {
+                Ok((SessionId::ALICE, UserId::ALICE))
+            }
+        }
+        let app = login_routes(BootstrapStub, Dummy, true);
+
+        // When signing up without an invite cookie
+        let response = app
+            .oneshot(
+                Request::post("/api/v0/signup")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn login_marks_cookie_secure_when_connection_is_encrypted() {
         // Given
         #[derive(Clone)]
@@ -307,7 +457,7 @@ mod tests {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
-        let app = login_routes(LoginStub, true);
+        let app = login_routes(LoginStub, Dummy, true);
 
         // When
         let response = app
@@ -345,7 +495,7 @@ mod tests {
                 Ok((SessionId::nil(), UserId::nil()))
             }
         }
-        let app = login_routes(LoginStub, false);
+        let app = login_routes(LoginStub, Dummy, false);
 
         // When
         let response = app
@@ -371,7 +521,7 @@ mod tests {
     #[tokio::test]
     async fn logout_clears_session_cookie() {
         // Given
-        let app = login_routes(Dummy, true);
+        let app = login_routes(Dummy, Dummy, true);
 
         // When
         let response = app
@@ -411,7 +561,7 @@ mod tests {
             }
         }
         let spy = LogoutSpy::default();
-        let app = login_routes(spy.clone(), true);
+        let app = login_routes(spy.clone(), Dummy, true);
 
         // When
         app.oneshot(
@@ -431,7 +581,7 @@ mod tests {
     async fn login_forwards_credentials() {
         // Given
         let spy = LoginSpy::default();
-        let app = login_routes(spy.clone(), true);
+        let app = login_routes(spy.clone(), Dummy, true);
 
         // When
         let response = app
@@ -466,7 +616,7 @@ mod tests {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
-        let app = login_routes(AuthenticateUserStub, true);
+        let app = login_routes(AuthenticateUserStub, Dummy, true);
 
         // When she successfully logs in
         let response = app
@@ -509,7 +659,7 @@ mod tests {
                 Err(VerifyCredentialsError::WrongCredentials)
             }
         }
-        let app = login_routes(UsersSaboteur, true);
+        let app = login_routes(UsersSaboteur, Dummy, true);
 
         // When
         let response = app
@@ -543,6 +693,10 @@ mod tests {
     }
 
     impl Login for LoginSpy {
+        async fn is_empty(&mut self) -> Result<bool, UsersError> {
+            Ok(false)
+        }
+
         async fn signup(
             &mut self,
             name: String,
