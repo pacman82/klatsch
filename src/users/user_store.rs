@@ -164,6 +164,10 @@ pub enum UsersError {
     WrongCurrentPassword,
     /// A user with this name already exists.
     NameTaken,
+    /// Signup requires an invite, but none was presented.
+    MissingInvite,
+    /// The presented invite is not (or no longer) valid.
+    InvalidInvite,
 }
 
 #[cfg(test)]
