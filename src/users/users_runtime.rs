@@ -1,19 +1,12 @@
 use axum::http::request;
 use tokio::sync::watch;
 
-use crate::{
-    http::HttpError,
-    persistence::ExecuteSqlAsync,
-    server::Routes,
-    sessions::{
-        AuthenticateSession, SessionExpiry, SessionId, SessionLifecycle, SessionsClient,
-        SessionsRuntime,
-    },
-};
+use crate::{http::HttpError, persistence::ExecuteSqlAsync, server::Routes};
 
 use super::{
-    AuthenticateRequest, ChangeUsers, UserId, UserStore, UsersError, VerifyCredentials,
-    VerifyCredentialsError,
+    AuthenticateRequest, AuthenticateSession, ChangeUsers, SessionExpiry, SessionId,
+    SessionLifecycle, SessionsClient, SessionsRuntime, UserId, UserStore, UsersError,
+    VerifyCredentials, VerifyCredentialsError,
     invites::{Invite, InviteClient, InviteRuntime, InviteToken},
     login_routes, user_routes,
 };
@@ -200,7 +193,11 @@ mod tests {
                 Ok(true)
             }
 
-            async fn signup(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
+            async fn signup(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<UserId, UsersError> {
                 Ok(UserId::ALICE)
             }
         }
@@ -273,7 +270,11 @@ mod tests {
                 Ok(false)
             }
 
-            async fn signup(&mut self, _name: String, _password: String) -> Result<UserId, UsersError> {
+            async fn signup(
+                &mut self,
+                _name: String,
+                _password: String,
+            ) -> Result<UserId, UsersError> {
                 Ok(UserId::ALICE)
             }
         }

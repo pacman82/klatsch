@@ -44,6 +44,9 @@ fn invite_cookie(token: InviteToken, encrypted: bool) -> Cookie<'static> {
         .http_only(true)
         .same_site(SameSite::Strict)
         .secure(encrypted)
+        // Without this, browsers default the path to the directory of the request that set the
+        // cookie (`/invite`), which would keep it from being sent along with `/api/v0/signup`.
+        .path("/")
         .build()
 }
 
@@ -220,6 +223,9 @@ mod tests {
         assert!(cookie.contains(&format!("invite={token}")));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
+        // Without an explicit path, browsers default to the directory of the request that set the
+        // cookie (`/invite`), which would keep it from being sent along with `/api/v0/signup`.
+        assert!(cookie.contains("Path=/"));
     }
 
     #[tokio::test]

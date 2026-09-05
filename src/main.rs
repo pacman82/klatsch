@@ -4,7 +4,6 @@ mod http;
 mod klatsch;
 mod persistence;
 mod server;
-mod sessions;
 mod shutdown;
 mod tracing;
 mod users;
