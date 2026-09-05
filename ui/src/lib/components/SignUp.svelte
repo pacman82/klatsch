@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { user } from '$lib/user.svelte';
 
-	type SignUpError = { kind: 'name_taken' } | { kind: 'server_error' };
+	type SignUpError =
+		| { kind: 'name_taken' }
+		| { kind: 'missing_invite' }
+		| { kind: 'invalid_invite' }
+		| { kind: 'server_error' };
 
 	let name = $state('');
 	let password = $state('');
@@ -23,7 +27,19 @@
 			body: JSON.stringify({ name: trimmed, password })
 		});
 		if (!response.ok) {
-			signup_error = response.status === 400 ? { kind: 'name_taken' } : { kind: 'server_error' };
+			switch (response.status) {
+				case 400:
+					signup_error = { kind: 'name_taken' };
+					break;
+				case 401:
+					signup_error = { kind: 'missing_invite' };
+					break;
+				case 403:
+					signup_error = { kind: 'invalid_invite' };
+					break;
+				default:
+					signup_error = { kind: 'server_error' };
+			}
 			return;
 		}
 		const id: string = await response.json();
@@ -65,6 +81,10 @@
 		<p class="error">
 			{#if signup_error.kind === 'name_taken'}
 				Username is already taken
+			{:else if signup_error.kind === 'missing_invite'}
+				Missing invite
+			{:else if signup_error.kind === 'invalid_invite'}
+				Invalid invite
 			{:else}
 				Something went wrong, please try again
 			{/if}

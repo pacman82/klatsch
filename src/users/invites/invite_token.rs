@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -29,5 +29,13 @@ impl InviteToken {
 impl fmt::Display for InviteToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl FromStr for InviteToken {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self::from_uuid)
     }
 }

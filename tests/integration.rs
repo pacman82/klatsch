@@ -120,8 +120,8 @@ async fn sent_messages_appear_in_event_stream() {
     // Given a server with two messages
     let server = TestServer::new(None, false).await;
     let alice_id = server.register_alice().await;
-    let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
+    let bob_id = server.register_bob(&alice_session).await;
     let bob_session = server.login_bob().await;
     let msg = json!({ "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "content": "Hello" });
     server.send_message(msg, &alice_session).await;
@@ -156,8 +156,8 @@ async fn persistence() {
 
     let mut server = TestServer::new(Some(persistence_dir.path()), false).await;
     let alice_id = server.register_alice().await;
-    let bob_id = server.register_bob().await;
     let alice_session = server.login_alice().await;
+    let bob_id = server.register_bob(&alice_session).await;
     let bob_session = server.login_bob().await;
     let msg = json!({ "id": "019c0ab6-9d11-75ef-ab02-60f070b1582a", "content": "Hello" });
     server.send_message(msg, &alice_session).await;
@@ -382,10 +382,51 @@ impl TestServer {
             .expect("Failed to parse user")
     }
 
-    async fn register_user(&self, name: &str, password: &str) -> Uuid {
-        self.client
+    /// Creates an invite as the user identified by `inviter_session`, claims it, and returns the
+    /// resulting `invite` cookie value that must be presented to `/api/v0/signup`.
+    async fn invite(&self, inviter_session: &str) -> String {
+        let token = self
+            .client
+            .post(format!("{}/api/v0/invites", self.base_url()))
+            .header("cookie", format!("session={inviter_session}"))
+            .send()
+            .await
+            .expect("Failed to create invite")
+            .error_for_status()
+            .expect("Server rejected invite creation")
+            .json::<Uuid>()
+            .await
+            .expect("Failed to parse invite token");
+
+        // Claiming redirects to /signup and sets the invite cookie on the very same response, so
+        // redirects must not be followed here, or the cookie could not be observed anymore.
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(self.tls)
+            .build()
+            .expect("Failed to build client");
+        let response = client
+            .get(format!("{}/invite/{token}", self.base_url()))
+            .send()
+            .await
+            .expect("Failed to claim invite");
+        response
+            .cookies()
+            .find(|c| c.name() == "invite")
+            .expect("Claiming an invite must set an invite cookie")
+            .value()
+            .to_owned()
+    }
+
+    async fn register_user(&self, name: &str, password: &str, invite: Option<&str>) -> Uuid {
+        let mut request = self
+            .client
             .post(format!("{}/api/v0/signup", self.base_url()))
-            .json(&json!({ "name": name, "password": password }))
+            .json(&json!({ "name": name, "password": password }));
+        if let Some(invite) = invite {
+            request = request.header("cookie", format!("invite={invite}"));
+        }
+        request
             .send()
             .await
             .expect("Failed to register user")
@@ -396,12 +437,16 @@ impl TestServer {
             .expect("Failed to parse user id")
     }
 
+    /// Registers Alice as the very first user of the system, so no invite is required.
     async fn register_alice(&self) -> Uuid {
-        self.register_user("Alice", "alice_password").await
+        self.register_user("Alice", "alice_password", None).await
     }
 
-    async fn register_bob(&self) -> Uuid {
-        self.register_user("Bob", "bob_password").await
+    /// Registers Bob using an invite claimed on Alice's behalf.
+    async fn register_bob(&self, alice_session: &str) -> Uuid {
+        let invite = self.invite(alice_session).await;
+        self.register_user("Bob", "bob_password", Some(&invite))
+            .await
     }
 
     async fn login_alice(&self) -> String {
