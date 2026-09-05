@@ -10,7 +10,7 @@ mod user_store;
 mod users_runtime;
 
 use self::{
-    invites::InviteRuntime,
+    invites::{Invite, InviteClient, InviteRuntime, InviteToken},
     login_routes::login_routes,
     sessions::{AuthenticateSession, SessionId, SessionLifecycle, SessionsClient, SessionsRuntime},
     user_http::user_routes,
