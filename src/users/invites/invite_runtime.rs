@@ -18,8 +18,6 @@ impl InviteRuntime {
 pub trait Invite {
     fn new_invite(&mut self) -> anyhow::Result<InviteToken>;
     fn claim(&mut self, invitation: InviteToken) -> anyhow::Result<bool>;
-    /// Checks whether an invite is still valid, without claiming it.
-    fn is_valid(&mut self, invitation: InviteToken) -> anyhow::Result<bool>;
 }
 
 #[derive(Clone)]
@@ -31,10 +29,6 @@ impl Invite for InviteClient {
     }
 
     fn claim(&mut self, invitation: InviteToken) -> anyhow::Result<bool> {
-        Ok(true)
-    }
-
-    fn is_valid(&mut self, invitation: InviteToken) -> anyhow::Result<bool> {
         Ok(true)
     }
 }

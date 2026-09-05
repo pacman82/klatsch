@@ -111,6 +111,14 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::BAD_REQUEST,
                 message: "Username is already taken".into(),
             },
+            UsersError::MissingInvite => HttpError {
+                status_code: StatusCode::UNAUTHORIZED,
+                message: "Missing invite".into(),
+            },
+            UsersError::InvalidInvite => HttpError {
+                status_code: StatusCode::FORBIDDEN,
+                message: "Invalid invite".into(),
+            },
         }
     }
 }
