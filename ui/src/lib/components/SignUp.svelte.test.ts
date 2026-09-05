@@ -31,6 +31,30 @@ test('Creating an already existing user shows a user friendly error', async () =
 	await expect.element(screen.getByText('Username is already taken')).toBeVisible();
 });
 
+test('Signing up without an invite shows a user friendly error', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+
+	const screen = await render(SignUp);
+	await screen.getByPlaceholder('Your name').fill('Alice');
+	await screen.getByPlaceholder('Password', { exact: true }).fill('secret');
+	await screen.getByPlaceholder('Confirm password').fill('secret');
+	await screen.getByRole('button', { name: 'Sign up' }).click();
+
+	await expect.element(screen.getByText('Missing invite')).toBeVisible();
+});
+
+test('Signing up with an invalid invite shows a user friendly error', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
+
+	const screen = await render(SignUp);
+	await screen.getByPlaceholder('Your name').fill('Alice');
+	await screen.getByPlaceholder('Password', { exact: true }).fill('secret');
+	await screen.getByPlaceholder('Confirm password').fill('secret');
+	await screen.getByRole('button', { name: 'Sign up' }).click();
+
+	await expect.element(screen.getByText('Invalid invite')).toBeVisible();
+});
+
 test('mismatched password and confirmation shows an error and blocks submission', async () => {
 	const fetchSpy = vi.fn();
 	vi.stubGlobal('fetch', fetchSpy);

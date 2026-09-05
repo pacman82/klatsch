@@ -102,6 +102,10 @@ pub trait Login {
         name: String,
         password: String,
     ) -> impl Future<Output = Result<(SessionId, UserId), UsersError>> + Send;
+
+    /// Whether the system has no users at all yet. Used to allow the very first user to sign up
+    /// without an invite.
+    fn is_empty(&mut self) -> impl Future<Output = Result<bool, UsersError>> + Send;
 }
 
 impl<U, S> Login for UsersClient<U, S>
@@ -132,6 +136,10 @@ where
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
     }
+
+    async fn is_empty(&mut self) -> Result<bool, UsersError> {
+        self.users.is_empty().await
+    }
 }
 
 impl<U, S> AuthenticateRequest for UsersClient<U, S>
@@ -157,7 +165,7 @@ where
         shutting_down: watch::Receiver<bool>,
         encrypted: bool,
     ) -> axum::Router<()> {
-        login_routes(self.clone(), encrypted)
+        login_routes(self.clone(), self.invites.clone(), encrypted)
             .merge(user_routes(self.users, self.sessions.clone()))
             .merge(self.invites.routes(self.sessions, shutting_down, encrypted))
     }

@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, request::Parts},
     response::Redirect,
     routing::{get, post},
 };
@@ -10,17 +10,24 @@ use axum_extra::extract::{
     cookie::{Cookie, SameSite},
 };
 
-use crate::http::HttpError;
+use crate::{
+    http::HttpError,
+    users::{AuthenticateRequest, AuthenticatedUser, UserId},
+};
 
 use super::{Invite, InviteToken};
 
-pub fn invite_routes<I>(invitations_api: I, encrypted: bool) -> Router
+pub fn invite_routes<I, A>(invitations_api: I, auth: A, encrypted: bool) -> Router
 where
     I: Invite + Clone + Send + Sync + 'static,
+    A: AuthenticateRequest + Send + Sync + Clone + 'static,
 {
     let create_invite_route = Router::new()
-        .route("/api/v0/invites", post(create_invite::<I>))
-        .with_state(invitations_api.clone());
+        .route("/api/v0/invites", post(create_invite::<I, A>))
+        .with_state(CreateInviteState {
+            invite: invitations_api.clone(),
+            auth,
+        });
     let claim_invite_route = Router::new()
         .route("/invite/{token}", get(claim_invite::<I>))
         .with_state(ClaimInviteState {
@@ -40,9 +47,30 @@ fn invite_cookie(token: InviteToken, encrypted: bool) -> Cookie<'static> {
         .build()
 }
 
-async fn create_invite<I>(State(mut invite): State<I>) -> Result<Json<InviteToken>, HttpError>
+#[derive(Clone)]
+struct CreateInviteState<I, A> {
+    invite: I,
+    auth: A,
+}
+
+impl<I: Send + Sync, A: AuthenticateRequest + Sync> AuthenticateRequest
+    for CreateInviteState<I, A>
+{
+    fn authenticate_request(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<UserId, HttpError>> + Send {
+        self.auth.authenticate_request(parts)
+    }
+}
+
+async fn create_invite<I, A>(
+    AuthenticatedUser(_): AuthenticatedUser,
+    State(CreateInviteState { mut invite, .. }): State<CreateInviteState<I, A>>,
+) -> Result<Json<InviteToken>, HttpError>
 where
     I: Invite,
+    A: AuthenticateRequest + Sync,
 {
     let invitation = invite.new_invite().map_err(|_| HttpError {
         status_code: StatusCode::INTERNAL_SERVER_ERROR,
@@ -85,12 +113,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use axum::{body::Body, http::Request};
+    use axum::{body::Body, http::Request, http::request::Parts};
     use http_body_util::BodyExt as _;
     use reqwest::StatusCode;
     use tower::ServiceExt as _;
 
-    use super::{Invite, InviteToken, invite_routes};
+    use crate::users::{AuthenticateRequest, UserId};
+
+    use super::{HttpError, Invite, InviteToken, invite_routes};
+
+    #[derive(Clone)]
+    struct AuthStub;
+    impl AuthenticateRequest for AuthStub {
+        async fn authenticate_request(&self, _parts: &Parts) -> Result<UserId, HttpError> {
+            Ok(UserId::ALICE)
+        }
+    }
 
     #[tokio::test]
     async fn create_invite() {
@@ -104,7 +142,7 @@ mod tests {
         }
 
         // When
-        let response = invite_routes(InviteStub, true)
+        let response = invite_routes(InviteStub, AuthStub, true)
             .oneshot(
                 Request::post("/api/v0/invites")
                     .body(Body::empty())
@@ -117,6 +155,34 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let token: InviteToken = serde_json::from_slice(&body).unwrap();
         assert_eq!(token, InviteToken::ALPHA);
+    }
+
+    #[tokio::test]
+    async fn create_invite_requires_authentication() {
+        // Given
+        #[derive(Clone)]
+        struct RejectingAuth;
+        impl AuthenticateRequest for RejectingAuth {
+            async fn authenticate_request(&self, _parts: &Parts) -> Result<UserId, HttpError> {
+                Err(HttpError {
+                    status_code: reqwest::StatusCode::UNAUTHORIZED,
+                    message: "Missing session".into(),
+                })
+            }
+        }
+
+        // When creating an invite without a valid session
+        let response = invite_routes(double_trait::Dummy, RejectingAuth, true)
+            .oneshot(
+                Request::post("/api/v0/invites")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Then it is rejected
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -133,7 +199,7 @@ mod tests {
         let token = InviteToken::ALPHA;
 
         // When claiming the invite
-        let response = invite_routes(InviteMock, true)
+        let response = invite_routes(InviteMock, AuthStub, true)
             .oneshot(
                 Request::get(format!("/invite/{token}"))
                     .body(Body::empty())
@@ -169,7 +235,7 @@ mod tests {
         let token = InviteToken::nil();
 
         // When claiming an invalid invite
-        let response = invite_routes(InviteStub, true)
+        let response = invite_routes(InviteStub, AuthStub, true)
             .oneshot(
                 Request::get(format!("/invite/{token}"))
                     .body(Body::empty())
