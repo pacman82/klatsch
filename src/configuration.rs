@@ -9,7 +9,7 @@ use anyhow::{Context, anyhow};
 
 use crate::{
     server::{ServerConfiguration, TlsConfig},
-    sessions::SessionExpiry,
+    users::SessionExpiry,
 };
 
 /// Session idle timeout if SESSION_IDLE_TIMEOUT is not set.

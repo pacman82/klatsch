@@ -12,9 +12,9 @@ use tokio::{
     time::{Instant, Sleep, sleep_until},
 };
 
-use crate::{sessions::session_store::Session, users::UserId};
+use crate::users::UserId;
 
-use super::{SessionHash, SessionId, SessionPersistence, SessionStore};
+use super::{Session, SessionHash, SessionId, SessionPersistence, SessionStore};
 
 /// Authenticate users using session ids.
 #[cfg_attr(test, double_trait::dummies)]
@@ -253,9 +253,9 @@ mod tests {
     use double_trait::Dummy;
     use tokio::time::timeout;
 
-    use crate::{
+    use crate::users::{
+        UserId,
         sessions::{session_persistence::SessionPersistence, session_store::Session},
-        users::UserId,
     };
 
     use super::{
