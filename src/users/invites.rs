@@ -16,8 +16,8 @@ impl Routes for InviteClient {
         self,
         _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
         _shutting_down: watch::Receiver<bool>,
-        _encrypted: bool,
+        encrypted: bool,
     ) -> axum::Router<()> {
-        invite_routes(self)
+        invite_routes(self, encrypted)
     }
 }
