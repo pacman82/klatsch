@@ -1,6 +1,7 @@
 use crate::{
-    chat::migrate_chat_persistence, persistence::ExecuteSqlSync,
-    sessions::migrate_session_persistence, users::migrate_users_persistence,
+    chat::migrate_chat_persistence,
+    persistence::ExecuteSqlSync,
+    users::{migrate_session_persistence, migrate_users_persistence},
 };
 
 /// Migrates the schema for the entire klatsch application

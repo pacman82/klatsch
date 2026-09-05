@@ -1,13 +1,12 @@
-use crate::{
-    http::HttpError,
-    sessions::{AuthenticateSession, SessionId},
-    users::UserId,
-};
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
 };
 use axum_extra::extract::CookieJar;
+
+use crate::http::HttpError;
+
+use super::{AuthenticateSession, SessionId, UserId};
 
 pub trait AuthenticateRequest {
     fn authenticate_request(
