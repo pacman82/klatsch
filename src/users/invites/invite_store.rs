@@ -1,7 +1,14 @@
-pub struct InviteStore {}
+/// Persistence operations required by the `invites` domain. Currently empty — invites are not
+/// persisted yet.
+#[cfg_attr(test, double_trait::dummies)]
+pub trait InviteStore {}
 
-impl InviteStore {
+pub struct PersistentInvite {}
+
+impl PersistentInvite {
     pub fn new() -> Self {
-        InviteStore {}
+        PersistentInvite {}
     }
 }
+
+impl InviteStore for PersistentInvite {}
