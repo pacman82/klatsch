@@ -39,12 +39,6 @@ pub trait VerifyCredentials {
 
 #[cfg_attr(test, double_trait::dummies)]
 pub trait ChangeUsers {
-    fn signup(
-        &mut self,
-        name: String,
-        password: String,
-    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
-
     fn user_by_id(&mut self, id: UserId) -> impl Future<Output = Result<User, UsersError>> + Send;
 
     /// Change the password of an existing user.
@@ -60,6 +54,16 @@ pub trait ChangeUsers {
 
     /// Whether the system has no users at all yet.
     fn is_empty(&mut self) -> impl Future<Output = Result<bool, UsersError>> + Send;
+}
+
+/// Originates new accounts.
+#[cfg_attr(test, double_trait::dummies)]
+pub trait CreateUser {
+    fn create_user(
+        &mut self,
+        name: String,
+        password: String,
+    ) -> impl Future<Output = Result<UserId, UsersError>> + Send;
 }
 
 impl<P> VerifyCredentials for UserStore<P>
@@ -94,24 +98,6 @@ impl<P> ChangeUsers for UserStore<P>
 where
     P: UserPersistence + Send,
 {
-    async fn signup(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
-        let new_id = UserId::new();
-        let password_hash = (!password.is_empty()).then(|| password_hash::generate(&password));
-        let outcome = self
-            .persistence
-            .create(&name, new_id, password_hash.as_deref())
-            .await
-            .map_err(|_| UsersError::Internal)?;
-
-        match outcome {
-            UserCreateOutcome::Created => Ok(new_id),
-            // Unlike login, signup never falls back to verifying a password against an existing
-            // account — the name is simply unavailable, regardless of whether the given password
-            // would have matched.
-            UserCreateOutcome::Found => Err(UsersError::NameTaken),
-        }
-    }
-
     async fn user_by_id(&mut self, id: UserId) -> Result<User, UsersError> {
         self.persistence
             .user_by_id(id)
@@ -155,6 +141,26 @@ where
     }
 }
 
+impl<P> CreateUser for UserStore<P>
+where
+    P: UserPersistence + Send,
+{
+    async fn create_user(&mut self, name: String, password: String) -> Result<UserId, UsersError> {
+        let new_id = UserId::new();
+        let password_hash = (!password.is_empty()).then(|| password_hash::generate(&password));
+        let outcome = self
+            .persistence
+            .create(&name, new_id, password_hash.as_deref())
+            .await
+            .map_err(|_| UsersError::Internal)?;
+
+        match outcome {
+            UserCreateOutcome::Created => Ok(new_id),
+            UserCreateOutcome::Found => Err(UsersError::NameTaken),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UsersError {
     Internal,
@@ -180,7 +186,7 @@ mod tests {
     use anyhow::bail;
 
     use super::{
-        ChangeUsers, UserCreateOutcome, UserId, UserPersistence, UserStore, UsersError,
+        ChangeUsers, CreateUser, UserCreateOutcome, UserId, UserPersistence, UserStore, UsersError,
         VerifyCredentialsError,
     };
 
@@ -204,7 +210,7 @@ mod tests {
         let mut users = UserStore::new(CreateMock);
 
         users
-            .signup("Alice".to_owned(), "secret".to_owned())
+            .create_user("Alice".to_owned(), "secret".to_owned())
             .await
             .unwrap();
     }
@@ -225,11 +231,11 @@ mod tests {
         let mut users = UserStore::new(CreateStub);
 
         let bob_id = users
-            .signup("Bob".to_owned(), "dummy".to_owned())
+            .create_user("Bob".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
         let alice_id = users
-            .signup("Alice".to_owned(), "dummy".to_owned())
+            .create_user("Alice".to_owned(), "dummy".to_owned())
             .await
             .unwrap();
 
@@ -258,7 +264,9 @@ mod tests {
         let mut users = UserStore::new(AliceStub);
 
         // When
-        let result = users.signup("Alice".to_owned(), "secret".to_owned()).await;
+        let result = users
+            .create_user("Alice".to_owned(), "secret".to_owned())
+            .await;
 
         // Then
         assert_matches!(result, Err(UsersError::NameTaken));
@@ -268,7 +276,9 @@ mod tests {
     async fn signup_maps_persistence_error_to_internal() {
         let mut users = UserStore::new(Saboteur);
 
-        let result = users.signup("Alice".to_owned(), "secret".to_owned()).await;
+        let result = users
+            .create_user("Alice".to_owned(), "secret".to_owned())
+            .await;
 
         assert_matches!(result, Err(UsersError::Internal));
     }

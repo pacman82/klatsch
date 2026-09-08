@@ -24,7 +24,7 @@ impl Klatsch {
         // operators.
         let (chat, users) = tokio::try_join!(
             async { ChatRuntime::new(persistence.client().await?).await },
-            async { UsersRuntime::new(cfg.session_expiry(), || persistence.client()).await },
+            async { UsersRuntime::new(cfg.users_configuration(), || persistence.client()).await },
         )?;
 
         // Answer incoming HTTP requests

@@ -1,14 +1,25 @@
+use std::time::Duration;
+
 use axum::http::request;
 use tokio::sync::watch;
 
 use crate::{http::HttpError, persistence::ExecuteSqlAsync, server::Routes};
 
 use super::{
-    AuthenticateRequest, AuthenticateSession, ChangeUsers, Invite, InviteClient, InviteRuntime,
-    InviteToken, SessionExpiry, SessionId, SessionLifecycle, SessionsClient, SessionsRuntime,
-    UserId, UserStore, UsersError, VerifyCredentials, VerifyCredentialsError, login_routes,
-    user_routes,
+    AuthenticateRequest, AuthenticateSession, ChangeUsers, CreateUser, Invite, InviteClient,
+    InviteRuntime, InviteToken, SessionExpiry, SessionId, SessionLifecycle, SessionsClient,
+    SessionsRuntime, UserId, UserStore, UsersError, VerifyCredentials, VerifyCredentialsError,
+    login_routes, user_routes,
 };
+
+/// Configuration required by [`UsersRuntime`], bundling what each of its sub-runtimes needs.
+#[derive(Clone, Copy)]
+pub struct UsersConfiguration {
+    /// When sessions expire.
+    pub session_expiry: SessionExpiry,
+    /// How long an invite remains claimable after creation.
+    pub invite_expiry: Duration,
+}
 
 pub struct UsersRuntime<P> {
     users: UserStore<P>,
@@ -18,21 +29,22 @@ pub struct UsersRuntime<P> {
 
 impl<P> UsersRuntime<P> {
     pub async fn new<F>(
-        session_expiry: SessionExpiry,
+        cfg: UsersConfiguration,
         open_connection: impl Fn() -> F,
     ) -> anyhow::Result<Self>
     where
         F: Future<Output = anyhow::Result<P>>,
-        P: ExecuteSqlAsync + Send + Sync + 'static,
+        P: ExecuteSqlAsync + Send + Sync + Clone + 'static,
     {
-        let (users, sessions) = tokio::try_join!(
+        let (users, sessions, invite_connection) = tokio::try_join!(
             async {
                 let conn = open_connection().await?;
                 Ok(UserStore::new(conn))
             },
-            async { SessionsRuntime::new(session_expiry, open_connection().await?).await },
+            async { SessionsRuntime::new(cfg.session_expiry, open_connection().await?).await },
+            open_connection(),
         )?;
-        let invites = InviteRuntime::new();
+        let invites = InviteRuntime::new(cfg.invite_expiry, invite_connection, users.clone());
         Ok(Self {
             users,
             sessions,
@@ -41,7 +53,7 @@ impl<P> UsersRuntime<P> {
     }
 
     pub async fn shutdown(self) {
-        self.sessions.shutdown().await;
+        tokio::join!(self.sessions.shutdown(), self.invites.shutdown());
     }
 
     pub fn client(&self) -> UsersClient<UserStore<P>, SessionsClient>
@@ -101,7 +113,7 @@ pub trait Login {
 
 impl<U, S, I> Login for UsersClient<U, S, I>
 where
-    U: VerifyCredentials + ChangeUsers + Send,
+    U: VerifyCredentials + ChangeUsers + CreateUser + Send,
     S: SessionLifecycle + Send,
     I: Invite + Send,
 {
@@ -125,19 +137,15 @@ where
         password: String,
         invite: Option<InviteToken>,
     ) -> Result<(SessionId, UserId), UsersError> {
-        // The very first user bootstraps the system and does not need an invite.
-        if !self.users.is_empty().await? {
+        let user_id = if self.users.is_empty().await? {
+            // The very first user bootstraps the system and does not need an invite. This is a
+            // different process from claiming an invite, so it does not go through `invites` at
+            // all.
+            self.users.create_user(name, password).await?
+        } else {
             let token = invite.ok_or(UsersError::MissingInvite)?;
-            let claimed = self
-                .invites
-                .claim(token)
-                .map_err(|_| UsersError::Internal)?;
-            if !claimed {
-                return Err(UsersError::InvalidInvite);
-            }
-        }
-
-        let user_id = self.users.signup(name, password).await?;
+            self.invites.claim(token, name, password).await?
+        };
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
     }
@@ -157,7 +165,7 @@ where
 
 impl<U, S> Routes for UsersClient<U, S, InviteClient>
 where
-    U: Send + Sync + Clone + VerifyCredentials + ChangeUsers + 'static,
+    U: Send + Sync + Clone + VerifyCredentials + ChangeUsers + CreateUser + 'static,
     S: Send + Sync + Clone + SessionLifecycle + AuthenticateSession + 'static,
 {
     fn routes(
@@ -178,7 +186,7 @@ mod tests {
 
     use double_trait::Dummy;
 
-    use super::{ChangeUsers, Login, UserId, UsersClient, UsersError, VerifyCredentials};
+    use super::{ChangeUsers, CreateUser, Login, UserId, UsersClient, UsersError, VerifyCredentials};
     use crate::users::invites::{Invite, InviteToken};
 
     #[tokio::test]
@@ -191,8 +199,9 @@ mod tests {
             async fn is_empty(&mut self) -> Result<bool, UsersError> {
                 Ok(true)
             }
-
-            async fn signup(
+        }
+        impl CreateUser for EmptyUsers {
+            async fn create_user(
                 &mut self,
                 _name: String,
                 _password: String,
@@ -220,6 +229,7 @@ mod tests {
                 Ok(false)
             }
         }
+        impl CreateUser for ExistingUsers {}
         let mut client = UsersClient::new(ExistingUsers, Dummy, Dummy);
 
         // When signing up without an invite
@@ -240,11 +250,17 @@ mod tests {
                 Ok(false)
             }
         }
+        impl CreateUser for ExistingUsers {}
         #[derive(Clone)]
         struct InvalidInvite;
         impl Invite for InvalidInvite {
-            fn claim(&mut self, _invitation: InviteToken) -> anyhow::Result<bool> {
-                Ok(false)
+            async fn claim(
+                &mut self,
+                _invitation: InviteToken,
+                _name: String,
+                _password: String,
+            ) -> Result<UserId, UsersError> {
+                Err(UsersError::InvalidInvite)
             }
         }
         let mut client = UsersClient::new(ExistingUsers, Dummy, InvalidInvite);
@@ -268,21 +284,19 @@ mod tests {
             async fn is_empty(&mut self) -> Result<bool, UsersError> {
                 Ok(false)
             }
-
-            async fn signup(
-                &mut self,
-                _name: String,
-                _password: String,
-            ) -> Result<UserId, UsersError> {
-                Ok(UserId::ALICE)
-            }
         }
+        impl CreateUser for ExistingUsers {}
         #[derive(Clone)]
         struct ValidInvite;
         impl Invite for ValidInvite {
-            fn claim(&mut self, invitation: InviteToken) -> anyhow::Result<bool> {
+            async fn claim(
+                &mut self,
+                invitation: InviteToken,
+                _name: String,
+                _password: String,
+            ) -> Result<UserId, UsersError> {
                 assert_eq!(invitation, InviteToken::ALPHA);
-                Ok(true)
+                Ok(UserId::ALICE)
             }
         }
         let mut client = UsersClient::new(ExistingUsers, Dummy, ValidInvite);

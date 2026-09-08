@@ -16,15 +16,17 @@ use self::{
     user_http::user_routes,
     user_persistence::{UserCreateOutcome, UserPersistence},
     user_store::{
-        ChangeUsers, User, UserStore, UsersError, VerifyCredentials, VerifyCredentialsError,
+        ChangeUsers, CreateUser, User, UserStore, UsersError, VerifyCredentials,
+        VerifyCredentialsError,
     },
     users_runtime::Login,
 };
 
 pub use self::{
     authenticate::{AuthenticateRequest, AuthenticatedUser},
+    invites::migrate_invite_persistence,
     sessions::{SessionExpiry, migrate_session_persistence},
     user_id::UserId,
     user_persistence::migrate_users_persistence,
-    users_runtime::UsersRuntime,
+    users_runtime::{UsersConfiguration, UsersRuntime},
 };
