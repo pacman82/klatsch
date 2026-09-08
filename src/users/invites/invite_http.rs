@@ -75,7 +75,7 @@ where
     I: Invite,
     A: AuthenticateRequest + Sync,
 {
-    let invitation = invite.new_invite().map_err(|_| HttpError {
+    let invitation = invite.new_invite().await.map_err(|_| HttpError {
         status_code: StatusCode::INTERNAL_SERVER_ERROR,
         message: "Internal Error".into(),
     })?;
@@ -100,11 +100,13 @@ async fn claim_invite<I>(
 where
     I: Invite,
 {
-    let claimed = invite.claim(token).map_err(|_| HttpError {
+    // Only checked here, not claimed — merely following the link should not consume the invite.
+    // It is actually claimed once the signup form is submitted.
+    let valid = invite.is_valid(token).await.map_err(|_| HttpError {
         status_code: StatusCode::INTERNAL_SERVER_ERROR,
         message: "Internal Error".into(),
     })?;
-    if claimed {
+    if valid {
         Ok((
             jar.add(invite_cookie(token, encrypted)),
             Redirect::to("/signup"),
@@ -139,7 +141,7 @@ mod tests {
         #[derive(Clone)]
         struct InviteStub;
         impl Invite for InviteStub {
-            fn new_invite(&mut self) -> anyhow::Result<InviteToken> {
+            async fn new_invite(&mut self) -> anyhow::Result<InviteToken> {
                 Ok(InviteToken::ALPHA)
             }
         }
@@ -194,7 +196,7 @@ mod tests {
         #[derive(Clone)]
         struct InviteMock;
         impl Invite for InviteMock {
-            fn claim(&mut self, invitation: InviteToken) -> anyhow::Result<bool> {
+            async fn is_valid(&mut self, invitation: InviteToken) -> anyhow::Result<bool> {
                 assert_eq!(invitation, InviteToken::ALPHA);
                 Ok(true)
             }
@@ -234,7 +236,7 @@ mod tests {
         #[derive(Clone)]
         struct InviteStub;
         impl Invite for InviteStub {
-            fn claim(&mut self, _invitation: InviteToken) -> anyhow::Result<bool> {
+            async fn is_valid(&mut self, _invitation: InviteToken) -> anyhow::Result<bool> {
                 Ok(false)
             }
         }

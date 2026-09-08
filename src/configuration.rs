@@ -9,7 +9,7 @@ use anyhow::{Context, anyhow};
 
 use crate::{
     server::{ServerConfiguration, TlsConfig},
-    users::SessionExpiry,
+    users::{SessionExpiry, UsersConfiguration},
 };
 
 /// Session idle timeout if SESSION_IDLE_TIMEOUT is not set.
@@ -17,6 +17,9 @@ const DEFAULT_SESSION_IDLE_TIMEOUT: Duration = Duration::from_hours(3 * 24);
 
 /// Session lifetime cap if SESSION_MAX_LIFETIME is not set.
 const DEFAULT_SESSION_MAX_LIFETIME: Duration = Duration::from_hours(30 * 24);
+
+/// Invite expiry if INVITE_EXPIRY is not set.
+const DEFAULT_INVITE_EXPIRY: Duration = Duration::from_hours(2 * 24);
 
 /// All static configuration for the application. I.e. configuration which does not change during
 /// the runtime without a restart.
@@ -31,6 +34,8 @@ pub struct Configuration {
     persistence_dir: Option<PathBuf>,
     /// When sessions expire.
     session_expiry: SessionExpiry,
+    /// How long an invite remains claimable after creation.
+    invite_expiry: Duration,
 }
 
 impl Configuration {
@@ -55,6 +60,8 @@ impl Configuration {
             max_lifetime: extract_duration_env_var("SESSION_MAX_LIFETIME")?
                 .unwrap_or(DEFAULT_SESSION_MAX_LIFETIME),
         };
+        let invite_expiry =
+            extract_duration_env_var("INVITE_EXPIRY")?.unwrap_or(DEFAULT_INVITE_EXPIRY);
 
         let cfg = Configuration {
             host,
@@ -62,6 +69,7 @@ impl Configuration {
             tls,
             persistence_dir,
             session_expiry,
+            invite_expiry,
         };
         Ok(cfg)
     }
@@ -80,9 +88,12 @@ impl Configuration {
         self.persistence_dir.as_deref()
     }
 
-    /// When sessions expire.
-    pub fn session_expiry(&self) -> SessionExpiry {
-        self.session_expiry
+    /// Configuration for the `UsersRuntime`.
+    pub fn users_configuration(&self) -> UsersConfiguration {
+        UsersConfiguration {
+            session_expiry: self.session_expiry,
+            invite_expiry: self.invite_expiry,
+        }
     }
 }
 
