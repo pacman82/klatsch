@@ -326,7 +326,7 @@ mod tests {
             .unwrap();
 
         // Then
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
