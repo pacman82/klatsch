@@ -6,19 +6,12 @@ mod invite_token;
 
 use std::time::Duration;
 
-use tokio::sync::watch;
+use crate::{persistence::ExecuteSqlAsync, users::CreateUser};
 
-use crate::{
-    persistence::ExecuteSqlAsync,
-    server::Routes,
-    users::{AuthenticateRequest, CreateUser},
-};
-
-use self::{
-    invite_http::invite_routes, invite_persistence::InvitePersistence, invite_store::InviteStore,
-};
+use self::{invite_persistence::InvitePersistence, invite_store::InviteStore};
 
 pub use self::{
+    invite_http::invite_routes,
     invite_persistence::migrate_invite_persistence,
     invite_runtime::{Invite, InviteClient, InviteRuntime},
     invite_store::StoreInvites,
@@ -37,16 +30,5 @@ impl InviteRuntime {
         U: CreateUser + Send + 'static,
     {
         Self::with(InviteStore::new(persistence, expiry), users)
-    }
-}
-
-impl Routes for InviteClient {
-    fn routes(
-        self,
-        auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
-        _shutting_down: watch::Receiver<bool>,
-        encrypted: bool,
-    ) -> axum::Router<()> {
-        invite_routes(self, auth, encrypted)
     }
 }

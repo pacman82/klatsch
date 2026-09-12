@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::http::HttpError;
 
-use super::{Login, SessionId, UserId, invites::InviteToken};
+use super::{Login, SessionId, UserId};
 
 /// State for the routes that create a session cookie. `encrypted` reflects whether the connection
 /// to the client is encrypted, be it terminated by Klatsch itself or by a reverse proxy in front
@@ -28,12 +28,15 @@ where
     };
     Router::new()
         .route("/api/v0/login", post(login::<L>))
-        .route("/api/v0/signup", post(signup::<L>))
+        .route(
+            "/api/v0/users/create_initial_user",
+            post(create_initial_user::<L>),
+        )
         .route("/api/v0/logout", post(logout::<L>))
         .with_state(state.clone())
 }
 
-fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
+pub fn session_cookie(session_id: SessionId, encrypted: bool) -> Cookie<'static> {
     Cookie::build(("session", session_id.to_string()))
         // Http only prevents JavaScript from interacting with the session cookie. Hardening against
         // Cross site scripting attacks
@@ -76,7 +79,7 @@ struct LoginBody {
     password: String,
 }
 
-async fn signup<L>(
+async fn create_initial_user<L>(
     jar: CookieJar,
     State(SessionState {
         mut auth_service,
@@ -87,11 +90,8 @@ async fn signup<L>(
 where
     L: Login,
 {
-    let invite = jar
-        .get("invite")
-        .and_then(|c| c.value().parse::<InviteToken>().ok());
     let (session_id, user_id) = auth_service
-        .signup(body.name, body.password, invite)
+        .create_initial_user(body.name, body.password)
         .await?;
     Ok((
         jar.add(session_cookie(session_id, encrypted)),
@@ -134,7 +134,7 @@ mod tests {
     use crate::users::{AuthenticateSession, SessionId};
 
     use super::{
-        super::{AuthenticatedUser, UsersError, VerifyCredentialsError, invites::InviteToken},
+        super::{AuthenticatedUser, UsersError, VerifyCredentialsError},
         Login, UserId, login_routes,
     };
 
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signup_forwards_credentials_and_invite() {
+    async fn create_initial_user_forwards_credentials() {
         // Given
         let spy = LoginSpy::default();
         let app = login_routes(spy.clone(), true);
@@ -239,37 +239,7 @@ mod tests {
         // When
         let response = app
             .oneshot(
-                Request::post("/api/v0/signup")
-                    .header("content-type", "application/json")
-                    .header("cookie", format!("invite={}", InviteToken::ALPHA))
-                    .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        // Then
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            spy.take_signup_record(),
-            [(
-                "Alice".to_owned(),
-                "secret".to_owned(),
-                Some(InviteToken::ALPHA)
-            )]
-        );
-    }
-
-    #[tokio::test]
-    async fn signup_without_invite_cookie_forwards_none() {
-        // Given no invite cookie on the request
-        let spy = LoginSpy::default();
-        let app = login_routes(spy.clone(), true);
-
-        // When
-        let response = app
-            .oneshot(
-                Request::post("/api/v0/signup")
+                Request::post("/api/v0/users/create_initial_user")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
@@ -280,32 +250,31 @@ mod tests {
         // Then
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            spy.take_signup_record(),
-            [("Alice".to_owned(), "secret".to_owned(), None)]
+            spy.take_create_initial_user_record(),
+            [("Alice".to_owned(), "secret".to_owned())]
         );
     }
 
     #[tokio::test]
-    async fn successful_signup() {
+    async fn successful_create_initial_user() {
         // Given
         #[derive(Clone)]
-        struct SignupStub;
-        impl Login for SignupStub {
-            async fn signup(
+        struct CreateInitialUserStub;
+        impl Login for CreateInitialUserStub {
+            async fn create_initial_user(
                 &mut self,
                 _name: String,
                 _password: String,
-                _invite: Option<InviteToken>,
             ) -> Result<(SessionId, UserId), UsersError> {
                 Ok((SessionId::ALICE, UserId::ALICE))
             }
         }
-        let app = login_routes(SignupStub, true);
+        let app = login_routes(CreateInitialUserStub, true);
 
         // When
         let response = app
             .oneshot(
-                Request::post("/api/v0/signup")
+                Request::post("/api/v0/users/create_initial_user")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
@@ -330,26 +299,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signup_rejection_is_forwarded_as_http_error() {
-        // Given a signup that is rejected for lack of a valid invite
+    async fn create_initial_user_rejection_is_forwarded_as_http_error() {
+        // Given the system already has users
         #[derive(Clone)]
-        struct RejectingSignup;
-        impl Login for RejectingSignup {
-            async fn signup(
+        struct RejectingCreateInitialUser;
+        impl Login for RejectingCreateInitialUser {
+            async fn create_initial_user(
                 &mut self,
                 _name: String,
                 _password: String,
-                _invite: Option<InviteToken>,
             ) -> Result<(SessionId, UserId), UsersError> {
-                Err(UsersError::InvalidInvite)
+                Err(UsersError::AlreadyBootstrapped)
             }
         }
-        let app = login_routes(RejectingSignup, true);
+        let app = login_routes(RejectingCreateInitialUser, true);
 
         // When
         let response = app
             .oneshot(
-                Request::post("/api/v0/signup")
+                Request::post("/api/v0/users/create_initial_user")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Alice", "password": "secret"}"#))
                     .unwrap(),
@@ -596,13 +564,13 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct LoginSpy {
-        signup_record: Arc<Mutex<Vec<(String, String, Option<InviteToken>)>>>,
+        create_initial_user_record: Arc<Mutex<Vec<(String, String)>>>,
         login_record: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     impl LoginSpy {
-        fn take_signup_record(&self) -> Vec<(String, String, Option<InviteToken>)> {
-            take(&mut *self.signup_record.lock().unwrap())
+        fn take_create_initial_user_record(&self) -> Vec<(String, String)> {
+            take(&mut *self.create_initial_user_record.lock().unwrap())
         }
 
         fn take_login_record(&self) -> Vec<(String, String)> {
@@ -611,16 +579,15 @@ mod tests {
     }
 
     impl Login for LoginSpy {
-        async fn signup(
+        async fn create_initial_user(
             &mut self,
             name: String,
             password: String,
-            invite: Option<InviteToken>,
         ) -> Result<(SessionId, UserId), UsersError> {
-            self.signup_record
+            self.create_initial_user_record
                 .lock()
                 .unwrap()
-                .push((name, password, invite));
+                .push((name, password));
             Ok((SessionId::nil(), UserId::nil()))
         }
 

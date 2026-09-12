@@ -6,10 +6,10 @@ use tokio::sync::watch;
 use crate::{http::HttpError, persistence::ExecuteSqlAsync, server::Routes};
 
 use super::{
-    AuthenticateRequest, AuthenticateSession, ChangeUsers, CreateUser, Invite, InviteClient,
-    InviteRuntime, InviteToken, SessionExpiry, SessionId, SessionLifecycle, SessionsClient,
-    SessionsRuntime, UserId, UserStore, UsersError, VerifyCredentials, VerifyCredentialsError,
-    login_routes, user_routes,
+    AuthenticateRequest, AuthenticateSession, ChangeUsers, CreateUser, InviteClient, InviteRuntime,
+    SessionExpiry, SessionId, SessionLifecycle, SessionsClient, SessionsRuntime, UserId, UserStore,
+    UsersError, VerifyCredentials, VerifyCredentialsError, invite_routes, login_routes,
+    user_routes,
 };
 
 /// Configuration required by [`UsersRuntime`], bundling what each of its sub-runtimes needs.
@@ -101,13 +101,13 @@ pub trait Login {
     /// Revokes a session
     fn logout(&mut self, session_id: SessionId) -> impl Future<Output = ()> + Send;
 
-    /// Creates a user and a session. Unless this is the very first user in the system, a valid,
-    /// claimed invite is required.
-    fn signup(
+    /// Creates the very first user in the system, and a session for them. Only succeeds while the
+    /// system has no users yet; every other account is created by claiming an invite instead (see
+    /// the `invites` module), a different process entirely.
+    fn create_initial_user(
         &mut self,
         name: String,
         password: String,
-        invite: Option<InviteToken>,
     ) -> impl Future<Output = Result<(SessionId, UserId), UsersError>> + Send;
 }
 
@@ -115,7 +115,7 @@ impl<U, S, I> Login for UsersClient<U, S, I>
 where
     U: VerifyCredentials + ChangeUsers + CreateUser + Send,
     S: SessionLifecycle + Send,
-    I: Invite + Send,
+    I: Send,
 {
     async fn login(
         &mut self,
@@ -131,21 +131,15 @@ where
         self.sessions.revoke(session_id).await;
     }
 
-    async fn signup(
+    async fn create_initial_user(
         &mut self,
         name: String,
         password: String,
-        invite: Option<InviteToken>,
     ) -> Result<(SessionId, UserId), UsersError> {
-        let user_id = if self.users.is_empty().await? {
-            // The very first user bootstraps the system and does not need an invite. This is a
-            // different process from claiming an invite, so it does not go through `invites` at
-            // all.
-            self.users.create_user(name, password).await?
-        } else {
-            let token = invite.ok_or(UsersError::MissingInvite)?;
-            self.invites.claim(token, name, password).await?
-        };
+        if !self.users.is_empty().await? {
+            return Err(UsersError::AlreadyBootstrapped);
+        }
+        let user_id = self.users.create_user(name, password).await?;
         let session_id = self.sessions.create(user_id).await;
         Ok((session_id, user_id))
     }
@@ -171,12 +165,12 @@ where
     fn routes(
         self,
         _auth: impl AuthenticateRequest + Send + Sync + Clone + 'static,
-        shutting_down: watch::Receiver<bool>,
+        _shutting_down: watch::Receiver<bool>,
         encrypted: bool,
     ) -> axum::Router<()> {
         login_routes(self.clone(), encrypted)
             .merge(user_routes(self.users, self.sessions.clone()))
-            .merge(self.invites.routes(self.sessions, shutting_down, encrypted))
+            .merge(invite_routes(self.invites, self.sessions, encrypted))
     }
 }
 
@@ -186,11 +180,12 @@ mod tests {
 
     use double_trait::Dummy;
 
-    use super::{ChangeUsers, CreateUser, Login, UserId, UsersClient, UsersError, VerifyCredentials};
-    use crate::users::invites::{Invite, InviteToken};
+    use super::{
+        ChangeUsers, CreateUser, Login, UserId, UsersClient, UsersError, VerifyCredentials,
+    };
 
     #[tokio::test]
-    async fn signup_does_not_require_invite_when_users_are_empty() {
+    async fn create_initial_user_succeeds_when_users_are_empty() {
         // Given no users exist yet
         #[derive(Clone)]
         struct EmptyUsers;
@@ -211,16 +206,18 @@ mod tests {
         }
         let mut client = UsersClient::new(EmptyUsers, Dummy, Dummy);
 
-        // When signing up without an invite
-        let result = client.signup("Alice".into(), "secret".into(), None).await;
+        // When creating the initial user
+        let result = client
+            .create_initial_user("Alice".into(), "secret".into())
+            .await;
 
         // Then
         assert_matches!(result, Ok((_, UserId::ALICE)));
     }
 
     #[tokio::test]
-    async fn signup_rejects_missing_invite() {
-        // Given existing users
+    async fn create_initial_user_rejects_once_the_system_is_no_longer_empty() {
+        // Given a user already exists
         #[derive(Clone)]
         struct ExistingUsers;
         impl VerifyCredentials for ExistingUsers {}
@@ -232,81 +229,12 @@ mod tests {
         impl CreateUser for ExistingUsers {}
         let mut client = UsersClient::new(ExistingUsers, Dummy, Dummy);
 
-        // When signing up without an invite
-        let result = client.signup("Alice".into(), "secret".into(), None).await;
-
-        // Then
-        assert_matches!(result, Err(UsersError::MissingInvite));
-    }
-
-    #[tokio::test]
-    async fn signup_rejects_invalid_invite() {
-        // Given existing users and an invite that fails to claim
-        #[derive(Clone)]
-        struct ExistingUsers;
-        impl VerifyCredentials for ExistingUsers {}
-        impl ChangeUsers for ExistingUsers {
-            async fn is_empty(&mut self) -> Result<bool, UsersError> {
-                Ok(false)
-            }
-        }
-        impl CreateUser for ExistingUsers {}
-        #[derive(Clone)]
-        struct InvalidInvite;
-        impl Invite for InvalidInvite {
-            async fn claim(
-                &mut self,
-                _invitation: InviteToken,
-                _name: String,
-                _password: String,
-            ) -> Result<UserId, UsersError> {
-                Err(UsersError::InvalidInvite)
-            }
-        }
-        let mut client = UsersClient::new(ExistingUsers, Dummy, InvalidInvite);
-
-        // When signing up with the invalid invite
+        // When attempting to create the initial user again
         let result = client
-            .signup("Alice".into(), "secret".into(), Some(InviteToken::nil()))
+            .create_initial_user("Alice".into(), "secret".into())
             .await;
 
         // Then
-        assert_matches!(result, Err(UsersError::InvalidInvite));
-    }
-
-    #[tokio::test]
-    async fn signup_claims_invite() {
-        // Given existing users and a valid invite
-        #[derive(Clone)]
-        struct ExistingUsers;
-        impl VerifyCredentials for ExistingUsers {}
-        impl ChangeUsers for ExistingUsers {
-            async fn is_empty(&mut self) -> Result<bool, UsersError> {
-                Ok(false)
-            }
-        }
-        impl CreateUser for ExistingUsers {}
-        #[derive(Clone)]
-        struct ValidInvite;
-        impl Invite for ValidInvite {
-            async fn claim(
-                &mut self,
-                invitation: InviteToken,
-                _name: String,
-                _password: String,
-            ) -> Result<UserId, UsersError> {
-                assert_eq!(invitation, InviteToken::ALPHA);
-                Ok(UserId::ALICE)
-            }
-        }
-        let mut client = UsersClient::new(ExistingUsers, Dummy, ValidInvite);
-
-        // When signing up with the valid invite
-        let result = client
-            .signup("Alice".into(), "secret".into(), Some(InviteToken::ALPHA))
-            .await;
-
-        // Then
-        assert_matches!(result, Ok((_, UserId::ALICE)));
+        assert_matches!(result, Err(UsersError::AlreadyBootstrapped));
     }
 }

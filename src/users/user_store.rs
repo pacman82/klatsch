@@ -174,6 +174,8 @@ pub enum UsersError {
     MissingInvite,
     /// The presented invite is not (or no longer) valid.
     InvalidInvite,
+    /// We are only allowed to create the bootstrapping user if no other users exist.
+    AlreadyBootstrapped,
 }
 
 #[cfg(test)]
