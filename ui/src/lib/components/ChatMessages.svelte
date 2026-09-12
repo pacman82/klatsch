@@ -15,6 +15,23 @@
 	let disconnected = $state(false);
 	let serverError: string | null = $state(null);
 
+	// Whether the view should follow new messages to the bottom. Tracks the user's own scroll
+	// position: true while they're at (or near) the bottom, false once they scroll up to read history.
+	let stickToBottom = $state(true);
+
+	function updateStickToBottom(event: Event) {
+		const el = event.currentTarget as HTMLDivElement;
+		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+		stickToBottom = distanceFromBottom < 80;
+	}
+
+	// Runs once when a message row is newly created. Reveals it if we were stuck to the bottom at
+	// that moment — existing rows are unaffected by later changes to `stuck` since we don't return
+	// an `update`.
+	function scrollIntoViewIfStuck(node: HTMLElement, stuck: boolean) {
+		if (stuck) node.scrollIntoView({ block: 'end' });
+	}
+
 	// Keep track of the current event source. It can change during the course of the component's life.
 	// In case the server ends the event stream properly (e.g. during a graceful shutdown), the
 	// auto-reconnect of EventSource won't trigger, so we create it anew.
@@ -51,9 +68,12 @@
 	});
 </script>
 
-<div class="chat-container">
-	{#each messages as msg (msg.id)}
-		<div class="message-row {msg.sender_id == user.current ? 'me' : 'them'}">
+<div class="chat-container" onscroll={updateStickToBottom}>
+	{#each messages as msg, i (msg.id)}
+		<div
+			class="message-row {msg.sender_id == user.current ? 'me' : 'them'}"
+			use:scrollIntoViewIfStuck={i === messages.length - 1 && stickToBottom}
+		>
 			<div class="message-content">
 				<div class="bubble">
 					{#if !(msg.sender_id == user.current)}
@@ -83,13 +103,16 @@
 
 <style>
 	.chat-container {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		width: 100%;
 		max-width: 600px;
-		margin: 2rem auto;
+		margin: 0 auto;
 		padding: 1rem;
 		background: #f5f7fa;
 		border-radius: 12px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-		min-height: 300px;
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
