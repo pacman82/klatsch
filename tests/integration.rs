@@ -418,15 +418,31 @@ impl TestServer {
             .to_owned()
     }
 
-    async fn register_user(&self, name: &str, password: &str, invite: Option<&str>) -> Uuid {
-        let mut request = self
-            .client
+    /// Registers Alice as the first user of the system.
+    async fn register_alice(&self) -> Uuid {
+        self.client
+            .post(format!(
+                "{}/api/v0/users/create_initial_user",
+                self.base_url()
+            ))
+            .json(&json!({ "name": "Alice", "password": "alice_password" }))
+            .send()
+            .await
+            .expect("Failed to register user")
+            .error_for_status()
+            .expect("Server rejected initial user registration")
+            .json::<Uuid>()
+            .await
+            .expect("Failed to parse user id")
+    }
+
+    /// Registers Bob using an invite claimed on Alice's behalf.
+    async fn register_bob(&self, alice_session: &str) -> Uuid {
+        let invite = self.invite(alice_session).await;
+        self.client
             .post(format!("{}/api/v0/signup", self.base_url()))
-            .json(&json!({ "name": name, "password": password }));
-        if let Some(invite) = invite {
-            request = request.header("cookie", format!("invite={invite}"));
-        }
-        request
+            .header("cookie", format!("invite={invite}"))
+            .json(&json!({ "name": "Bob", "password": "bob_password" }))
             .send()
             .await
             .expect("Failed to register user")
@@ -435,18 +451,6 @@ impl TestServer {
             .json::<Uuid>()
             .await
             .expect("Failed to parse user id")
-    }
-
-    /// Registers Alice as the very first user of the system, so no invite is required.
-    async fn register_alice(&self) -> Uuid {
-        self.register_user("Alice", "alice_password", None).await
-    }
-
-    /// Registers Bob using an invite claimed on Alice's behalf.
-    async fn register_bob(&self, alice_session: &str) -> Uuid {
-        let invite = self.invite(alice_session).await;
-        self.register_user("Bob", "bob_password", Some(&invite))
-            .await
     }
 
     async fn login_alice(&self) -> String {

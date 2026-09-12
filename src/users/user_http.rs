@@ -119,6 +119,10 @@ impl From<UsersError> for HttpError {
                 status_code: StatusCode::FORBIDDEN,
                 message: "Invalid invite".into(),
             },
+            UsersError::AlreadyBootstrapped => HttpError {
+                status_code: StatusCode::BAD_REQUEST,
+                message: "The system already has users".into(),
+            },
         }
     }
 }
