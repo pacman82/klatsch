@@ -69,7 +69,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-		margin: 1rem auto 0 auto;
+		width: 100%;
+		margin: 0 auto;
 		max-width: 600px;
 	}
 	.send-controls {

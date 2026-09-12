@@ -3,6 +3,14 @@ import { expect, test, vi } from 'vitest';
 import { user } from '$lib/user.svelte';
 import { user_cache } from '$lib/user_cache.svelte';
 
+// Whether `element` is actually within the area of `container` the user can currently see,
+// as opposed to merely present in the DOM but scrolled out of view.
+function isVisibleWithin(element: HTMLElement, container: HTMLElement): boolean {
+	const elementRect = element.getBoundingClientRect();
+	const containerRect = container.getBoundingClientRect();
+	return elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom;
+}
+
 class EventSourcePuppet {
 	static last: EventSourcePuppet;
 	onmessage: ((event: MessageEvent) => void) | null = null;
@@ -143,6 +151,76 @@ test('receives messages after server restart', async () => {
 	);
 
 	await expect.element(screen.getByText('hello')).toBeVisible();
+});
+
+test('the newest message becomes visible without the user having to scroll', async () => {
+	vi.stubGlobal('EventSource', EventSourcePuppet);
+
+	const screen = await render(ChatMessages);
+	const puppet = EventSourcePuppet.last;
+	const container = screen.container.querySelector('.chat-container') as HTMLElement;
+	// The component isn't inside the page's flex shell here, so it won't get a real height from
+	// its own CSS. Give it one so overflow — and therefore visibility — is genuine, not assumed.
+	container.style.height = '150px';
+
+	// Given enough history that it overflows the visible area
+	for (let i = 0; i < 20; i++) {
+		puppet.onmessage!(
+			new MessageEvent('message', {
+				data: JSON.stringify({ id: `h${i}`, sender_id: 'x', content: `history ${i}`, timestamp_ms: 0 })
+			})
+		);
+	}
+	await expect.element(screen.getByText('history 19')).toBeVisible();
+
+	// When a new message arrives while the user is already caught up
+	puppet.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({ id: 'new', sender_id: 'x', content: 'brand new', timestamp_ms: 0 })
+		})
+	);
+	await expect.element(screen.getByText('brand new')).toBeVisible();
+
+	// Then the user can see it without scrolling themselves
+	const newMessage = screen.getByText('brand new').query() as HTMLElement;
+	expect(isVisibleWithin(newMessage, container)).toBe(true);
+});
+
+test('does not disturb what the user is reading when a new message arrives', async () => {
+	vi.stubGlobal('EventSource', EventSourcePuppet);
+
+	const screen = await render(ChatMessages);
+	const puppet = EventSourcePuppet.last;
+	const container = screen.container.querySelector('.chat-container') as HTMLElement;
+	container.style.height = '150px';
+
+	// Given enough history that it overflows the visible area
+	for (let i = 0; i < 20; i++) {
+		puppet.onmessage!(
+			new MessageEvent('message', {
+				data: JSON.stringify({ id: `h${i}`, sender_id: 'x', content: `history ${i}`, timestamp_ms: 0 })
+			})
+		);
+	}
+	await expect.element(screen.getByText('history 19')).toBeVisible();
+
+	// And the user has scrolled up to read earlier history
+	container.scrollTop = 0;
+	container.dispatchEvent(new Event('scroll'));
+	await expect.element(screen.getByText('history 0')).toBeVisible();
+	const messageBeingRead = screen.getByText('history 0').query() as HTMLElement;
+	expect(isVisibleWithin(messageBeingRead, container)).toBe(true);
+
+	// When a new message arrives
+	puppet.onmessage!(
+		new MessageEvent('message', {
+			data: JSON.stringify({ id: 'new', sender_id: 'x', content: 'brand new', timestamp_ms: 0 })
+		})
+	);
+	await expect.element(screen.getByText('brand new')).toBeInTheDocument();
+
+	// Then what the user was reading is still visible — they were not pulled back to the bottom
+	expect(isVisibleWithin(messageBeingRead, container)).toBe(true);
 });
 
 test('server error shows error message from server', async () => {

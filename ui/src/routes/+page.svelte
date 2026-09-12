@@ -14,9 +14,22 @@
 <svelte:head><title>Klatsch</title></svelte:head>
 
 {#if user.current}
-	<TopBar />
-	<ChatMessages />
-	<SendMessage />
+	<div class="chat-page">
+		<TopBar />
+		<ChatMessages />
+		<SendMessage />
+	</div>
 {:else}
 	<p>Redirecting to login…</p>
 {/if}
+
+<style>
+	.chat-page {
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+		height: 100dvh;
+		gap: 2rem;
+		padding-bottom: 1rem;
+	}
+</style>
