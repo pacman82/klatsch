@@ -1,14 +1,10 @@
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier as _,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier as _};
 
 /// Generates a password hash for the given password. The hash should be stored rather than a
 /// password, in order to avoid leaking the password in case of a data breach.
 pub fn generate(password: &str) -> String {
-    let salt = SaltString::generate(OsRng);
     Argon2::default()
-        .hash_password(password.as_bytes(), salt.as_salt())
+        .hash_password(password.as_bytes())
         .unwrap()
         .to_string()
 }
