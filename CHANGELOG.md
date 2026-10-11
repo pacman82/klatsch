@@ -3,6 +3,16 @@
 `Klatsch` adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.2.1](https://github.com/pacman82/klatsch/compare/0.2.0...0.2.1) - 2026-10-11
+
+### 🐛 Bug Fixes
+
+- Docker container starts now
+
+  There has been an issue there the container did not start due to being
+  unable to create the persistence directory.
+
+
 ## [0.2.0](https://github.com/pacman82/klatsch/compare/0.1.1...0.2.0) - 2026-10-11
 
 ### 🚀 Features
