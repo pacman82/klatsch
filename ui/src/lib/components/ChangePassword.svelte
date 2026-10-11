@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api_fetch } from '$lib/api_fetch';
+	import { api_fetch } from '#lib/api_fetch.js';
 
 	type ChangePasswordResponse =
 		{ kind: 'success' } | { kind: 'wrong_password' } | { kind: 'server_error' };

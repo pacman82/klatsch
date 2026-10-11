@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { user } from '$lib/user.svelte';
-	import { user_cache } from '$lib/user_cache.svelte';
+	import { user } from '#lib/user.svelte.js';
+	import { user_cache } from '#lib/user_cache.svelte.js';
 
 	type ChatMessage = {
 		id: string;

@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi } from 'vitest';
 import SignUp from './SignUp.svelte';
-import { user } from '$lib/user.svelte';
+import { user } from '#lib/user.svelte.js';
 
 test('submit button is disabled while the name is empty', async () => {
 	const screen = await render(SignUp);

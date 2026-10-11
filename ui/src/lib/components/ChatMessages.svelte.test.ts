@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi } from 'vitest';
-import { user } from '$lib/user.svelte';
-import { user_cache } from '$lib/user_cache.svelte';
+import { user } from '#lib/user.svelte.js';
+import { user_cache } from '#lib/user_cache.svelte.js';
 
 // Whether `element` is actually within the area of `container` the user can currently see,
 // as opposed to merely present in the DOM but scrolled out of view.
@@ -167,7 +167,12 @@ test('the newest message becomes visible without the user having to scroll', asy
 	for (let i = 0; i < 20; i++) {
 		puppet.onmessage!(
 			new MessageEvent('message', {
-				data: JSON.stringify({ id: `h${i}`, sender_id: 'x', content: `history ${i}`, timestamp_ms: 0 })
+				data: JSON.stringify({
+					id: `h${i}`,
+					sender_id: 'x',
+					content: `history ${i}`,
+					timestamp_ms: 0
+				})
 			})
 		);
 	}
@@ -198,7 +203,12 @@ test('does not disturb what the user is reading when a new message arrives', asy
 	for (let i = 0; i < 20; i++) {
 		puppet.onmessage!(
 			new MessageEvent('message', {
-				data: JSON.stringify({ id: `h${i}`, sender_id: 'x', content: `history ${i}`, timestamp_ms: 0 })
+				data: JSON.stringify({
+					id: `h${i}`,
+					sender_id: 'x',
+					content: `history ${i}`,
+					timestamp_ms: 0
+				})
 			})
 		);
 	}

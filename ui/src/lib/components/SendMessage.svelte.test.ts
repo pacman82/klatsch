@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi, beforeEach } from 'vitest';
 import SendMessage from './SendMessage.svelte';
-import { user } from '$lib/user.svelte';
+import { user } from '#lib/user.svelte.js';
 
 beforeEach(() => {
 	const DUMMY_TEST_USER_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';

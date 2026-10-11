@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { user } from '$lib/user.svelte';
+	import { user } from '#lib/user.svelte.js';
 
 	type SignUpError =
 		| { kind: 'name_taken' }
@@ -74,8 +74,7 @@
 	{#if !passwords_match}
 		<p class="error">Password and confirmation do not match</p>
 	{/if}
-	<button type="submit" class="btn-primary" onclick={sign_up} disabled={!can_submit}
-		>Sign up</button
+	<button type="submit" class="btn-primary" onclick={sign_up} disabled={!can_submit}>Sign up</button
 	>
 	{#if signup_error}
 		<p class="error">

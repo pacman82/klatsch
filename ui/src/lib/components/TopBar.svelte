@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { api_fetch } from '$lib/api_fetch';
-	import { user } from '$lib/user.svelte';
-	import { user_cache } from '$lib/user_cache.svelte';
+	import { api_fetch } from '#lib/api_fetch.js';
+	import { user } from '#lib/user.svelte.js';
+	import { user_cache } from '#lib/user_cache.svelte.js';
 
 	const show_back_to_chat = $derived(page.url.pathname !== '/');
 
@@ -38,17 +38,19 @@
 				copied = true;
 			}}
 			onmouseleave={() => (copied = false)}
-			onblur={() => (copied = false)}
+			onblur={() => (copied = false)}>Copy invite link</button
 		>
-			Copy invite link
-		</button>
+
 		{#if copied}
 			<span class="tooltip">Copied!</span>
 		{/if}
 	</div>
 	<div class="account">
 		{#if user_info}
-			<span>Logged in as <a href={resolve('/profile')}><strong>{user_info.name}</strong></a></span>
+			<span>
+				Logged in as
+				<a href={resolve('profile')}><strong>{user_info.name}</strong></a>
+			</span>
 		{:else}
 			<span>Fetching user info...</span>
 		{/if}

@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi } from 'vitest';
 import Login from './Login.svelte';
-import { user } from '$lib/user.svelte';
+import { user } from '#lib/user.svelte.js';
 
 test('submitting an empty name does not call the server', async () => {
 	const fetchSpy = vi.fn();

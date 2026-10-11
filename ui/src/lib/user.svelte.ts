@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 
@@ -16,7 +16,7 @@ export const user = {
 		current = null;
 		if (browser) {
 			localStorage.removeItem('user');
-			goto(resolve('/login'));
+			goto(resolve('login'));
 		}
 	}
 };

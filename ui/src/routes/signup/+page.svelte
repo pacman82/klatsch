@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { user } from '$lib/user.svelte';
-	import SignUp from '$lib/components/SignUp.svelte';
+	import { user } from '#lib/user.svelte.js';
+	import SignUp from '#lib/components/SignUp.svelte';
 
 	$effect(() => {
 		if (user.current) goto(resolve('/'));

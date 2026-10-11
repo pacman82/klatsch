@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { user } from '$lib/user.svelte';
-	import TopBar from '$lib/components/TopBar.svelte';
-	import ChatMessages from '$lib/components/ChatMessages.svelte';
-	import SendMessage from '$lib/components/SendMessage.svelte';
+	import { user } from '#lib/user.svelte.js';
+	import TopBar from '#lib/components/TopBar.svelte';
+	import ChatMessages from '#lib/components/ChatMessages.svelte';
+	import SendMessage from '#lib/components/SendMessage.svelte';
 
 	$effect(() => {
-		if (!user.current) goto(resolve('/login'));
+		if (!user.current) goto(resolve('login'));
 	});
 </script>
 

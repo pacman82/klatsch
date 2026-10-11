@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { v7 } from 'uuid';
-	import { api_fetch } from '$lib/api_fetch';
+	import { api_fetch } from '#lib/api_fetch.js';
 
 	type SendMessage = {
 		id: string;
