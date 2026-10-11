@@ -3,6 +3,40 @@
 `Klatsch` adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.2.0](https://github.com/pacman82/klatsch/compare/0.1.1...0.2.0) - 2026-10-11
+
+### 🚀 Features
+
+- [**breaking**] In order to prevent any random person to sign up, new users are now created via invite. For this purpose existing users can create an invite link. The signup option has been removed from the login page. If there are no users in the system, the signup page is shown instead of the login page and the first user can be created without an invite link.
+- To pass messages via encryption support for Transport Layer Security (TLS) has been added. The supported TLS modes are: `off`, `proxy` and `static`. `off` deactivates TLS. `proxy` is the same, but klatsch is aware that communication is encrypted via a proxy (e.g. Caddy) and will set the secure attribute which prevent sending session cookies over unencrypted connections for added security. `static` terminates TLS in Klatsch itself (i.e. TLS encryption is performed by klatsch rather than a proxy). The TLS mode can be configured explicitly via environment variables. See `.env.example` for additional information about the environment variables.
+- When a user is created a password may be provided to allow for authentication. Users can change their password in self service. This also enables existing users with no password to provide one.
+- Once logged in, users are authenticated via sessions. Sessions have both a sliding and an absolute window for expiry. Both windows can be controlled via environment variables.
+- *(ui)* Scrolling for ChatMessage component
+
+
+### 🐛 Bug Fixes
+
+- Signal handlers are now registered before emitting "ready". Previously there was a small time window for which terminating using Ctrl+C might not have worked after boot, even after "ready" had been emitted to the log output.
+
+
+### 🚜 Refactor
+
+- [**breaking**] Remove sender (name) from messages in event stream
+- [**breaking**] Messages in Events now return sender_id
+
+
+### 📚 Documentation
+
+- Compare links in changelog
+
+
+### ⚡ Performance
+
+- Read and write tables concurrently if using file backed
+- Start chat and session runtime simultaniously
+- Reduce the number of full scans on all sessions
+- Shutdown sessions store and chat simultaniously
+
 
 ## [0.1.1](https://github.com/pacman82/klatsch/compare/v0.1.0...v0.1.1) - 2026-04-23
 
