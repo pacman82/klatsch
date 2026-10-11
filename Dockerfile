@@ -16,11 +16,21 @@ RUN cargo install cargo-chef
 # dependencies. These can be used to scan for vulnerabilities later on
 RUN cargo install cargo-auditable
 RUN apt-get update && apt-get install -y \
-    # Node.js and npm for building the SvelteKit UI
-    nodejs npm \
     # musl-gcc for compiling the bundled SQLite against musl libc
     musl-tools \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js and npm for building the SvelteKit UI. Installed from nodejs.org rather than apt, because
+# Debian stable freezes Node at a version too old for SvelteKit.
+RUN set -eu; \
+    ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/'); \
+    BASE=https://nodejs.org/dist/latest-v24.x; \
+    curl -fsSLO "$BASE/SHASUMS256.txt"; \
+    FILE=$(grep -o "node-v[0-9.]*-linux-$ARCH.tar.xz" SHASUMS256.txt); \
+    curl -fsSLO "$BASE/$FILE"; \
+    grep " $FILE\$" SHASUMS256.txt | sha256sum -c -; \
+    tar -xJf "$FILE" -C /usr/local --strip-components=1; \
+    rm "$FILE" SHASUMS256.txt
 
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock build.rs ./

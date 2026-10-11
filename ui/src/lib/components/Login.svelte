@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { user } from '$lib/user.svelte';
+	import { user } from '#lib/user.svelte.js';
 
 	type LoginError = { kind: 'wrong_credentials' } | { kind: 'server_error' };
 

@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { redirect_to_signup_if_no_users } from '$lib/bootstrap';
-	import { user } from '$lib/user.svelte';
-	import Login from '$lib/components/Login.svelte';
+	import { redirect_to_signup_if_no_users } from '#lib/bootstrap.js';
+	import { user } from '#lib/user.svelte.js';
+	import Login from '#lib/components/Login.svelte';
 
 	$effect(() => {
 		if (user.current) goto(resolve('/'));

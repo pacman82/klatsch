@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { user } from '$lib/user.svelte';
-	import TopBar from '$lib/components/TopBar.svelte';
-	import ChangePassword from '$lib/components/ChangePassword.svelte';
+	import { user } from '#lib/user.svelte.js';
+	import TopBar from '#lib/components/TopBar.svelte';
+	import ChangePassword from '#lib/components/ChangePassword.svelte';
 
 	$effect(() => {
-		if (!user.current) goto(resolve('/login'));
+		if (!user.current) goto(resolve('login'));
 	});
 </script>
 

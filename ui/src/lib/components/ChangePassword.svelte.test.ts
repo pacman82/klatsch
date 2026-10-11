@@ -3,7 +3,7 @@ import { expect, test, vi, beforeEach } from 'vitest';
 import ChangePassword from './ChangePassword.svelte';
 
 const user_double = vi.hoisted(() => ({ logout: vi.fn() }));
-vi.mock('$lib/user.svelte', () => ({ user: user_double }));
+vi.mock('#lib/user.svelte.js', () => ({ user: user_double }));
 
 beforeEach(() => {
 	user_double.logout.mockClear();

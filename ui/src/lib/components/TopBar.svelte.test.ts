@@ -1,8 +1,8 @@
 import { render } from 'vitest-browser-svelte';
 import { expect, test, vi, beforeEach } from 'vitest';
 import TopBar from './TopBar.svelte';
-import { user } from '$lib/user.svelte';
-import { user_cache } from '$lib/user_cache.svelte';
+import { user } from '#lib/user.svelte.js';
+import { user_cache } from '#lib/user_cache.svelte.js';
 
 const ALICE_ID = 'ab70b6ca-4139-499f-a66d-15e88f081fb1';
 
@@ -25,7 +25,7 @@ const user_double = vi.hoisted(() => {
 		}
 	};
 });
-vi.mock('$lib/user.svelte', () => ({ user: user_double }));
+vi.mock('#lib/user.svelte.js', () => ({ user: user_double }));
 
 beforeEach(() => {
 	user.login(ALICE_ID);
