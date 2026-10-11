@@ -5,12 +5,6 @@ A self hosted chat server which is painless to operate. Main motivation for this
 
 work in progress
 
-- [x] Web Frontend
-- [x] Send and Receive messages
-- [x] Persistence: Remember conversation state after reboot.
-- [ ] Authentication
-
-
 ## Installation
 
 ### Binary release

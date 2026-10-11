@@ -47,10 +47,16 @@ COPY src ./src
 COPY ui ./ui
 # Build the application (build.rs handles the UI build via npm)
 RUN cargo auditable build --release --target $(cat target_triple.txt)
+# Persistence directory for the runner. Scratch has no shell to create it there.
+RUN mkdir /data
 
 # 2: Copy the executable to an empty Docker image
 FROM scratch AS runner
 COPY --from=builder /usr/src/klatsch/target/*/release/klatsch .
+# Owned by our user, so fresh named volumes mounted here inherit write access. Group writable, so it
+# also works for arbitrary `--user` IDs, which Docker assigns to group 0. `--chmod` is required,
+# because COPY creates the destination directory with default permissions.
+COPY --from=builder --chown=1000:0 --chmod=775 /data /data
 # Run as unprivileged user. If klatsch would be subject to an exploitable vulnerability this limits
 # the damage an attacker could do.
 USER 1000
