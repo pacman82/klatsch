@@ -36,7 +36,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Create Release
-        uses: release-plz/action@18641b6c63063cc5ff8786ebf69cd57e8541bae1 # v0.5
+        uses: release-plz/action@f393a7b38aca9d9b4c58447b291dbac963901df6 # v0.5
         id: release-plz
         with:
           command: release
@@ -72,7 +72,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Create Release PR
-        uses: release-plz/action@18641b6c63063cc5ff8786ebf69cd57e8541bae1 # v0.5
+        uses: release-plz/action@f393a7b38aca9d9b4c58447b291dbac963901df6 # v0.5
         with:
           command: release-pr
         env:
