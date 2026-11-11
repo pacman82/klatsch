@@ -13,13 +13,13 @@ license = "MIT"
 anyhow = "1.0.104"
 # Password hashing
 argon2 = { version = "0.6.0" }
-async-sqlite = { version = "0.6.0", features = ["uuid"] }
+async-sqlite = { version = "0.7.0", features = ["uuid"] }
 async-stream = "0.3.6"
 axum = { version = "0.8.9", features = ["macros"] }
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 # Axum server listens to incoming connections in a server loop. It replaces `axum::serve` which
 # ships with `axum` itself. It can handle TLS termination required for HTTPS.
-axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+axum-server = { version = "0.9.0", features = ["tls-rustls"] }
 # Session ids are already high-entropy random tokens, so a fast hash suffices to derive their
 # storage key — unlike passwords, which need a slow, salted hash. Also used by build.rs.
 blake3 = "1.8.7"
