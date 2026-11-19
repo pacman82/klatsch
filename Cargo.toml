@@ -59,7 +59,7 @@ tower = { version = "0.5.3", features = ["util"] }
 uuid = { version = "1.28.0", features = ["serde", "v7"] }
 
 [target.'cfg(unix)'.dev-dependencies]
-nix = { version = "0.31.3", features = ["process", "signal"] }
+nix = { version = "0.32.0", features = ["process", "signal"] }
 
 [profile.release]
 panic = "abort"
