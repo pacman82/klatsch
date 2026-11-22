@@ -5,9 +5,9 @@ use static_serve::embed_assets;
 
 pub fn ui_router() -> Router {
     embed_assets!(
-        // Populated by `build.rs`, which stages `ui/` into `target/ui/` and runs npm there so the
-        // build output stays inside cargo's `target/` instead of polluting the source tree.
-        "./target/ui/build",
+        // Populated by `build.rs`, which stages `ui/` into `target/ui-staging/` and runs npm there
+        // so the build output stays inside cargo's `target/` instead of polluting the source tree.
+        "./target/ui-staging/build",
         // Match `/index.html to `/`
         strip_html_ext = true,
         compress = true,

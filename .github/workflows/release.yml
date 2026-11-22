@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       # npm must be on PATH: release-plz runs `cargo package`, whose verification step invokes
-      # build.rs to build the UI. build.rs stages `ui/` into `target/ui/` and runs npm there, so
+      # build.rs to build the UI. build.rs stages `ui/` into `target/ui-staging/` and runs npm there, so
       # the build stays inside cargo's own directory and doesn't trigger verification errors.
       - name: Install Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
@@ -59,7 +59,7 @@ jobs:
           fetch-depth: 0
 
       # npm must be on PATH: release-plz runs `cargo package`, whose verification step invokes
-      # build.rs to build the UI. build.rs stages `ui/` into `target/ui/` and runs npm there, so
+      # build.rs to build the UI. build.rs stages `ui/` into `target/ui-staging/` and runs npm there, so
       # the build stays inside cargo's own directory and doesn't trigger verification errors.
       - name: Install Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6

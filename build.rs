@@ -85,7 +85,10 @@ fn stage_ui_sources() {
 /// Staging directory under cargo's `target/`. Relative path — resolves against CWD, which cargo
 /// sets to `CARGO_MANIFEST_DIR` during build.rs execution.
 fn staging_dir() -> PathBuf {
-    PathBuf::from("target").join("ui")
+    // Used to be just `target/ui`. This prevented creating coverage reports using `cargo-llvm-cov`.
+    // `cargo-llvm-cov` assumes that `target/ui` directory contains the binary created by the
+    // `test_ui` crate. To avoid this confusion our staging directory is called `ui-staging`.
+    PathBuf::from("target").join("ui-staging")
 }
 
 fn walk_ui_source_files() -> impl Iterator<Item = DirEntry> {
